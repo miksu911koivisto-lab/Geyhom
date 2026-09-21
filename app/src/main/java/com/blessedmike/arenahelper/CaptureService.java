@@ -22,8 +22,7 @@ import android.widget.TextView;
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.text.Text;
 import com.google.mlkit.vision.text.TextRecognition;
-import com.google.mlkit.vision.text.latin.TextRecognizer;
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
+import com.google.mlkit.vision.text.TextRecognizerOptions;
 
 import java.nio.ByteBuffer;
 
@@ -44,7 +43,7 @@ public class CaptureService extends Service {
     private boolean captureStarted = false;
     private boolean processingImage = false;
 
-    private TextRecognizer recognizer;
+    private com.google.mlkit.vision.text.TextRecognizer recognizer;
 
     public static void setProjectionData(
             int resultCode,
@@ -432,6 +431,8 @@ public class CaptureService extends Service {
                             android.graphics.Bitmap.Config.ARGB_8888
                     );
 
+            buffer.rewind();
+
             bitmap.copyPixelsFromBuffer(buffer);
 
             InputImage inputImage =
@@ -452,7 +453,7 @@ public class CaptureService extends Service {
 
                                     updateOverlay(
                                             "ARENA HELPER\n\n"
-                                                    + "KORTTEJA ETSITÄÄN..."
+                                                    + "TEKSTIÄ EI LÖYTYNYT"
                                     );
 
                                 } else {
@@ -461,6 +462,7 @@ public class CaptureService extends Service {
                                             text.trim();
 
                                     if (cleanText.length() > 250) {
+
                                         cleanText =
                                                 cleanText.substring(
                                                         0,
