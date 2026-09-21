@@ -37,1641 +37,1681 @@ import java.nio.ByteBuffer;
 
 public class CaptureService extends Service {
 
-private static final String TAG = "ArenaHelper";
+    private static final String TAG = "ArenaHelper";
 
-private static final String CHANNEL_ID =
-        "arena_helper_channel";
+    private static final String CHANNEL_ID =
+            "arena_helper_channel";
 
-private static int projectionResultCode;
-private static Intent projectionData;
+    private static int projectionResultCode;
+    private static Intent projectionData;
 
-private MediaProjection mediaProjection;
-private ImageReader imageReader;
-private TextRecognizer recognizer;
+    private MediaProjection mediaProjection;
+    private ImageReader imageReader;
+    private TextRecognizer recognizer;
 
-private Handler handler;
-private boolean processing = false;
+    private Handler handler;
+    private boolean processing = false;
 
-private WindowManager windowManager;
-private TextView overlayText;
+    private WindowManager windowManager;
+    private TextView overlayText;
 
-private MediaProjection.Callback mediaProjectionCallback;
+    private MediaProjection.Callback mediaProjectionCallback;
 
-private long lastOCRTime = 0;
+    private long lastOCRTime = 0;
 
-private static final long OCR_INTERVAL = 1500;
+    private static final long OCR_INTERVAL = 1500;
 
-/*
- * ============================================================
- * KORTTI 1:N OCR-VAKAUTUS
- * ============================================================
- */
+    /*
+     * ============================================================
+     * KORTTI 1:N OCR-VAKAUTUS
+     * ============================================================
+     */
 
-private String stableCard1 = "";
+    private String stableCard1 = "";
 
-private String candidateCard1 = "";
+    private String candidateCard1 = "";
 
-private int candidateCard1Count = 0;
+    private int candidateCard1Count = 0;
 
-private static final int CARD1_CONFIRMATIONS = 2;
+    private static final int CARD1_CONFIRMATIONS = 2;
 
-public static void setProjectionData(
-        int resultCode,
-        Intent data
-) {
-    projectionResultCode = resultCode;
-    projectionData = data;
-}
+    public static void setProjectionData(
+            int resultCode,
+            Intent data
+    ) {
+        projectionResultCode = resultCode;
+        projectionData = data;
+    }
 
-@Override
-public void onCreate() {
-    super.onCreate();
+    @Override
+    public void onCreate() {
+        super.onCreate();
 
-    handler =
-            new Handler(
-                    Looper.getMainLooper()
+        handler =
+                new Handler(
+                        Looper.getMainLooper()
+                );
+
+        recognizer =
+                TextRecognition.getClient(
+                        TextRecognizerOptions.DEFAULT_OPTIONS
+                );
+
+        createNotificationChannel();
+        createOverlay();
+
+        Log.d(
+                TAG,
+                "Arena Helper CaptureService started"
+        );
+    }
+
+    @Override
+    public int onStartCommand(
+            Intent intent,
+            int flags,
+            int startId
+    ) {
+
+        try {
+
+            Notification notification =
+                    createNotification();
+
+            if (Build.VERSION.SDK_INT >=
+                    Build.VERSION_CODES.Q) {
+
+                startForeground(
+                        1001,
+                        notification,
+                        ServiceInfo
+                                .FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                );
+
+            } else {
+
+                startForeground(
+                        1001,
+                        notification
+                );
+            }
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Foreground service failed",
+                    e
             );
 
-    recognizer =
-            TextRecognition.getClient(
-                    TextRecognizerOptions.DEFAULT_OPTIONS
+            updateOverlay(
+                    "Arena Helper\n\n" +
+                            "Foreground Service -virhe"
             );
 
-    createNotificationChannel();
-    createOverlay();
+            stopSelf();
 
-    Log.d(
-            TAG,
-            "Arena Helper CaptureService started"
-    );
-}
+            return START_NOT_STICKY;
+        }
 
-@Override
-public int onStartCommand(
-        Intent intent,
-        int flags,
-        int startId
-) {
+        if (projectionData != null) {
 
-    try {
-
-        Notification notification =
-                createNotification();
-
-        if (Build.VERSION.SDK_INT >=
-                Build.VERSION_CODES.Q) {
-
-            startForeground(
-                    1001,
-                    notification,
-                    ServiceInfo
-                            .FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            );
+            startScreenCapture();
 
         } else {
 
-            startForeground(
-                    1001,
-                    notification
+            updateOverlay(
+                    "Arena Helper\n\n" +
+                            "Näytönjako puuttuu"
             );
         }
-
-    } catch (Exception e) {
-
-        Log.e(
-                TAG,
-                "Foreground service failed",
-                e
-        );
-
-        updateOverlay(
-                "Arena Helper\n\n" +
-                        "Foreground Service -virhe"
-        );
-
-        stopSelf();
 
         return START_NOT_STICKY;
     }
 
-    if (projectionData != null) {
+    private void createOverlay() {
 
-        startScreenCapture();
+        try {
 
-    } else {
+            windowManager =
+                    (WindowManager)
+                            getSystemService(
+                                    WINDOW_SERVICE
+                            );
 
-        updateOverlay(
-                "Arena Helper\n\n" +
-                        "Näytönjako puuttuu"
-        );
+            if (windowManager == null) {
+                return;
+            }
+
+            overlayText =
+                    new TextView(this);
+
+            overlayText.setText(
+                    "Arena Helper\n\n" +
+                            "Näytönjako käynnissä"
+            );
+
+            overlayText.setTextColor(
+                    Color.WHITE
+            );
+
+            overlayText.setTextSize(14);
+
+            overlayText.setGravity(
+                    Gravity.CENTER
+            );
+
+            overlayText.setPadding(
+                    25,
+                    15,
+                    25,
+                    15
+            );
+
+            overlayText.setBackgroundColor(
+                    Color.argb(
+                            220,
+                            0,
+                            0,
+                            0
+                    )
+            );
+
+            int overlayType;
+
+            if (Build.VERSION.SDK_INT >=
+                    Build.VERSION_CODES.O) {
+
+                overlayType =
+                        WindowManager.LayoutParams
+                                .TYPE_APPLICATION_OVERLAY;
+
+            } else {
+
+                overlayType =
+                        WindowManager.LayoutParams
+                                .TYPE_PHONE;
+            }
+
+            WindowManager.LayoutParams params =
+                    new WindowManager.LayoutParams(
+                            WindowManager.LayoutParams
+                                    .WRAP_CONTENT,
+                            WindowManager.LayoutParams
+                                    .WRAP_CONTENT,
+                            overlayType,
+                            WindowManager.LayoutParams
+                                    .FLAG_NOT_FOCUSABLE
+                                    |
+                                    WindowManager.LayoutParams
+                                            .FLAG_NOT_TOUCHABLE
+                                    |
+                                    WindowManager.LayoutParams
+                                            .FLAG_LAYOUT_NO_LIMITS,
+                            PixelFormat.TRANSLUCENT
+                    );
+
+            params.gravity =
+                    Gravity.TOP |
+                            Gravity.CENTER_HORIZONTAL;
+
+            params.y = 80;
+
+            windowManager.addView(
+                    overlayText,
+                    params
+            );
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Overlay error",
+                    e
+            );
+        }
     }
 
-    return START_NOT_STICKY;
-}
+    private void updateOverlay(
+            String text
+    ) {
 
-private void createOverlay() {
+        if (overlayText == null ||
+                handler == null) {
 
-    try {
-
-        windowManager =
-                (WindowManager)
-                        getSystemService(
-                                WINDOW_SERVICE
-                        );
-
-        if (windowManager == null) {
             return;
         }
 
-        overlayText =
-                new TextView(this);
+        handler.post(() -> {
 
-        overlayText.setText(
-                "Arena Helper\n\n" +
-                        "Näytönjako käynnissä"
-        );
+            if (overlayText != null) {
 
-        overlayText.setTextColor(
-                Color.WHITE
-        );
+                overlayText.setText(text);
+            }
+        });
+    }
 
-        overlayText.setTextSize(14);
+    private void startScreenCapture() {
 
-        overlayText.setGravity(
-                Gravity.CENTER
-        );
+        try {
 
-        overlayText.setPadding(
-                25,
-                15,
-                25,
-                15
-        );
+            updateOverlay(
+                    "Arena Helper\n\n" +
+                            "Käynnistetään OCR..."
+            );
 
-        overlayText.setBackgroundColor(
-                Color.argb(
-                        220,
-                        0,
-                        0,
-                        0
-                )
-        );
+            MediaProjectionManager projectionManager =
+                    (MediaProjectionManager)
+                            getSystemService(
+                                    Context.MEDIA_PROJECTION_SERVICE
+                            );
 
-        int overlayType;
+            if (projectionManager == null) {
 
-        if (Build.VERSION.SDK_INT >=
-                Build.VERSION_CODES.O) {
-
-            overlayType =
-                    WindowManager.LayoutParams
-                            .TYPE_APPLICATION_OVERLAY;
-
-        } else {
-
-            overlayType =
-                    WindowManager.LayoutParams
-                            .TYPE_PHONE;
-        }
-
-        WindowManager.LayoutParams params =
-                new WindowManager.LayoutParams(
-                        WindowManager.LayoutParams
-                                .WRAP_CONTENT,
-                        WindowManager.LayoutParams
-                                .WRAP_CONTENT,
-                        overlayType,
-                        WindowManager.LayoutParams
-                                .FLAG_NOT_FOCUSABLE
-                                |
-                                WindowManager.LayoutParams
-                                .FLAG_NOT_TOUCHABLE
-                                |
-                                WindowManager.LayoutParams
-                                .FLAG_LAYOUT_NO_LIMITS,
-                        PixelFormat.TRANSLUCENT
+                throw new IllegalStateException(
+                        "MediaProjectionManager puuttuu"
                 );
+            }
 
-        params.gravity =
-                Gravity.TOP |
-                        Gravity.CENTER_HORIZONTAL;
+            mediaProjection =
+                    projectionManager
+                            .getMediaProjection(
+                                    projectionResultCode,
+                                    projectionData
+                            );
 
-        params.y = 80;
+            if (mediaProjection == null) {
 
-        windowManager.addView(
-                overlayText,
-                params
-        );
+                throw new IllegalStateException(
+                        "MediaProjection on null"
+                );
+            }
 
-    } catch (Exception e) {
+            mediaProjectionCallback =
+                    new MediaProjection.Callback() {
 
-        Log.e(
-                TAG,
-                "Overlay error",
-                e
-        );
-    }
-}
+                        @Override
+                        public void onStop() {
 
-private void updateOverlay(
-        String text
-) {
+                            Log.d(
+                                    TAG,
+                                    "MediaProjection stopped"
+                            );
 
-    if (overlayText == null ||
-            handler == null) {
+                            updateOverlay(
+                                    "Arena Helper\n\n" +
+                                            "Näytönjako pysäytettiin"
+                            );
+                        }
+                    };
 
-        return;
-    }
+            /*
+             * TÄRKEÄ:
+             * callback rekisteröidään ennen
+             * VirtualDisplayn luomista.
+             */
+            mediaProjection.registerCallback(
+                    mediaProjectionCallback,
+                    handler
+            );
 
-    handler.post(() -> {
+            int width =
+                    getResources()
+                            .getDisplayMetrics()
+                            .widthPixels;
 
-        if (overlayText != null) {
+            int height =
+                    getResources()
+                            .getDisplayMetrics()
+                            .heightPixels;
 
-            overlayText.setText(text);
-        }
-    });
-}
+            int density =
+                    getResources()
+                            .getDisplayMetrics()
+                            .densityDpi;
 
-private void startScreenCapture() {
+            Log.d(
+                    TAG,
+                    "SCREEN: " +
+                            width +
+                            "x" +
+                            height
+            );
 
-    try {
+            imageReader =
+                    ImageReader.newInstance(
+                            width,
+                            height,
+                            PixelFormat.RGBA_8888,
+                            2
+                    );
 
-        updateOverlay(
-                "Arena Helper\n\n" +
-                        "Käynnistetään OCR..."
-        );
+            mediaProjection.createVirtualDisplay(
+                    "ArenaHelperDisplay",
+                    width,
+                    height,
+                    density,
+                    0,
+                    imageReader.getSurface(),
+                    null,
+                    handler
+            );
 
-        MediaProjectionManager projectionManager =
-                (MediaProjectionManager)
-                        getSystemService(
-                                Context.MEDIA_PROJECTION_SERVICE
-                        );
+            imageReader.setOnImageAvailableListener(
+                    reader ->
+                            processLatestImage(reader),
+                    handler
+            );
 
-        if (projectionManager == null) {
+            updateOverlay(
+                    "Arena Helper\n\n" +
+                            "Korttien haku käynnissä..."
+            );
 
-            throw new IllegalStateException(
-                    "MediaProjectionManager puuttuu"
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Screen capture error",
+                    e
+            );
+
+            updateOverlay(
+                    "Arena Helper\n\n" +
+                            "Näytönjaon virhe\n\n" +
+                            e.getClass()
+                                    .getSimpleName()
             );
         }
-
-        mediaProjection =
-                projectionManager
-                        .getMediaProjection(
-                                projectionResultCode,
-                                projectionData
-                        );
-
-        if (mediaProjection == null) {
-
-            throw new IllegalStateException(
-                    "MediaProjection on null"
-            );
-        }
-
-        mediaProjectionCallback =
-                new MediaProjection.Callback() {
-
-                    @Override
-                    public void onStop() {
-
-                        Log.d(
-                                TAG,
-                                "MediaProjection stopped"
-                        );
-
-                        updateOverlay(
-                                "Arena Helper\n\n" +
-                                        "Näytönjako pysäytettiin"
-                        );
-                    }
-                };
-
-        /*
-         * TÄRKEÄ:
-         * callback rekisteröidään ennen
-         * VirtualDisplayn luomista.
-         */
-        mediaProjection.registerCallback(
-                mediaProjectionCallback,
-                handler
-        );
-
-        int width =
-                getResources()
-                        .getDisplayMetrics()
-                        .widthPixels;
-
-        int height =
-                getResources()
-                        .getDisplayMetrics()
-                        .heightPixels;
-
-        int density =
-                getResources()
-                        .getDisplayMetrics()
-                        .densityDpi;
-
-        Log.d(
-                TAG,
-                "SCREEN: " +
-                        width +
-                        "x" +
-                        height
-        );
-
-        imageReader =
-                ImageReader.newInstance(
-                        width,
-                        height,
-                        PixelFormat.RGBA_8888,
-                        2
-                );
-
-        mediaProjection.createVirtualDisplay(
-                "ArenaHelperDisplay",
-                width,
-                height,
-                density,
-                0,
-                imageReader.getSurface(),
-                null,
-                handler
-        );
-
-        imageReader.setOnImageAvailableListener(
-                reader ->
-                        processLatestImage(reader),
-                handler
-        );
-
-        updateOverlay(
-                "Arena Helper\n\n" +
-                        "Korttien haku käynnissä..."
-        );
-
-    } catch (Exception e) {
-
-        Log.e(
-                TAG,
-                "Screen capture error",
-                e
-        );
-
-        updateOverlay(
-                "Arena Helper\n\n" +
-                        "Näytönjaon virhe\n\n" +
-                        e.getClass()
-                                .getSimpleName()
-        );
-    }
-}
-
-private void processLatestImage(
-        ImageReader reader
-) {
-
-    long now =
-            System.currentTimeMillis();
-
-    if (now - lastOCRTime <
-            OCR_INTERVAL) {
-
-        closeLatestImage(reader);
-        return;
     }
 
-    if (processing) {
+    private void processLatestImage(
+            ImageReader reader
+    ) {
 
-        closeLatestImage(reader);
-        return;
-    }
+        long now =
+                System.currentTimeMillis();
 
-    Image image = null;
+        if (now - lastOCRTime <
+                OCR_INTERVAL) {
 
-    try {
-
-        image =
-                reader.acquireLatestImage();
-
-        if (image == null) {
+            closeLatestImage(reader);
             return;
         }
 
-        processing = true;
+        if (processing) {
 
-        lastOCRTime = now;
+            closeLatestImage(reader);
+            return;
+        }
 
-        Bitmap bitmap =
-                imageToBitmap(image);
+        Image image = null;
 
-        image.close();
-        image = null;
+        try {
 
-        if (bitmap == null) {
+            image =
+                    reader.acquireLatestImage();
+
+            if (image == null) {
+                return;
+            }
+
+            processing = true;
+
+            lastOCRTime = now;
+
+            Bitmap bitmap =
+                    imageToBitmap(image);
+
+            image.close();
+            image = null;
+
+            if (bitmap == null) {
+
+                processing = false;
+                return;
+            }
+
+            processThreeCards(bitmap);
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Screenshot processing error",
+                    e
+            );
+
+            if (image != null) {
+                image.close();
+            }
 
             processing = false;
-            return;
         }
+    }
 
-        processThreeCards(bitmap);
+    private void closeLatestImage(
+            ImageReader reader
+    ) {
 
-    } catch (Exception e) {
+        Image image = null;
 
-        Log.e(
-                TAG,
-                "Screenshot processing error",
-                e
-        );
+        try {
+
+            image =
+                    reader.acquireLatestImage();
+
+        } catch (Exception ignored) {
+        }
 
         if (image != null) {
             image.close();
         }
-
-        processing = false;
-    }
-}
-
-private void closeLatestImage(
-        ImageReader reader
-) {
-
-    Image image = null;
-
-    try {
-
-        image =
-                reader.acquireLatestImage();
-
-    } catch (Exception ignored) {
     }
 
-    if (image != null) {
-        image.close();
-    }
-}
+    private void processThreeCards(
+            Bitmap source
+    ) {
 
-private void processThreeCards(
-        Bitmap source
-) {
+        int width =
+                source.getWidth();
 
-    int width =
-            source.getWidth();
+        int height =
+                source.getHeight();
 
-    int height =
-            source.getHeight();
+        Bitmap card1 = null;
+        Bitmap card2 = null;
+        Bitmap card3 = null;
 
-    Bitmap card1 = null;
-    Bitmap card2 = null;
-    Bitmap card3 = null;
+        try {
 
-    try {
+            int nameTop =
+                    (int) (
+                            height * 0.45f
+                    );
 
-        int nameTop =
-                (int) (
-                        height * 0.45f
-                );
+            int nameBottom =
+                    (int) (
+                            height * 0.55f
+                    );
 
-        int nameBottom =
-                (int) (
-                        height * 0.55f
-                );
+            int nameHeight =
+                    nameBottom -
+                            nameTop;
 
-        int nameHeight =
-                nameBottom -
-                        nameTop;
+            /*
+             * KORTTI 1
+             */
+            int card1Left =
+                    (int) (
+                            width * 0.065f
+                    );
 
-        /*
-         * KORTTI 1
-         */
-        int card1Left =
-                (int) (
-                        width * 0.065f
-                );
+            int card1Right =
+                    (int) (
+                            width * 0.38f
+                    );
 
-        int card1Right =
-                (int) (
-                        width * 0.38f
-                );
+            /*
+             * KORTTI 2
+             */
+            int card2Left =
+                    (int) (
+                            width * 0.355f
+                    );
 
-        /*
-         * KORTTI 2
-         */
-        int card2Left =
-                (int) (
-                        width * 0.355f
-                );
+            int card2Right =
+                    (int) (
+                            width * 0.645f
+                    );
 
-        int card2Right =
-                (int) (
-                        width * 0.645f
-                );
+            /*
+             * KORTTI 3
+             */
+            int card3Left =
+                    (int) (
+                            width * 0.60f
+                    );
 
-        /*
-         * KORTTI 3
-         */
-        int card3Left =
-                (int) (
-                        width * 0.60f
-                );
+            int card3Right =
+                    (int) (
+                            width * 0.935f
+                    );
 
-        int card3Right =
-                (int) (
-                        width * 0.935f
-                );
+            card1Left =
+                    Math.max(
+                            0,
+                            card1Left
+                    );
 
-        card1Left =
-                Math.max(
-                        0,
-                        card1Left
-                );
+            card2Left =
+                    Math.max(
+                            0,
+                            card2Left
+                    );
 
-        card2Left =
-                Math.max(
-                        0,
-                        card2Left
-                );
+            card3Left =
+                    Math.max(
+                            0,
+                            card3Left
+                    );
 
-        card3Left =
-                Math.max(
-                        0,
-                        card3Left
-                );
+            card1Right =
+                    Math.min(
+                            width,
+                            card1Right
+                    );
 
-        card1Right =
-                Math.min(
-                        width,
-                        card1Right
-                );
+            card2Right =
+                    Math.min(
+                            width,
+                            card2Right
+                    );
 
-        card2Right =
-                Math.min(
-                        width,
-                        card2Right
-                );
+            card3Right =
+                    Math.min(
+                            width,
+                            card3Right
+                    );
 
-        card3Right =
-                Math.min(
-                        width,
-                        card3Right
-                );
+            Log.d(
+                    TAG,
+                    "CARD 1 CROP: " +
+                            card1Left +
+                            "-" +
+                            card1Right
+            );
 
-        Log.d(
-                TAG,
-                "CARD 1 CROP: " +
-                        card1Left +
-                        "-" +
-                        card1Right
-        );
+            Log.d(
+                    TAG,
+                    "CARD 2 CROP: " +
+                            card2Left +
+                            "-" +
+                            card2Right
+            );
 
-        Log.d(
-                TAG,
-                "CARD 2 CROP: " +
-                        card2Left +
-                        "-" +
-                        card2Right
-        );
+            Log.d(
+                    TAG,
+                    "CARD 3 CROP: " +
+                            card3Left +
+                            "-" +
+                            card3Right
+            );
 
-        Log.d(
-                TAG,
-                "CARD 3 CROP: " +
-                        card3Left +
-                        "-" +
-                        card3Right
-        );
+            card1 =
+                    Bitmap.createBitmap(
+                            source,
+                            card1Left,
+                            nameTop,
+                            card1Right -
+                                    card1Left,
+                            nameHeight
+                    );
 
-        card1 =
-                Bitmap.createBitmap(
-                        source,
-                        card1Left,
-                        nameTop,
-                        card1Right -
-                                card1Left,
-                        nameHeight
-                );
+            card2 =
+                    Bitmap.createBitmap(
+                            source,
+                            card2Left,
+                            nameTop,
+                            card2Right -
+                                    card2Left,
+                            nameHeight
+                    );
 
-        card2 =
-                Bitmap.createBitmap(
-                        source,
-                        card2Left,
-                        nameTop,
-                        card2Right -
-                                card2Left,
-                        nameHeight
-                );
+            card3 =
+                    Bitmap.createBitmap(
+                            source,
+                            card3Left,
+                            nameTop,
+                            card3Right -
+                                    card3Left,
+                            nameHeight
+                    );
 
-        card3 =
-                Bitmap.createBitmap(
-                        source,
-                        card3Left,
-                        nameTop,
-                        card3Right -
-                                card3Left,
-                        nameHeight
-                );
+            Bitmap prepared1 =
+                    enlargeForOCR(card1);
 
-        Bitmap prepared1 =
-                enlargeForOCR(card1);
+            Bitmap prepared2 =
+                    enlargeForOCR(card2);
 
-        Bitmap prepared2 =
-                enlargeForOCR(card2);
-
-        Bitmap prepared3 =
-                enlargeForOCR(card3);
-
-        card1.recycle();
-        card2.recycle();
-        card3.recycle();
-
-        card1 = null;
-        card2 = null;
-        card3 = null;
-
-        if (!source.isRecycled()) {
-            source.recycle();
-        }
-
-        runCardOCR(
-                prepared1,
-                prepared2,
-                prepared3
-        );
-
-    } catch (Exception e) {
-
-        Log.e(
-                TAG,
-                "Card splitting failed",
-                e
-        );
-
-        if (card1 != null &&
-                !card1.isRecycled()) {
+            Bitmap prepared3 =
+                    enlargeForOCR(card3);
 
             card1.recycle();
-        }
-
-        if (card2 != null &&
-                !card2.isRecycled()) {
-
             card2.recycle();
-        }
-
-        if (card3 != null &&
-                !card3.isRecycled()) {
-
             card3.recycle();
+
+            card1 = null;
+            card2 = null;
+            card3 = null;
+
+            if (!source.isRecycled()) {
+                source.recycle();
+            }
+
+            runCardOCR(
+                    prepared1,
+                    prepared2,
+                    prepared3
+            );
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Card splitting failed",
+                    e
+            );
+
+            if (card1 != null &&
+                    !card1.isRecycled()) {
+
+                card1.recycle();
+            }
+
+            if (card2 != null &&
+                    !card2.isRecycled()) {
+
+                card2.recycle();
+            }
+
+            if (card3 != null &&
+                    !card3.isRecycled()) {
+
+                card3.recycle();
+            }
+
+            if (!source.isRecycled()) {
+                source.recycle();
+            }
+
+            processing = false;
+
+            updateOverlay(
+                    "Arena Helper\n\n" +
+                            "Korttikuvan käsittelyvirhe"
+            );
         }
-
-        if (!source.isRecycled()) {
-            source.recycle();
-        }
-
-        processing = false;
-
-        updateOverlay(
-                "Arena Helper\n\n" +
-                        "Korttikuvan käsittelyvirhe"
-        );
     }
-}
 
-private Bitmap enlargeForOCR(
-        Bitmap source
-) {
+    private Bitmap enlargeForOCR(
+            Bitmap source
+    ) {
 
-    int newWidth =
-            source.getWidth() * 2;
+        int newWidth =
+                source.getWidth() * 2;
 
-    int newHeight =
-            source.getHeight() * 2;
+        int newHeight =
+                source.getHeight() * 2;
 
-    Bitmap enlarged =
-            Bitmap.createBitmap(
-                    newWidth,
-                    newHeight,
-                    Bitmap.Config.ARGB_8888
-            );
-
-    Canvas canvas =
-            new Canvas(enlarged);
-
-    Paint paint =
-            new Paint(
-                    Paint.ANTI_ALIAS_FLAG
-            );
-
-    paint.setFilterBitmap(true);
-
-    canvas.drawBitmap(
-            source,
-            null,
-            new android.graphics.Rect(
-                    0,
-                    0,
-                    newWidth,
-                    newHeight
-            ),
-            paint
-    );
-
-    return enlarged;
-}
-
-private void runCardOCR(
-        Bitmap card1,
-        Bitmap card2,
-        Bitmap card3
-) {
-
-    final String[] results =
-            new String[3];
-
-    recognizeNormalCard(
-            card1,
-            0,
-            results
-    );
-
-    recognizeNormalCard(
-            card2,
-            1,
-            results
-    );
-
-    recognizeNormalCard(
-            card3,
-            2,
-            results
-    );
-}
-
-private void recognizeNormalCard(
-        Bitmap bitmap,
-        int index,
-        String[] results
-) {
-
-    try {
-
-        InputImage inputImage =
-                InputImage.fromBitmap(
-                        bitmap,
-                        0
+        Bitmap enlarged =
+                Bitmap.createBitmap(
+                        newWidth,
+                        newHeight,
+                        Bitmap.Config.ARGB_8888
                 );
 
-        recognizer
-                .process(inputImage)
-                .addOnSuccessListener(
-                        text -> {
+        Canvas canvas =
+                new Canvas(enlarged);
 
-                            String raw =
-                                    text.getText();
-
-                            if (raw == null) {
-                                raw = "";
-                            }
-
-                            Log.d(
-                                    TAG,
-                                    "RAW OCR CARD " +
-                                            (index + 1) +
-                                            ": " +
-                                            raw
-                            );
-
-                            String cleaned =
-                                    cleanCardName(
-                                            raw
-                                    );
-
-                            if (index == 0) {
-
-                                results[0] =
-                                        stabilizeCard1(
-                                                cleaned
-                                        );
-
-                            } else {
-
-                                results[index] =
-                                        cleaned;
-                            }
-
-                            Log.d(
-                                    TAG,
-                                    "CLEAN OCR CARD " +
-                                            (index + 1) +
-                                            ": " +
-                                            results[index]
-                            );
-
-                            if (!bitmap.isRecycled()) {
-                                bitmap.recycle();
-                            }
-
-                            checkOCRFinished(
-                                    results
-                            );
-                        }
-                )
-                .addOnFailureListener(
-                        e -> {
-
-                            Log.e(
-                                    TAG,
-                                    "OCR failed CARD " +
-                                            (index + 1),
-                                    e
-                            );
-
-                            if (index == 0 &&
-                                    !stableCard1.isEmpty()) {
-
-                                results[0] =
-                                        stableCard1;
-
-                            } else {
-
-                                results[index] =
-                                        "";
-                            }
-
-                            if (!bitmap.isRecycled()) {
-                                bitmap.recycle();
-                            }
-
-                            checkOCRFinished(
-                                    results
-                            );
-                        }
+        Paint paint =
+                new Paint(
+                        Paint.ANTI_ALIAS_FLAG
                 );
 
-    } catch (Exception e) {
+        paint.setFilterBitmap(true);
 
-        Log.e(
-                TAG,
-                "OCR start failed CARD " +
-                        (index + 1),
-                e
+        canvas.drawBitmap(
+                source,
+                null,
+                new android.graphics.Rect(
+                        0,
+                        0,
+                        newWidth,
+                        newHeight
+                ),
+                paint
         );
 
-        if (index == 0 &&
-                !stableCard1.isEmpty()) {
+        return enlarged;
+    }
 
-            results[0] =
-                    stableCard1;
+    private void runCardOCR(
+            Bitmap card1,
+            Bitmap card2,
+            Bitmap card3
+    ) {
 
-        } else {
+        final String[] results =
+                new String[3];
 
-            results[index] = "";
-        }
+        recognizeNormalCard(
+                card1,
+                0,
+                results
+        );
 
-        if (!bitmap.isRecycled()) {
-            bitmap.recycle();
-        }
+        recognizeNormalCard(
+                card2,
+                1,
+                results
+        );
 
-        checkOCRFinished(
+        recognizeNormalCard(
+                card3,
+                2,
                 results
         );
     }
-}
 
-/*
- * ============================================================
- * KORTTI 1:N VAKAUTUS
- * ============================================================
- */
+    private void recognizeNormalCard(
+            Bitmap bitmap,
+            int index,
+            String[] results
+    ) {
 
-private String stabilizeCard1(
-        String detected
-) {
+        try {
 
-    if (detected == null ||
-            detected.isEmpty()) {
-
-        return stableCard1;
-    }
-
-    String normalized =
-            normalizeCard1ForComparison(
-                    detected
-            );
-
-    Log.d(
-            TAG,
-            "CARD 1 STABILIZER INPUT: " +
-                    detected
-    );
-
-    Log.d(
-            TAG,
-            "CARD 1 STABILIZER NORMALIZED: " +
-                    normalized
-    );
-
-    if (!stableCard1.isEmpty() &&
-            similarCard1(
-                    stableCard1,
-                    detected
-            )) {
-
-        candidateCard1 =
-                detected;
-
-        candidateCard1Count++;
-
-        return stableCard1;
-    }
-
-    String soldierFix =
-            fixSoldierOfInfinite(
-                    detected
-            );
-
-    if (!soldierFix.isEmpty()) {
-
-        Log.d(
-                TAG,
-                "CARD 1 SOLDIER FIX: " +
-                        soldierFix
-        );
-
-        stableCard1 =
-                soldierFix;
-
-        candidateCard1 =
-                soldierFix;
-
-        candidateCard1Count =
-                CARD1_CONFIRMATIONS;
-
-        return stableCard1;
-    }
-
-    if (candidateCard1.isEmpty() ||
-            !similarCard1(
-                    candidateCard1,
-                    detected
-            )) {
-
-        candidateCard1 =
-                detected;
-
-        candidateCard1Count = 1;
-
-    } else {
-
-        candidateCard1Count++;
-    }
-
-    Log.d(
-            TAG,
-            "CARD 1 CANDIDATE: " +
-                    candidateCard1 +
-                    " COUNT=" +
-                    candidateCard1Count
-    );
-
-    if (candidateCard1Count >=
-            CARD1_CONFIRMATIONS) {
-
-        stableCard1 =
-                candidateCard1;
-
-        Log.d(
-                TAG,
-                "CARD 1 NEW STABLE: " +
-                        stableCard1
-        );
-    }
-
-    if (!stableCard1.isEmpty()) {
-
-        return stableCard1;
-    }
-
-    return detected;
-}
-
-private String normalizeCard1ForComparison(
-        String text
-) {
-
-    if (text == null) {
-        return "";
-    }
-
-    text =
-            text.toLowerCase();
-
-    text =
-            text.replaceAll(
-                    "[^a-z0-9]",
-                    ""
-            );
-
-    return text;
-}
-
-private boolean similarCard1(
-        String a,
-        String b
-) {
-
-    if (a == null ||
-            b == null) {
-
-        return false;
-    }
-
-    String aa =
-            normalizeCard1ForComparison(
-                    a
-            );
-
-    String bb =
-            normalizeCard1ForComparison(
-                    b
-            );
-
-    if (aa.isEmpty() ||
-            bb.isEmpty()) {
-
-        return false;
-    }
-
-    if (aa.equals(bb)) {
-        return true;
-    }
-
-    if (aa.contains(bb) ||
-            bb.contains(aa)) {
-
-        return true;
-    }
-
-    int distance =
-            levenshteinDistance(
-                    aa,
-                    bb
-            );
-
-    int maxLength =
-            Math.max(
-                    aa.length(),
-                    bb.length()
-            );
-
-    return maxLength > 0 &&
-            distance <=
-                    Math.max(
-                            2,
-                            maxLength / 5
+            InputImage inputImage =
+                    InputImage.fromBitmap(
+                            bitmap,
+                            0
                     );
-}
 
-private int levenshteinDistance(
-        String a,
-        String b
-) {
+            recognizer
+                    .process(inputImage)
+                    .addOnSuccessListener(
+                            text -> {
 
-    int[] previous =
-            new int[b.length() + 1];
+                                String raw =
+                                        text.getText();
 
-    int[] current =
-            new int[b.length() + 1];
+                                if (raw == null) {
+                                    raw = "";
+                                }
 
-    for (int j = 0;
-         j <= b.length();
-         j++) {
+                                Log.d(
+                                        TAG,
+                                        "RAW OCR CARD " +
+                                                (index + 1) +
+                                                ": " +
+                                                raw
+                                );
 
-        previous[j] = j;
-    }
+                                String cleaned =
+                                        cleanCardName(
+                                                raw
+                                        );
 
-    for (int i = 1;
-         i <= a.length();
-         i++) {
+                                if (index == 0) {
 
-        current[0] = i;
+                                    results[0] =
+                                            stabilizeCard1(
+                                                    cleaned
+                                            );
 
-        for (int j = 1;
-             j <= b.length();
-             j++) {
+                                } else {
 
-            int cost =
-                    a.charAt(i - 1) ==
-                            b.charAt(j - 1)
-                            ? 0
-                            : 1;
+                                    results[index] =
+                                            cleaned;
+                                }
 
-            current[j] =
-                    Math.min(
-                            Math.min(
-                                    current[j - 1] + 1,
-                                    previous[j] + 1
-                            ),
-                            previous[j - 1] + cost
+                                Log.d(
+                                        TAG,
+                                        "CLEAN OCR CARD " +
+                                                (index + 1) +
+                                                ": " +
+                                                results[index]
+                                );
+
+                                if (!bitmap.isRecycled()) {
+                                    bitmap.recycle();
+                                }
+
+                                checkOCRFinished(
+                                        results
+                                );
+                            }
+                    )
+                    .addOnFailureListener(
+                            e -> {
+
+                                Log.e(
+                                        TAG,
+                                        "OCR failed CARD " +
+                                                (index + 1),
+                                        e
+                                );
+
+                                if (index == 0 &&
+                                        !stableCard1.isEmpty()) {
+
+                                    results[0] =
+                                            stableCard1;
+
+                                } else {
+
+                                    results[index] =
+                                            "";
+                                }
+
+                                if (!bitmap.isRecycled()) {
+                                    bitmap.recycle();
+                                }
+
+                                checkOCRFinished(
+                                        results
+                                );
+                            }
                     );
-        }
 
-        int[] temp =
-                previous;
+        } catch (Exception e) {
 
-        previous =
-                current;
-
-        current =
-                temp;
-    }
-
-    return previous[b.length()];
-}
-
-/*
- * ============================================================
- * SOLDIER OF THE INFINITE -KORJAUS
- * ============================================================
- */
-
-private String fixSoldierOfInfinite(
-        String text
-) {
-
-    if (text == null) {
-        return "";
-    }
-
-    String normalized =
-            text.toLowerCase();
-
-    normalized =
-            normalized.replaceAll(
-                    "[^a-z0-9]",
-                    ""
+            Log.e(
+                    TAG,
+                    "OCR start failed CARD " +
+                            (index + 1),
+                    e
             );
 
-    if (normalized.startsWith("soldier")) {
+            if (index == 0 &&
+                    !stableCard1.isEmpty()) {
 
-        if (normalized.contains("infinite")) {
+                results[0] =
+                        stableCard1;
 
-            return "Soldier of the Infinite";
-        }
+            } else {
 
-        if (normalized.equals("soldiero") ||
-                normalized.equals("soldier0") ||
-                normalized.equals("soldier")) {
-
-            if (!stableCard1.isEmpty()) {
-                return stableCard1;
+                results[index] = "";
             }
 
+            if (!bitmap.isRecycled()) {
+                bitmap.recycle();
+            }
+
+            checkOCRFinished(
+                    results
+            );
+        }
+    }
+
+    /*
+     * ============================================================
+     * KORTTI 1:N VAKAUTUS
+     * ============================================================
+     */
+
+    private String stabilizeCard1(
+            String detected
+    ) {
+
+        if (detected == null ||
+                detected.isEmpty()) {
+
+            return stableCard1;
+        }
+
+        String normalized =
+                normalizeCard1ForComparison(
+                        detected
+                );
+
+        Log.d(
+                TAG,
+                "CARD 1 STABILIZER INPUT: " +
+                        detected
+        );
+
+        Log.d(
+                TAG,
+                "CARD 1 STABILIZER NORMALIZED: " +
+                        normalized
+        );
+
+        if (!stableCard1.isEmpty() &&
+                similarCard1(
+                        stableCard1,
+                        detected
+                )) {
+
+            candidateCard1 =
+                    detected;
+
+            candidateCard1Count++;
+
+            return stableCard1;
+        }
+
+        String soldierFix =
+                fixSoldierOfInfinite(
+                        detected
+                );
+
+        if (!soldierFix.isEmpty()) {
+
+            Log.d(
+                    TAG,
+                    "CARD 1 SOLDIER FIX: " +
+                            soldierFix
+            );
+
+            stableCard1 =
+                    soldierFix;
+
+            candidateCard1 =
+                    soldierFix;
+
+            candidateCard1Count =
+                    CARD1_CONFIRMATIONS;
+
+            return stableCard1;
+        }
+
+        if (candidateCard1.isEmpty() ||
+                !similarCard1(
+                        candidateCard1,
+                        detected
+                )) {
+
+            candidateCard1 =
+                    detected;
+
+            candidateCard1Count = 1;
+
+        } else {
+
+            candidateCard1Count++;
+        }
+
+        Log.d(
+                TAG,
+                "CARD 1 CANDIDATE: " +
+                        candidateCard1 +
+                        " COUNT=" +
+                        candidateCard1Count
+        );
+
+        if (candidateCard1Count >=
+                CARD1_CONFIRMATIONS) {
+
+            stableCard1 =
+                    candidateCard1;
+
+            Log.d(
+                    TAG,
+                    "CARD 1 NEW STABLE: " +
+                            stableCard1
+            );
+        }
+
+        if (!stableCard1.isEmpty()) {
+
+            return stableCard1;
+        }
+
+        return detected;
+    }
+
+    private String normalizeCard1ForComparison(
+            String text
+    ) {
+
+        if (text == null) {
             return "";
         }
-    }
 
-    return "";
-}
+        text =
+                text.toLowerCase();
 
-/*
- * ============================================================
- * OCR-TULOKSEN PUHDISTUS
- * ============================================================
- */
-
-private String cleanCardName(
-        String text
-) {
-
-    if (text == null) {
-        return "";
-    }
-
-    text =
-            text.trim();
-
-    if (text.isEmpty()) {
-        return "";
-    }
-
-    String[] lines =
-            text.split("\\r?\\n");
-
-    String bestLine = "";
-
-    for (String line : lines) {
-
-        line =
-                line.trim();
-
-        if (line.length() < 2) {
-            continue;
-        }
-
-        line =
-                line.replaceAll(
-                        "^[^A-Za-zÅÄÖåäö0-9]+",
+        text =
+                text.replaceAll(
+                        "[^a-z0-9]",
                         ""
                 );
-
-        line =
-                line.replaceAll(
-                        "[^A-Za-zÅÄÖåäö0-9'\\- ]+$",
-                        ""
-                );
-
-        line =
-                line.trim();
-
-        int letters = 0;
-
-        for (int i = 0;
-             i < line.length();
-             i++) {
-
-            if (Character.isLetter(
-                    line.charAt(i)
-            )) {
-
-                letters++;
-            }
-        }
-
-        if (letters >= 2) {
-
-            bestLine =
-                    line;
-
-            break;
-        }
-    }
-
-    if (bestLine.isEmpty()) {
-        return "";
-    }
-
-    bestLine =
-            bestLine.replaceAll(
-                    "(?i)\\bsoldierof\\b",
-                    "Soldier of"
-            );
-
-    bestLine =
-            bestLine.replaceAll(
-                    "(?i)\\bsoldier\\s*2\\s*of\\b",
-                    "Soldier of"
-            );
-
-    bestLine =
-            bestLine.replaceAll(
-                    "(?i)\\bsoldier\\s*2\\s*0f\\b",
-                    "Soldier of"
-            );
-
-    bestLine =
-            bestLine.replaceAll(
-                    "\\s+",
-                    " "
-            ).trim();
-
-    bestLine =
-            capitalizeFirstLetter(
-                    bestLine
-            );
-
-    return bestLine;
-}
-
-private String capitalizeFirstLetter(
-        String text
-) {
-
-    if (text == null ||
-            text.isEmpty()) {
 
         return text;
     }
 
-    char[] chars =
-            text.toCharArray();
+    private boolean similarCard1(
+            String a,
+            String b
+    ) {
 
-    for (int i = 0;
-         i < chars.length;
-         i++) {
+        if (a == null ||
+                b == null) {
 
-        if (Character.isLetter(
-                chars[i]
-        )) {
-
-            chars[i] =
-                    Character.toUpperCase(
-                            chars[i]
-                    );
-
-            break;
+            return false;
         }
+
+        String aa =
+                normalizeCard1ForComparison(
+                        a
+                );
+
+        String bb =
+                normalizeCard1ForComparison(
+                        b
+                );
+
+        if (aa.isEmpty() ||
+                bb.isEmpty()) {
+
+            return false;
+        }
+
+        if (aa.equals(bb)) {
+            return true;
+        }
+
+        if (aa.contains(bb) ||
+                bb.contains(aa)) {
+
+            return true;
+        }
+
+        int distance =
+                levenshteinDistance(
+                        aa,
+                        bb
+                );
+
+        int maxLength =
+                Math.max(
+                        aa.length(),
+                        bb.length()
+                );
+
+        return maxLength > 0 &&
+                distance <=
+                        Math.max(
+                                2,
+                                maxLength / 5
+                        );
     }
 
-    return new String(chars);
-}
+    private int levenshteinDistance(
+            String a,
+            String b
+    ) {
 
-private void checkOCRFinished(
-        String[] results
-) {
+        int[] previous =
+                new int[b.length() + 1];
 
-    if (results[0] == null ||
-            results[1] == null ||
-            results[2] == null) {
+        int[] current =
+                new int[b.length() + 1];
 
-        return;
+        for (int j = 0;
+             j <= b.length();
+             j++) {
+
+            previous[j] = j;
+        }
+
+        for (int i = 1;
+             i <= a.length();
+             i++) {
+
+            current[0] = i;
+
+            for (int j = 1;
+                 j <= b.length();
+                 j++) {
+
+                int cost =
+                        a.charAt(i - 1) ==
+                                b.charAt(j - 1)
+                                ? 0
+                                : 1;
+
+                current[j] =
+                        Math.min(
+                                Math.min(
+                                        current[j - 1] + 1,
+                                        previous[j] + 1
+                                ),
+                                previous[j - 1] + cost
+                        );
+            }
+
+            int[] temp =
+                    previous;
+
+            previous =
+                    current;
+
+            current =
+                    temp;
+        }
+
+        return previous[b.length()];
     }
-
-    showThreeCards(results);
-
-    processing = false;
-}
-
-/*
- * ============================================================
- * KORTIT + ARENAADVISOR
- * ============================================================
- */
-
-private void showThreeCards(
-        String[] results
-) {
-
-    String card1 =
-            results[0] == null ||
-                    results[0].isEmpty()
-                    ? "Ei tunnistettu"
-                    : results[0];
-
-    String card2 =
-            results[1] == null ||
-                    results[1].isEmpty()
-                    ? "Ei tunnistettu"
-                    : results[1];
-
-    String card3 =
-            results[2] == null ||
-                    results[2].isEmpty()
-                    ? "Ei tunnistettu"
-                    : results[2];
 
     /*
-     * Lähetetään OCR:n tunnistamat nimet
-     * ArenaAdvisorille.
+     * ============================================================
+     * SOLDIER OF THE INFINITE -KORJAUS
+     * ============================================================
      */
-    String recommendation;
 
-    try {
+    private String fixSoldierOfInfinite(
+            String text
+    ) {
 
-        recommendation =
-                ArenaAdvisor.recommend(
-                        card1,
-                        card2,
-                        card3
-                );
-
-    } catch (Exception e) {
-
-        Log.e(
-                TAG,
-                "ArenaAdvisor error",
-                e
-        );
-
-        recommendation =
-                "Suositusta ei voitu laskea";
-    }
-
-    if (recommendation == null ||
-            recommendation.trim().isEmpty()) {
-
-        recommendation =
-                "Ei suositusta";
-    }
-
-    String display =
-            "KORTTI 1: " +
-                    card1 +
-                    "\n\n" +
-                    "KORTTI 2: " +
-                    card2 +
-                    "\n\n" +
-                    "KORTTI 3: " +
-                    card3 +
-                    "\n\n" +
-                    "--------------------" +
-                    "\n\n" +
-                    "SUOSITUS:\n" +
-                    recommendation;
-
-    updateOverlay(display);
-
-    Log.d(
-            TAG,
-            "CARD 1: " + card1
-    );
-
-    Log.d(
-            TAG,
-            "CARD 2: " + card2
-    );
-
-    Log.d(
-            TAG,
-            "CARD 3: " + card3
-    );
-
-    Log.d(
-            TAG,
-            "ARENA ADVISOR: " +
-                    recommendation
-    );
-}
-
-private Bitmap imageToBitmap(
-        Image image
-) {
-
-    try {
-
-        Image.Plane[] planes =
-                image.getPlanes();
-
-        if (planes.length == 0) {
-            return null;
+        if (text == null) {
+            return "";
         }
 
-        ByteBuffer buffer =
-                planes[0].getBuffer();
+        String normalized =
+                text.toLowerCase();
 
-        int pixelStride =
-                planes[0].getPixelStride();
-
-        int rowStride =
-                planes[0].getRowStride();
-
-        int rowPadding =
-                rowStride -
-                        pixelStride *
-                                image.getWidth();
-
-        int bitmapWidth =
-                image.getWidth() +
-                        rowPadding /
-                                pixelStride;
-
-        Bitmap bitmap =
-                Bitmap.createBitmap(
-                        bitmapWidth,
-                        image.getHeight(),
-                        Bitmap.Config.ARGB_8888
+        normalized =
+                normalized.replaceAll(
+                        "[^a-z0-9]",
+                        ""
                 );
 
-        buffer.rewind();
+        if (normalized.startsWith("soldier")) {
 
-        bitmap.copyPixelsFromBuffer(
-                buffer
-        );
+            if (normalized.contains("infinite")) {
 
-        return bitmap;
+                return "Soldier of the Infinite";
+            }
 
-    } catch (Exception e) {
+            if (normalized.equals("soldiero") ||
+                    normalized.equals("soldier0") ||
+                    normalized.equals("soldier")) {
 
-        Log.e(
+                if (!stableCard1.isEmpty()) {
+                    return stableCard1;
+                }
+
+                return "";
+            }
+        }
+
+        return "";
+    }
+
+    /*
+     * ============================================================
+     * OCR-TULOKSEN PUHDISTUS
+     * ============================================================
+     */
+
+    private String cleanCardName(
+            String text
+    ) {
+
+        if (text == null) {
+            return "";
+        }
+
+        text =
+                text.trim();
+
+        if (text.isEmpty()) {
+            return "";
+        }
+
+        String[] lines =
+                text.split("\\r?\\n");
+
+        String bestLine = "";
+
+        for (String line : lines) {
+
+            line =
+                    line.trim();
+
+            if (line.length() < 2) {
+                continue;
+            }
+
+            line =
+                    line.replaceAll(
+                            "^[^A-Za-zÅÄÖåäö0-9]+",
+                            ""
+                    );
+
+            line =
+                    line.replaceAll(
+                            "[^A-Za-zÅÄÖåäö0-9'\\- ]+$",
+                            ""
+                    );
+
+            line =
+                    line.trim();
+
+            int letters = 0;
+
+            for (int i = 0;
+                 i < line.length();
+                 i++) {
+
+                if (Character.isLetter(
+                        line.charAt(i)
+                )) {
+
+                    letters++;
+                }
+            }
+
+            if (letters >= 2) {
+
+                bestLine =
+                        line;
+
+                break;
+            }
+        }
+
+        if (bestLine.isEmpty()) {
+            return "";
+        }
+
+        bestLine =
+                bestLine.replaceAll(
+                        "(?i)\\bsoldierof\\b",
+                        "Soldier of"
+                );
+
+        bestLine =
+                bestLine.replaceAll(
+                        "(?i)\\bsoldier\\s*2\\s*of\\b",
+                        "Soldier of"
+                );
+
+        bestLine =
+                bestLine.replaceAll(
+                        "(?i)\\bsoldier\\s*2\\s*0f\\b",
+                        "Soldier of"
+                );
+
+        bestLine =
+                bestLine.replaceAll(
+                        "\\s+",
+                        " "
+                ).trim();
+
+        bestLine =
+                capitalizeFirstLetter(
+                        bestLine
+                );
+
+        return bestLine;
+    }
+
+    private String capitalizeFirstLetter(
+            String text
+    ) {
+
+        if (text == null ||
+                text.isEmpty()) {
+
+            return text;
+        }
+
+        char[] chars =
+                text.toCharArray();
+
+        for (int i = 0;
+             i < chars.length;
+             i++) {
+
+            if (Character.isLetter(
+                    chars[i]
+            )) {
+
+                chars[i] =
+                        Character.toUpperCase(
+                                chars[i]
+                        );
+
+                break;
+            }
+        }
+
+        return new String(chars);
+    }
+
+    private void checkOCRFinished(
+            String[] results
+    ) {
+
+        if (results[0] == null ||
+                results[1] == null ||
+                results[2] == null) {
+
+            return;
+        }
+
+        showThreeCards(results);
+
+        processing = false;
+    }
+
+    /*
+     * ============================================================
+     * KORTIT + ARENAADVISOR
+     * ============================================================
+     */
+
+    private void showThreeCards(
+            String[] results
+    ) {
+
+        String card1 =
+                results[0] == null ||
+                        results[0].isEmpty()
+                        ? "Ei tunnistettu"
+                        : results[0];
+
+        String card2 =
+                results[1] == null ||
+                        results[1].isEmpty()
+                        ? "Ei tunnistettu"
+                        : results[1];
+
+        String card3 =
+                results[2] == null ||
+                        results[2].isEmpty()
+                        ? "Ei tunnistettu"
+                        : results[2];
+
+        /*
+         * Lasketaan jokaisen kortin pisteet erikseen.
+         */
+        String score1 =
+                ArenaAdvisor.getCardScore(card1);
+
+        String score2 =
+                ArenaAdvisor.getCardScore(card2);
+
+        String score3 =
+                ArenaAdvisor.getCardScore(card3);
+
+        /*
+         * Lähetetään kortit ArenaAdvisorille
+         * parhaan kortin löytämistä varten.
+         */
+        String recommendation;
+
+        try {
+
+            recommendation =
+                    ArenaAdvisor.recommend(
+                            card1,
+                            card2,
+                            card3
+                    );
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "ArenaAdvisor error",
+                    e
+            );
+
+            recommendation =
+                    "Suositusta ei voitu laskea";
+        }
+
+        if (recommendation == null ||
+                recommendation.trim().isEmpty()) {
+
+            recommendation =
+                    "Ei suositusta";
+        }
+
+        /*
+         * Näytetään nyt kaikkien kolmen kortin
+         * nimi + pisteet.
+         */
+        String display =
+                "KORTTI 1: " +
+                        card1 +
+                        "\nARVO: " +
+                        score1 +
+                        "/10" +
+
+                        "\n\n" +
+
+                        "KORTTI 2: " +
+                        card2 +
+                        "\nARVO: " +
+                        score2 +
+                        "/10" +
+
+                        "\n\n" +
+
+                        "KORTTI 3: " +
+                        card3 +
+                        "\nARVO: " +
+                        score3 +
+                        "/10" +
+
+                        "\n\n" +
+
+                        "--------------------" +
+                        "\n\n" +
+
+                        "SUOSITUS:\n" +
+                        recommendation;
+
+        updateOverlay(display);
+
+        Log.d(
                 TAG,
-                "Bitmap conversion failed",
-                e
+                "CARD 1: " +
+                        card1 +
+                        " SCORE=" +
+                        score1
         );
+
+        Log.d(
+                TAG,
+                "CARD 2: " +
+                        card2 +
+                        " SCORE=" +
+                        score2
+        );
+
+        Log.d(
+                TAG,
+                "CARD 3: " +
+                        card3 +
+                        " SCORE=" +
+                        score3
+        );
+
+        Log.d(
+                TAG,
+                "ARENA ADVISOR: " +
+                        recommendation
+        );
+    }
+
+    private Bitmap imageToBitmap(
+            Image image
+    ) {
+
+        try {
+
+            Image.Plane[] planes =
+                    image.getPlanes();
+
+            if (planes.length == 0) {
+                return null;
+            }
+
+            ByteBuffer buffer =
+                    planes[0].getBuffer();
+
+            int pixelStride =
+                    planes[0].getPixelStride();
+
+            int rowStride =
+                    planes[0].getRowStride();
+
+            int rowPadding =
+                    rowStride -
+                            pixelStride *
+                                    image.getWidth();
+
+            int bitmapWidth =
+                    image.getWidth() +
+                            rowPadding /
+                                    pixelStride;
+
+            Bitmap bitmap =
+                    Bitmap.createBitmap(
+                            bitmapWidth,
+                            image.getHeight(),
+                            Bitmap.Config.ARGB_8888
+                    );
+
+            buffer.rewind();
+
+            bitmap.copyPixelsFromBuffer(
+                    buffer
+            );
+
+            return bitmap;
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Bitmap conversion failed",
+                    e
+            );
+
+            return null;
+        }
+    }
+
+    private void createNotificationChannel() {
+
+        if (Build.VERSION.SDK_INT >=
+                Build.VERSION_CODES.O) {
+
+            NotificationChannel channel =
+                    new NotificationChannel(
+                            CHANNEL_ID,
+                            "Arena Helper",
+                            NotificationManager
+                                    .IMPORTANCE_LOW
+                    );
+
+            channel.setDescription(
+                    "Arena Helper screen capture"
+            );
+
+            NotificationManager manager =
+                    getSystemService(
+                            NotificationManager.class
+                    );
+
+            if (manager != null) {
+
+                manager.createNotificationChannel(
+                        channel
+                );
+            }
+        }
+    }
+
+    private Notification createNotification() {
+
+        return new NotificationCompat.Builder(
+                this,
+                CHANNEL_ID
+        )
+                .setContentTitle(
+                        "Arena Helper"
+                )
+                .setContentText(
+                        "Näytönjako käynnissä"
+                )
+                .setSmallIcon(
+                        android.R.drawable.ic_menu_view
+                )
+                .setOngoing(true)
+                .build();
+    }
+
+    @Override
+    public void onDestroy() {
+
+        if (mediaProjection != null &&
+                mediaProjectionCallback != null) {
+
+            try {
+
+                mediaProjection.unregisterCallback(
+                        mediaProjectionCallback
+                );
+
+            } catch (Exception ignored) {
+            }
+
+            mediaProjectionCallback = null;
+        }
+
+        if (overlayText != null &&
+                windowManager != null) {
+
+            try {
+
+                windowManager.removeView(
+                        overlayText
+                );
+
+            } catch (Exception ignored) {
+            }
+
+            overlayText = null;
+        }
+
+        if (imageReader != null) {
+
+            try {
+                imageReader.close();
+            } catch (Exception ignored) {
+            }
+
+            imageReader = null;
+        }
+
+        if (mediaProjection != null) {
+
+            try {
+                mediaProjection.stop();
+            } catch (Exception ignored) {
+            }
+
+            mediaProjection = null;
+        }
+
+        if (recognizer != null) {
+
+            try {
+                recognizer.close();
+            } catch (Exception ignored) {
+            }
+
+            recognizer = null;
+        }
+
+        super.onDestroy();
+    }
+
+    @Nullable
+    @Override
+    public IBinder onBind(
+            Intent intent
+    ) {
 
         return null;
     }
-}
-
-private void createNotificationChannel() {
-
-    if (Build.VERSION.SDK_INT >=
-            Build.VERSION_CODES.O) {
-
-        NotificationChannel channel =
-                new NotificationChannel(
-                        CHANNEL_ID,
-                        "Arena Helper",
-                        NotificationManager
-                                .IMPORTANCE_LOW
-                );
-
-        channel.setDescription(
-                "Arena Helper screen capture"
-        );
-
-        NotificationManager manager =
-                getSystemService(
-                        NotificationManager.class
-                );
-
-        if (manager != null) {
-
-            manager.createNotificationChannel(
-                    channel
-            );
-        }
-    }
-}
-
-private Notification createNotification() {
-
-    return new NotificationCompat.Builder(
-            this,
-            CHANNEL_ID
-    )
-            .setContentTitle(
-                    "Arena Helper"
-            )
-            .setContentText(
-                    "Näytönjako käynnissä"
-            )
-            .setSmallIcon(
-                    android.R.drawable.ic_menu_view
-            )
-            .setOngoing(true)
-            .build();
-}
-
-@Override
-public void onDestroy() {
-
-    if (mediaProjection != null &&
-            mediaProjectionCallback != null) {
-
-        try {
-
-            mediaProjection.unregisterCallback(
-                    mediaProjectionCallback
-            );
-
-        } catch (Exception ignored) {
-        }
-
-        mediaProjectionCallback = null;
-    }
-
-    if (overlayText != null &&
-            windowManager != null) {
-
-        try {
-
-            windowManager.removeView(
-                    overlayText
-            );
-
-        } catch (Exception ignored) {
-        }
-
-        overlayText = null;
-    }
-
-    if (imageReader != null) {
-
-        try {
-            imageReader.close();
-        } catch (Exception ignored) {
-        }
-
-        imageReader = null;
-    }
-
-    if (mediaProjection != null) {
-
-        try {
-            mediaProjection.stop();
-        } catch (Exception ignored) {
-        }
-
-        mediaProjection = null;
-    }
-
-    if (recognizer != null) {
-
-        try {
-            recognizer.close();
-        } catch (Exception ignored) {
-        }
-
-        recognizer = null;
-    }
-
-    super.onDestroy();
-}
-
-@Nullable
-@Override
-public IBinder onBind(
-        Intent intent
-) {
-
-    return null;
-}
-
 }
