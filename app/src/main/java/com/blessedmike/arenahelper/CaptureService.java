@@ -18,9 +18,11 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.util.DisplayMetrics;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
@@ -36,7 +38,11 @@ import java.util.Locale;
 
 public class CaptureService extends Service {
 
-    private static final String CHANNEL_ID = "arena_helper_channel";
+    private static final String TAG = "ArenaHelper";
+
+    private static final String CHANNEL_ID =
+            "arena_helper_channel";
+
     private static final int OCR_INTERVAL = 1500;
     private static final int CARD_CONFIRMATIONS = 2;
     private static final int OFFER_CONFIRMATIONS = 2;
@@ -97,35 +103,199 @@ public class CaptureService extends Service {
 
         super.onCreate();
 
-        createNotificationChannel();
+        Log.d(TAG, "CaptureService onCreate START");
 
-        Notification notification =
-                new NotificationCompat.Builder(
-                        this,
-                        CHANNEL_ID
-                )
-                        .setContentTitle("Arena Helper")
-                        .setContentText("Avustaja aktiivinen")
-                        .setSmallIcon(
-                                android.R.drawable
-                                        .ic_menu_info_details
-                        )
-                        .setOngoing(true)
-                        .build();
+        try {
 
-        startForeground(
-                1,
-                notification
-        );
+            /*
+             * Luodaan overlay ensin diagnostiikkaa varten.
+             * Jos startForeground() kaatuu, näemme virheen.
+             */
+            createOverlay();
 
-        recognizer =
-                TextRecognition.getClient(
-                        TextRecognizerOptions.DEFAULT_OPTIONS
+            showStatus(
+                    "ARENA HELPER\n\n" +
+                    "Palvelu käynnistyy..."
+            );
+
+        } catch (Exception e) {
+
+            showFatalError(
+                    "createOverlay() VIRHE",
+                    e
+            );
+
+            return;
+        }
+
+        try {
+
+            createNotificationChannel();
+
+            Notification notification =
+                    new NotificationCompat.Builder(
+                            this,
+                            CHANNEL_ID
+                    )
+                            .setContentTitle(
+                                    "Arena Helper"
+                            )
+                            .setContentText(
+                                    "Avustaja aktiivinen"
+                            )
+                            .setSmallIcon(
+                                    android.R.drawable
+                                            .ic_menu_info_details
+                            )
+                            .setOngoing(true)
+                            .build();
+
+            Log.d(
+                    TAG,
+                    "Calling startForeground()"
+            );
+
+            startForeground(
+                    1,
+                    notification
+            );
+
+            Log.d(
+                    TAG,
+                    "startForeground() OK"
+            );
+
+            showStatus(
+                    "ARENA HELPER\n\n" +
+                    "Avustaja aktiivinen\n" +
+                    "Käynnistetään näytön kaappaus..."
+            );
+
+        } catch (Exception e) {
+
+            showFatalError(
+                    "startForeground() VIRHE",
+                    e
+            );
+
+            return;
+        }
+
+        try {
+
+            recognizer =
+                    TextRecognition.getClient(
+                            TextRecognizerOptions
+                                    .DEFAULT_OPTIONS
+                    );
+
+            Log.d(
+                    TAG,
+                    "ML Kit recognizer OK"
+            );
+
+        } catch (Exception e) {
+
+            showFatalError(
+                    "ML Kit VIRHE",
+                    e
+            );
+
+            return;
+        }
+
+        try {
+
+            startCapture();
+
+            Log.d(
+                    TAG,
+                    "startCapture() OK"
+            );
+
+            showStatus(
+                    "ARENA HELPER\n\n" +
+                    "Avustaja aktiivinen\n\n" +
+                    "Kortteja luetaan..."
+            );
+
+        } catch (Exception e) {
+
+            showFatalError(
+                    "startCapture() VIRHE",
+                    e
+            );
+        }
+    }
+
+    private void showStatus(
+            String message
+    ) {
+
+        if (overlayView != null) {
+
+            try {
+
+                overlayView.setText(
+                        message
                 );
 
-        createOverlay();
+            } catch (Exception ignored) {
+            }
+        }
+    }
 
-        startCapture();
+    private void showFatalError(
+            String where,
+            Exception e
+    ) {
+
+        String message =
+                e.getClass().getSimpleName();
+
+        if (e.getMessage() != null &&
+                !e.getMessage().isEmpty()) {
+
+            message +=
+                    "\n" +
+                    e.getMessage();
+        }
+
+        Log.e(
+                TAG,
+                where + ": " + message,
+                e
+        );
+
+        String display =
+                "ARENA HELPER\n\n" +
+                "VIRHE:\n" +
+                where +
+                "\n\n" +
+                message;
+
+        if (overlayView != null) {
+
+            try {
+
+                overlayView.setText(
+                        display
+                );
+
+            } catch (Exception ignored) {
+            }
+        }
+
+        try {
+
+            Toast.makeText(
+                    getApplicationContext(),
+                    where + ": " + message,
+                    Toast.LENGTH_LONG
+            ).show();
+
+        } catch (Exception ignored) {
+        }
     }
 
     private void createNotificationChannel() {
@@ -137,7 +307,8 @@ public class CaptureService extends Service {
                     new NotificationChannel(
                             CHANNEL_ID,
                             "Arena Helper",
-                            NotificationManager.IMPORTANCE_LOW
+                            NotificationManager
+                                    .IMPORTANCE_LOW
                     );
 
             NotificationManager manager =
@@ -147,6 +318,7 @@ public class CaptureService extends Service {
                             );
 
             if (manager != null) {
+
                 manager.createNotificationChannel(
                         channel
                 );
@@ -162,17 +334,30 @@ public class CaptureService extends Service {
                                 WINDOW_SERVICE
                         );
 
+        if (windowManager == null) {
+
+            throw new IllegalStateException(
+                    "WindowManager == null"
+            );
+        }
+
         overlayView =
                 new TextView(this);
 
         overlayView.setText(
                 "ARENA HELPER\n\n" +
-                "Kortteja luetaan..."
+                "Käynnistyy..."
         );
 
         overlayView.setTextSize(13);
-        overlayView.setTextColor(0xFFFFFFFF);
-        overlayView.setBackgroundColor(0xCC000000);
+        overlayView.setTextColor(
+                0xFFFFFFFF
+        );
+
+        overlayView.setBackgroundColor(
+                0xCC000000
+        );
+
         overlayView.setPadding(
                 18,
                 18,
@@ -226,19 +411,24 @@ public class CaptureService extends Service {
         params.x = 20;
         params.y = 100;
 
-        if (windowManager != null) {
-
-            windowManager.addView(
-                    overlayView,
-                    params
-            );
-        }
+        windowManager.addView(
+                overlayView,
+                params
+        );
     }
 
     private void startCapture() {
 
+        Log.d(
+                TAG,
+                "startCapture() START"
+        );
+
         if (projectionData == null) {
-            return;
+
+            throw new IllegalStateException(
+                    "projectionData == null"
+            );
         }
 
         MediaProjectionManager manager =
@@ -248,8 +438,16 @@ public class CaptureService extends Service {
                         );
 
         if (manager == null) {
-            return;
+
+            throw new IllegalStateException(
+                    "MediaProjectionManager == null"
+            );
         }
+
+        Log.d(
+                TAG,
+                "Getting MediaProjection"
+        );
 
         mediaProjection =
                 manager.getMediaProjection(
@@ -258,8 +456,16 @@ public class CaptureService extends Service {
                 );
 
         if (mediaProjection == null) {
-            return;
+
+            throw new IllegalStateException(
+                    "MediaProjection == null"
+            );
         }
+
+        Log.d(
+                TAG,
+                "MediaProjection OK"
+        );
 
         DisplayMetrics metrics =
                 getResources()
@@ -274,6 +480,16 @@ public class CaptureService extends Service {
         int density =
                 metrics.densityDpi;
 
+        Log.d(
+                TAG,
+                "Display: " +
+                        width +
+                        "x" +
+                        height +
+                        " density=" +
+                        density
+        );
+
         imageReader =
                 ImageReader.newInstance(
                         width,
@@ -281,6 +497,11 @@ public class CaptureService extends Service {
                         PixelFormat.RGBA_8888,
                         2
                 );
+
+        Log.d(
+                TAG,
+                "ImageReader OK"
+        );
 
         virtualDisplay =
                 mediaProjection.createVirtualDisplay(
@@ -295,10 +516,27 @@ public class CaptureService extends Service {
                         handler
                 );
 
+        if (virtualDisplay == null) {
+
+            throw new IllegalStateException(
+                    "VirtualDisplay == null"
+            );
+        }
+
+        Log.d(
+                TAG,
+                "VirtualDisplay OK"
+        );
+
         imageReader.setOnImageAvailableListener(
                 reader ->
                         processLatestImage(reader),
                 handler
+        );
+
+        Log.d(
+                TAG,
+                "ImageReader listener OK"
         );
     }
 
@@ -343,6 +581,12 @@ public class CaptureService extends Service {
             runOCR(bitmap);
 
         } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "processLatestImage error",
+                    e
+            );
 
             try {
                 image.close();
@@ -593,6 +837,12 @@ public class CaptureService extends Service {
 
                 })
                 .addOnFailureListener(e -> {
+
+                    Log.e(
+                            TAG,
+                            "OCR failure",
+                            e
+                    );
 
                     results[index] =
                             getStableCard(index);
