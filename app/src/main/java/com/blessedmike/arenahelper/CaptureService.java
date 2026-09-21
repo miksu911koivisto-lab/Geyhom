@@ -237,7 +237,6 @@ public class CaptureService extends Service {
                             );
 
             if (projectionManager == null) {
-
                 throw new IllegalStateException(
                         "MediaProjectionManager puuttuu"
                 );
@@ -250,7 +249,6 @@ public class CaptureService extends Service {
                     );
 
             if (mediaProjection == null) {
-
                 throw new IllegalStateException(
                         "MediaProjection on null"
                 );
@@ -321,7 +319,7 @@ public class CaptureService extends Service {
             updateOverlay(
                     "Arena Helper\n\n" +
                             "Näytönjako käynnissä\n" +
-                            "Etsitään korttien nimiä..."
+                            "Etsitään kortteja..."
             );
 
         } catch (Exception e) {
@@ -395,18 +393,11 @@ public class CaptureService extends Service {
             image = null;
 
             if (bitmap == null) {
-
                 processing = false;
                 return;
             }
 
-            Bitmap arenaBitmap = cropArenaCards(bitmap);
-
-            if (arenaBitmap != bitmap) {
-                bitmap.recycle();
-            }
-
-            processThreeCards(arenaBitmap);
+            processThreeCards(bitmap);
 
         } catch (Exception e) {
 
@@ -425,57 +416,23 @@ public class CaptureService extends Service {
     }
 
     /*
-     * Rajataan ensin Hearthstonen Arena-valinnan
-     * keskialue.
+     * Näyttö: 2640 x 1200
+     *
+     * Korttien nimiä varten käytämme nyt
+     * koko näyttöä emmekä aiempaa 10%-90% cropia.
+     *
+     * Korttialue on tarkoituksella hieman leveämpi,
+     * jotta itse korttien reunat eivät leikkaannu.
      */
-    private Bitmap cropArenaCards(Bitmap source) {
+    private void processThreeCards(Bitmap source) {
 
         int width = source.getWidth();
         int height = source.getHeight();
 
-        int left = (int) (width * 0.10f);
-        int top = (int) (height * 0.12f);
-        int right = (int) (width * 0.90f);
-        int bottom = (int) (height * 0.92f);
-
-        int cropWidth = right - left;
-        int cropHeight = bottom - top;
-
-        if (cropWidth <= 0 || cropHeight <= 0) {
-            return source;
-        }
-
-        try {
-
-            return Bitmap.createBitmap(
-                    source,
-                    left,
-                    top,
-                    cropWidth,
-                    cropHeight
-            );
-
-        } catch (Exception e) {
-
-            Log.e(
-                    TAG,
-                    "Arena crop failed",
-                    e
-            );
-
-            return source;
-        }
-    }
-
-    /*
-     * Jaetaan Arena-alue kolmeen korttiin.
-     */
-    private void processThreeCards(Bitmap arenaBitmap) {
-
-        int width = arenaBitmap.getWidth();
-        int height = arenaBitmap.getHeight();
-
-        int cardWidth = width / 3;
+        Log.d(
+                TAG,
+                "SCREEN: " + width + "x" + height
+        );
 
         Bitmap card1 = null;
         Bitmap card2 = null;
@@ -483,37 +440,60 @@ public class CaptureService extends Service {
 
         try {
 
+            /*
+             * Kolme korttia:
+             *
+             * Kortti 1:
+             * noin 10% - 36%
+             *
+             * Kortti 2:
+             * noin 37% - 63%
+             *
+             * Kortti 3:
+             * noin 64% - 90%
+             *
+             * Yläosassa otetaan vain kortin nimi.
+             */
+
+            int x1 = (int) (width * 0.08f);
+            int x2 = (int) (width * 0.37f);
+            int x3 = (int) (width * 0.66f);
+
+            int w1 = (int) (width * 0.27f);
+            int w2 = (int) (width * 0.27f);
+            int w3 = (int) (width * 0.27f);
+
+            /*
+             * Korttien y-sijainti.
+             *
+             * Nimi sijaitsee kortin yläosassa.
+             */
+            int top = (int) (height * 0.15f);
+            int cardHeight = (int) (height * 0.65f);
+
             card1 = Bitmap.createBitmap(
-                    arenaBitmap,
-                    0,
-                    0,
-                    cardWidth,
-                    height
+                    source,
+                    x1,
+                    top,
+                    Math.min(w1, width - x1),
+                    Math.min(cardHeight, height - top)
             );
 
             card2 = Bitmap.createBitmap(
-                    arenaBitmap,
-                    cardWidth,
-                    0,
-                    cardWidth,
-                    height
+                    source,
+                    x2,
+                    top,
+                    Math.min(w2, width - x2),
+                    Math.min(cardHeight, height - top)
             );
 
             card3 = Bitmap.createBitmap(
-                    arenaBitmap,
-                    cardWidth * 2,
-                    0,
-                    width - cardWidth * 2,
-                    height
+                    source,
+                    x3,
+                    top,
+                    Math.min(w3, width - x3),
+                    Math.min(cardHeight, height - top)
             );
-
-            /*
-             * TÄRKEÄ MUUTOS:
-             *
-             * Emme enää anna koko korttia OCR:lle.
-             * Otamme jokaisesta kortista vain
-             * nimen sisältävän yläosan.
-             */
 
             Bitmap name1 = cropCardName(card1);
             Bitmap name2 = cropCardName(card2);
@@ -529,7 +509,7 @@ public class CaptureService extends Service {
                     name3
             );
 
-            arenaBitmap.recycle();
+            source.recycle();
 
         } catch (Exception e) {
 
@@ -551,32 +531,34 @@ public class CaptureService extends Service {
                 card3.recycle();
             }
 
-            arenaBitmap.recycle();
+            if (!source.isRecycled()) {
+                source.recycle();
+            }
 
             processing = false;
         }
     }
 
     /*
-     * Rajataan yksittäisestä kortista vain
-     * kortin nimen alue.
+     * Otetaan kortista vain yläosa.
      *
-     * X:
-     * jätetään vähän reunoja pois.
+     * Tärkeää:
+     * Hearthstone-kortin nimi on kortin yläreunan
+     * keskivaiheilla.
      *
-     * Y:
-     * otetaan vain kortin yläosa.
+     * Emme halua mana-arvoa, kortin tekstiä,
+     * hyökkäystä tai healthia.
      */
     private Bitmap cropCardName(Bitmap card) {
 
         int width = card.getWidth();
         int height = card.getHeight();
 
-        int left = (int) (width * 0.08f);
-        int top = (int) (height * 0.04f);
+        int left = (int) (width * 0.15f);
+        int top = (int) (height * 0.00f);
 
-        int right = (int) (width * 0.92f);
-        int bottom = (int) (height * 0.27f);
+        int right = (int) (width * 0.85f);
+        int bottom = (int) (height * 0.20f);
 
         int cropWidth = right - left;
         int cropHeight = bottom - top;
@@ -652,16 +634,14 @@ public class CaptureService extends Service {
                             result = "";
                         }
 
-                        /*
-                         * Nyt OCR:n pitäisi nähdä
-                         * pääasiassa vain kortin nimi.
-                         */
                         result =
                                 cleanCardName(result);
 
                         results[index] = result;
 
-                        bitmap.recycle();
+                        if (!bitmap.isRecycled()) {
+                            bitmap.recycle();
+                        }
 
                         if (index == 0) {
 
@@ -702,7 +682,9 @@ public class CaptureService extends Service {
 
                         results[index] = "";
 
-                        bitmap.recycle();
+                        if (!bitmap.isRecycled()) {
+                            bitmap.recycle();
+                        }
 
                         if (index == 0) {
 
@@ -743,16 +725,14 @@ public class CaptureService extends Service {
 
             results[index] = "";
 
-            bitmap.recycle();
+            if (!bitmap.isRecycled()) {
+                bitmap.recycle();
+            }
 
             processing = false;
         }
     }
 
-    /*
-     * Puhdistetaan OCR-tulos niin, että overlayyn
-     * tulee vain ensimmäinen järkevä tekstirivi.
-     */
     private String cleanCardName(String text) {
 
         if (text == null) {
@@ -783,11 +763,6 @@ public class CaptureService extends Service {
 
             if (letters >= 2) {
 
-                /*
-                 * Jos OCR kuitenkin palauttaa
-                 * useamman rivin, otetaan vain
-                 * ensimmäinen järkevä rivi.
-                 */
                 return line;
             }
         }
@@ -795,9 +770,6 @@ public class CaptureService extends Service {
         return "";
     }
 
-    /*
-     * Overlay näyttää nyt VAIN nimet.
-     */
     private void showThreeCards(String[] results) {
 
         String card1 =
