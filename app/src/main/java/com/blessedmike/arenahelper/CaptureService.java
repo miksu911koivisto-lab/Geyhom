@@ -647,11 +647,7 @@ public class CaptureService extends Service {
 
         text = text.trim();
 
-        /*
-         * AINOA uusi korjaus:
-         * Spellweaver&#039;s Brilliance
-         * -> Spellweaver's Brilliance
-         */
+        // Ainoa muutos: korjaa HTML-entiteetin heittomerkiksi.
         text = text.replace("&#039;", "'");
 
         text = text.replaceAll(
@@ -680,6 +676,7 @@ public class CaptureService extends Service {
         } catch (Exception ignored) {
         }
 
+        // Sama korjaus myös correctOcr:n jälkeen.
         text = text.replace("&#039;", "'");
 
         text = text.replaceAll(
@@ -764,9 +761,7 @@ public class CaptureService extends Service {
                 ""
         );
 
-        /*
-         * AINOA OCR-nimeen liittyvä lisäys:
-         */
+        // Ainoa muutos tässä metodissa.
         best = best.replace("&#039;", "'");
 
         if (!best.isEmpty()) {
