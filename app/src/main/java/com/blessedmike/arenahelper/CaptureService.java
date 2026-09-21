@@ -7,41 +7,19 @@ import android.app.Service;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
-import android.hardware.display.DisplayManager;
-import android.hardware.display.VirtualDisplay;
-import android.media.Image;
-import android.media.ImageReader;
-import android.media.projection.MediaProjection;
-import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.provider.Settings;
-import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.TextView;
 
 public class CaptureService extends Service {
 
-    private static final String CHANNEL = "arena_helper";
+    private static final String CHANNEL_ID = "arena_helper";
 
-    private static int projectionResultCode;
-    private static Intent projectionData;
-
-    private WindowManager wm;
+    private WindowManager windowManager;
     private TextView overlay;
-
-    private MediaProjection mediaProjection;
-    private VirtualDisplay virtualDisplay;
-    private ImageReader imageReader;
-
-    public static void setProjectionData(
-            int resultCode,
-            Intent data) {
-
-        projectionResultCode = resultCode;
-        projectionData = data;
-    }
 
     @Override
     public void onCreate() {
@@ -49,40 +27,31 @@ public class CaptureService extends Service {
 
         createNotificationChannel();
 
-        Notification.Builder builder;
+        Notification notification;
 
-        if (Build.VERSION.SDK_INT >= 26) {
-            builder = new Notification.Builder(
-                    this,
-                    CHANNEL
-            );
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            notification = new Notification.Builder(this, CHANNEL_ID)
+                    .setContentTitle("Arena Helper")
+                    .setContentText("Arena Helper on aktiivinen")
+                    .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                    .build();
         } else {
-            builder = new Notification.Builder(this);
+            notification = new Notification.Builder(this)
+                    .setContentTitle("Arena Helper")
+                    .setContentText("Arena Helper on aktiivinen")
+                    .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                    .build();
         }
 
-        builder.setContentTitle("Arena Helper")
-                .setContentText(
-                        "Arena Helper on päällä"
-                )
-                .setSmallIcon(
-                        android.R.drawable.ic_menu_info_details
-                );
-
-        if (Build.VERSION.SDK_INT >= 29) {
-
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
-                    10,
-                    builder.build(),
+                    1,
+                    notification,
                     android.content.pm.ServiceInfo
                             .FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             );
-
         } else {
-
-            startForeground(
-                    10,
-                    builder.build()
-            );
+            startForeground(1, notification);
         }
 
         showOverlay();
@@ -90,97 +59,83 @@ public class CaptureService extends Service {
 
     private void createNotificationChannel() {
 
-        if (Build.VERSION.SDK_INT >= 26) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
 
             NotificationChannel channel =
                     new NotificationChannel(
-                            CHANNEL,
+                            CHANNEL_ID,
                             "Arena Helper",
                             NotificationManager.IMPORTANCE_LOW
                     );
 
             NotificationManager manager =
-                    getSystemService(
-                            NotificationManager.class
-                    );
+                    getSystemService(NotificationManager.class);
 
             if (manager != null) {
-                manager.createNotificationChannel(
-                        channel
-                );
+                manager.createNotificationChannel(channel);
             }
         }
     }
 
     private void showOverlay() {
 
-        if (Build.VERSION.SDK_INT >= 23
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
                 && !Settings.canDrawOverlays(this)) {
 
             return;
         }
 
-        wm = (WindowManager)
-                getSystemService(WINDOW_SERVICE);
+        windowManager =
+                (WindowManager) getSystemService(WINDOW_SERVICE);
 
-        if (wm == null) {
+        if (windowManager == null) {
             return;
         }
 
         overlay = new TextView(this);
 
-        overlay.setText(
-                "Arena Helper\n"
-                        + "Käynnistetään..."
-        );
-
+        overlay.setText("ARENA HELPER\n\nAVUSTAJA AKTIIVINEN");
         overlay.setTextColor(Color.WHITE);
-        overlay.setTextSize(16);
+        overlay.setTextSize(18);
+        overlay.setGravity(Gravity.CENTER);
 
         overlay.setPadding(
+                40,
                 30,
-                20,
-                30,
-                20
+                40,
+                30
         );
 
-        overlay.setBackgroundColor(
-                0xDD222222
-        );
+        overlay.setBackgroundColor(0xEE222222);
 
-        int type;
+        int windowType;
 
-        if (Build.VERSION.SDK_INT >= 26) {
-
-            type =
-                    WindowManager.LayoutParams
-                            .TYPE_APPLICATION_OVERLAY;
-
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            windowType =
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
         } else {
-
-            type =
-                    WindowManager.LayoutParams
-                            .TYPE_PHONE;
+            windowType =
+                    WindowManager.LayoutParams.TYPE_PHONE;
         }
 
         WindowManager.LayoutParams params =
                 new WindowManager.LayoutParams(
                         WindowManager.LayoutParams.WRAP_CONTENT,
                         WindowManager.LayoutParams.WRAP_CONTENT,
-                        type,
-                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                        windowType,
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                                | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
                         PixelFormat.TRANSLUCENT
                 );
 
         params.gravity =
-                Gravity.TOP
-                        | Gravity.CENTER_HORIZONTAL;
+                Gravity.TOP | Gravity.CENTER_HORIZONTAL;
 
         params.y = 150;
 
         try {
 
-            wm.addView(
+            windowManager.addView(
                     overlay,
                     params
             );
@@ -191,180 +146,23 @@ public class CaptureService extends Service {
         }
     }
 
-    private void updateOverlay(String text) {
-
-        if (overlay != null) {
-
-            overlay.post(
-                    () -> overlay.setText(text)
-            );
-        }
-    }
-
     @Override
     public int onStartCommand(
             Intent intent,
             int flags,
             int startId) {
 
-        if (projectionData == null
-                || projectionResultCode == 0) {
-
-            updateOverlay(
-                    "Arena Helper\n"
-                            + "Näytön kaappaus ei onnistunut"
-            );
-
-            return START_NOT_STICKY;
-        }
-
-        startScreenCapture();
-
         return START_STICKY;
-    }
-
-    private void startScreenCapture() {
-
-        MediaProjectionManager manager =
-                (MediaProjectionManager)
-                        getSystemService(
-                                MEDIA_PROJECTION_SERVICE
-                        );
-
-        if (manager == null) {
-
-            updateOverlay(
-                    "Arena Helper\n"
-                            + "MediaProjection ei saatavilla"
-            );
-
-            return;
-        }
-
-        try {
-
-            mediaProjection =
-                    manager.getMediaProjection(
-                            projectionResultCode,
-                            projectionData
-                    );
-
-        } catch (Exception e) {
-
-            updateOverlay(
-                    "Arena Helper\n"
-                            + "MediaProjection epäonnistui"
-            );
-
-            e.printStackTrace();
-
-            return;
-        }
-
-        if (mediaProjection == null) {
-
-            updateOverlay(
-                    "Arena Helper\n"
-                            + "MediaProjection epäonnistui"
-            );
-
-            return;
-        }
-
-        DisplayMetrics metrics =
-                getResources().getDisplayMetrics();
-
-        int width = metrics.widthPixels;
-        int height = metrics.heightPixels;
-        int density = metrics.densityDpi;
-
-        imageReader = ImageReader.newInstance(
-                width,
-                height,
-                PixelFormat.RGBA_8888,
-                2
-        );
-
-        imageReader.setOnImageAvailableListener(
-                reader -> {
-
-                    Image image = null;
-
-                    try {
-
-                        image =
-                                reader.acquireLatestImage();
-
-                        if (image != null) {
-
-                            updateOverlay(
-                                    "Arena Helper\n"
-                                            + "Kuvakaappaus aktiivinen ✓\n"
-                                            + width
-                                            + " × "
-                                            + height
-                            );
-                        }
-
-                    } catch (Exception e) {
-
-                        e.printStackTrace();
-
-                    } finally {
-
-                        if (image != null) {
-                            image.close();
-                        }
-                    }
-
-                },
-                null
-        );
-
-        virtualDisplay =
-                mediaProjection.createVirtualDisplay(
-                        "ArenaHelperCapture",
-                        width,
-                        height,
-                        density,
-                        DisplayManager
-                                .VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                        imageReader.getSurface(),
-                        null,
-                        null
-                );
-
-        updateOverlay(
-                "Arena Helper\n"
-                        + "Kuvakaappaus käynnistyy..."
-        );
     }
 
     @Override
     public void onDestroy() {
 
-        if (virtualDisplay != null) {
-
-            virtualDisplay.release();
-            virtualDisplay = null;
-        }
-
-        if (imageReader != null) {
-
-            imageReader.close();
-            imageReader = null;
-        }
-
-        if (mediaProjection != null) {
-
-            mediaProjection.stop();
-            mediaProjection = null;
-        }
-
-        if (wm != null && overlay != null) {
+        if (windowManager != null
+                && overlay != null) {
 
             try {
-                wm.removeView(overlay);
+                windowManager.removeView(overlay);
             } catch (Exception ignored) {
             }
 
