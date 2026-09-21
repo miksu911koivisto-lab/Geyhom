@@ -6,6 +6,7 @@ import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
@@ -47,9 +48,10 @@ public class CaptureService extends Service {
     private Handler handler;
     private boolean processing = false;
 
-    // Overlay
     private WindowManager windowManager;
     private TextView overlayText;
+
+    private MediaProjection.Callback mediaProjectionCallback;
 
     public static void setProjectionData(int resultCode, Intent data) {
         projectionResultCode = resultCode;
@@ -68,7 +70,6 @@ public class CaptureService extends Service {
 
         createNotificationChannel();
 
-        // Luo Arena Helper -popup
         createOverlay();
 
         Log.d(TAG, "Arena Helper CaptureService started");
@@ -77,19 +78,63 @@ public class CaptureService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
 
-        startForeground(
-                1001,
-                createNotification()
-        );
+        try {
 
-        if (projectionData != null) {
-            startScreenCapture();
-        } else {
-            Log.e(TAG, "Projection data is missing");
-            updateOverlay("Arena Helper\n\nNäytönjako puuttuu");
+            Notification notification =
+                    createNotification();
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+
+                startForeground(
+                        1001,
+                        notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                );
+
+            } else {
+
+                startForeground(
+                        1001,
+                        notification
+                );
+            }
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Foreground service start failed",
+                    e
+            );
+
+            updateOverlay(
+                    "Arena Helper\n\n" +
+                            "Foreground Service -virhe"
+            );
+
+            stopSelf();
+
+            return START_NOT_STICKY;
         }
 
-        return START_STICKY;
+        if (projectionData != null) {
+
+            startScreenCapture();
+
+        } else {
+
+            Log.e(
+                    TAG,
+                    "Projection data is missing"
+            );
+
+            updateOverlay(
+                    "Arena Helper\n\n" +
+                            "Näytönjako puuttuu"
+            );
+        }
+
+        return START_NOT_STICKY;
     }
 
     private void createOverlay() {
@@ -109,12 +154,14 @@ public class CaptureService extends Service {
             overlayText = new TextView(this);
 
             overlayText.setText(
-                    "Arena Helper\n\nNäytönjako käynnissä"
+                    "Arena Helper\n\n" +
+                            "Näytönjako käynnissä"
             );
 
             overlayText.setTextColor(Color.WHITE);
             overlayText.setTextSize(14);
             overlayText.setGravity(Gravity.CENTER);
+
             overlayText.setPadding(
                     25,
                     15,
@@ -134,9 +181,12 @@ public class CaptureService extends Service {
             int overlayType;
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+
                 overlayType =
                         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
+
             } else {
+
                 overlayType =
                         WindowManager.LayoutParams.TYPE_PHONE;
             }
@@ -153,7 +203,8 @@ public class CaptureService extends Service {
                     );
 
             params.gravity =
-                    Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+                    Gravity.TOP |
+                            Gravity.CENTER_HORIZONTAL;
 
             params.y = 80;
 
@@ -162,7 +213,10 @@ public class CaptureService extends Service {
                     params
             );
 
-            Log.d(TAG, "Overlay created");
+            Log.d(
+                    TAG,
+                    "Overlay created"
+            );
 
         } catch (Exception e) {
 
@@ -176,7 +230,8 @@ public class CaptureService extends Service {
 
     private void updateOverlay(String text) {
 
-        if (overlayText == null) {
+        if (overlayText == null ||
+                handler == null) {
             return;
         }
 
@@ -193,6 +248,11 @@ public class CaptureService extends Service {
 
         try {
 
+            updateOverlay(
+                    "Arena Helper\n\n" +
+                            "Käynnistetään näytönjakoa..."
+            );
+
             MediaProjectionManager projectionManager =
                     (MediaProjectionManager)
                             getSystemService(
@@ -201,16 +261,9 @@ public class CaptureService extends Service {
 
             if (projectionManager == null) {
 
-                Log.e(
-                        TAG,
-                        "MediaProjectionManager is null"
+                throw new IllegalStateException(
+                        "MediaProjectionManager puuttuu"
                 );
-
-                updateOverlay(
-                        "Arena Helper\n\nMediaProjection virhe"
-                );
-
-                return;
             }
 
             mediaProjection =
@@ -221,17 +274,37 @@ public class CaptureService extends Service {
 
             if (mediaProjection == null) {
 
-                Log.e(
-                        TAG,
-                        "MediaProjection is null"
+                throw new IllegalStateException(
+                        "MediaProjection on null"
                 );
-
-                updateOverlay(
-                        "Arena Helper\n\nNäytönjako ei käynnistynyt"
-                );
-
-                return;
             }
+
+            /*
+             * Android vaatii Callbackin ennen
+             * createVirtualDisplay()-kutsua.
+             */
+            mediaProjectionCallback =
+                    new MediaProjection.Callback() {
+
+                        @Override
+                        public void onStop() {
+
+                            Log.d(
+                                    TAG,
+                                    "MediaProjection stopped"
+                            );
+
+                            updateOverlay(
+                                    "Arena Helper\n\n" +
+                                            "Näytönjako pysäytettiin"
+                            );
+                        }
+                    };
+
+            mediaProjection.registerCallback(
+                    mediaProjectionCallback,
+                    handler
+            );
 
             int width =
                     getResources()
@@ -268,13 +341,14 @@ public class CaptureService extends Service {
             );
 
             imageReader.setOnImageAvailableListener(
-                    reader -> processLatestImage(reader),
+                    reader ->
+                            processLatestImage(reader),
                     handler
             );
 
             Log.d(
                     TAG,
-                    "Screen capture started"
+                    "Screen capture started successfully"
             );
 
             updateOverlay(
@@ -293,7 +367,8 @@ public class CaptureService extends Service {
 
             updateOverlay(
                     "Arena Helper\n\n" +
-                            "Näytönjaon virhe"
+                            "Näytönjaon virhe\n\n" +
+                            e.getClass().getSimpleName()
             );
         }
     }
@@ -307,8 +382,10 @@ public class CaptureService extends Service {
             Image oldImage = null;
 
             try {
+
                 oldImage =
                         reader.acquireLatestImage();
+
             } catch (Exception ignored) {
             }
 
@@ -387,14 +464,19 @@ public class CaptureService extends Service {
                             pixelStride *
                                     image.getWidth();
 
+            int bitmapWidth =
+                    image.getWidth() +
+                            rowPadding /
+                                    pixelStride;
+
             Bitmap bitmap =
                     Bitmap.createBitmap(
-                            image.getWidth()
-                                    + rowPadding /
-                                    pixelStride,
+                            bitmapWidth,
                             image.getHeight(),
                             Bitmap.Config.ARGB_8888
                     );
+
+            buffer.rewind();
 
             bitmap.copyPixelsFromBuffer(
                     buffer
@@ -437,8 +519,8 @@ public class CaptureService extends Service {
 
                                     Log.d(
                                             TAG,
-                                            "OCR RESULT:\n"
-                                                    + result
+                                            "OCR RESULT:\n" +
+                                                    result
                                     );
 
                                     handleRecognizedText(
@@ -516,16 +598,9 @@ public class CaptureService extends Service {
             return;
         }
 
-        /*
-         * Näytetään OCR:n tunnistama teksti
-         * suoraan Arena Helper -ikkunassa.
-         */
-
         String displayText =
                 cleanedText;
 
-        // Estetään aivan valtavan tekstimäärän
-        // tulostuminen pieneen overlayhin.
         if (displayText.length() > 500) {
 
             displayText =
@@ -604,6 +679,21 @@ public class CaptureService extends Service {
                 TAG,
                 "Arena Helper CaptureService stopped"
         );
+
+        if (mediaProjection != null &&
+                mediaProjectionCallback != null) {
+
+            try {
+
+                mediaProjection.unregisterCallback(
+                        mediaProjectionCallback
+                );
+
+            } catch (Exception ignored) {
+            }
+
+            mediaProjectionCallback = null;
+        }
 
         if (overlayText != null &&
                 windowManager != null) {
