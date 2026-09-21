@@ -437,14 +437,15 @@ public class CaptureService extends Service {
         try {
 
             /*
-             * Korttien nimet ovat näytön keskellä.
+             * KORTTIEN NIMET OVAT RUUDUN KESKIVAIHEILLA.
              *
-             * 1200 px korkealla näytöllä:
+             * 1200 px korkeudella:
              *
-             * 0.45 = 540 px
-             * 0.55 = 660 px
+             * 45 % = 540 px
+             * 55 % = 660 px
              *
-             * Eli OCR lukee alueen 540-660.
+             * Tämä alue on aiemmassa testissä
+             * osunut jo lähes täydellisesti.
              */
 
             int nameTop =
@@ -457,30 +458,64 @@ public class CaptureService extends Service {
                     nameBottom - nameTop;
 
             /*
-             * Korttien X-alueet.
+             * LEVENNETYT X-ALUEET.
              *
-             * Tehdään alueista hieman leveämmät,
-             * jotta nimen ensimmäiset ja viimeiset
-             * kirjaimet eivät leikkaannu.
+             * Aiemmin:
+             *
+             * 6.5 - 34.5
+             * 35.5 - 64.5
+             * 65.5 - 93.5
+             *
+             * Nyt:
+             *
+             * 3 - 36
+             * 32 - 68
+             * 64 - 97
+             *
+             * Näin kortin nimen alku/loppu ei
+             * pitäisi enää leikkautua pois.
              */
 
             int card1Left =
-                    (int) (width * 0.065f);
+                    (int) (width * 0.03f);
 
             int card1Right =
-                    (int) (width * 0.345f);
+                    (int) (width * 0.36f);
 
             int card2Left =
-                    (int) (width * 0.355f);
+                    (int) (width * 0.32f);
 
             int card2Right =
-                    (int) (width * 0.645f);
+                    (int) (width * 0.68f);
 
             int card3Left =
-                    (int) (width * 0.655f);
+                    (int) (width * 0.64f);
 
             int card3Right =
-                    (int) (width * 0.935f);
+                    (int) (width * 0.97f);
+
+            /*
+             * Varmistetaan, etteivät rajat mene
+             * näytön ulkopuolelle.
+             */
+
+            card1Left =
+                    Math.max(0, card1Left);
+
+            card2Left =
+                    Math.max(0, card2Left);
+
+            card3Left =
+                    Math.max(0, card3Left);
+
+            card1Right =
+                    Math.min(width, card1Right);
+
+            card2Right =
+                    Math.min(width, card2Right);
+
+            card3Right =
+                    Math.min(width, card3Right);
 
             card1 = Bitmap.createBitmap(
                     source,
@@ -507,7 +542,7 @@ public class CaptureService extends Service {
             );
 
             /*
-             * Suurennetaan OCR-kuvat 2x.
+             * Suurennetaan jokainen OCR-kuva 2x.
              */
 
             Bitmap enlarged1 =
@@ -562,13 +597,6 @@ public class CaptureService extends Service {
         }
     }
 
-    /*
-     * Suurentaa OCR-alueen 2x.
-     *
-     * Käytetään bilineaarista skaalausta,
-     * jotta kirjaimet säilyvät mahdollisimman
-     * selkeinä.
-     */
     private Bitmap enlargeForOCR(Bitmap source) {
 
         int newWidth =
@@ -778,15 +806,19 @@ public class CaptureService extends Service {
             }
 
             /*
-             * Poistetaan tavallisimmat OCR:n
-             * aiheuttamat ylimääräiset merkit
-             * rivin alusta ja lopusta.
+             * Poistetaan OCR:n yleisesti lisäämiä
+             * ylimääräisiä merkkejä alusta.
              */
 
             line = line.replaceAll(
                     "^[^A-Za-zÅÄÖåäö0-9]+",
                     ""
             );
+
+            /*
+             * Poistetaan ylimääräiset merkit lopusta,
+             * mutta sallitaan heittomerkki ja väliviiva.
+             */
 
             line = line.replaceAll(
                     "[^A-Za-zÅÄÖåäö0-9'\\- ]+$",
@@ -810,15 +842,6 @@ public class CaptureService extends Service {
             }
 
             if (letters >= 2) {
-
-                /*
-                 * Jos rivillä on tekstiä,
-                 * käytetään sitä.
-                 *
-                 * Koska kuva-alue on jo erittäin
-                 * pieni, ensimmäinen järkevä rivi
-                 * on yleensä kortin nimi.
-                 */
 
                 bestLine = line;
                 break;
