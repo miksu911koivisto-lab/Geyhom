@@ -5,130 +5,179 @@ import java.util.Map;
 
 public class ArenaAdvisor {
 
-/*
- * Yksinkertainen ensimmäinen Arena-arvioija.
- *
- * Tärkeä idea:
- * Tätä tiedostoa voidaan myöhemmin päivittää paljon
- * paremmalla korttidatalla ilman että OCR:ää tarvitsee
- * muuttaa.
- */
+    private static class CardData {
+        String name;
+        double score;
 
-private static final Map<String, Double> CARD_SCORES =
-        new HashMap<>();
-
-static {
-
-    /*
-     * Esimerkkikortteja.
-     *
-     * Näitä kasvatetaan myöhemmin kattamaan koko
-     * Arena-korttipooli.
-     */
-
-    CARD_SCORES.put(
-            normalize("Soldier of the Infinite"),
-            8.2
-    );
-
-    CARD_SCORES.put(
-            normalize("Raban Wands"),
-            6.5
-    );
-}
-
-public static String recommend(
-        String card1,
-        String card2,
-        String card3
-) {
-
-    String[] cards = {
-            card1,
-            card2,
-            card3
-    };
-
-    double[] scores = {
-            score(card1),
-            score(card2),
-            score(card3)
-    };
-
-    int bestIndex = 0;
-
-    for (int i = 1; i < 3; i++) {
-
-        if (scores[i] > scores[bestIndex]) {
-            bestIndex = i;
+        CardData(String name, double score) {
+            this.name = name;
+            this.score = score;
         }
     }
 
-    String bestCard =
-            cards[bestIndex];
+    private static final Map<String, CardData> CARDS =
+            new HashMap<>();
 
-    double bestScore =
-            scores[bestIndex];
+    static {
 
-    if (bestCard == null ||
-            bestCard.isEmpty() ||
-            bestCard.equals("Ei tunnistettu")) {
+        // =========================
+        // TESTIKORTIT
+        // =========================
 
-        return "SUOSITUS: Ei vielä tarpeeksi tietoa";
+        addCard("Soldier of the Infinite", 8.2);
+        addCard("Raban Wands", 6.5);
+
+        // =========================
+        // YLEISIÄ TESTIKORTTEJA
+        // =========================
+
+        addCard("Frostbolt", 7.5);
+        addCard("Fireball", 8.0);
+        addCard("Water Elemental", 8.0);
+        addCard("Chillwind Yeti", 6.0);
+        addCard("Boulderfist Ogre", 5.0);
+        addCard("River Crocolisk", 4.0);
+        addCard("Bloodfen Raptor", 4.0);
+        addCard("Wisp", 2.0);
+        addCard("Murloc Raider", 3.0);
+        addCard("Arcane Intellect", 6.5);
+        addCard("Polymorph", 7.0);
+        addCard("Flamestrike", 8.0);
+        addCard("Consecration", 7.5);
+        addCard("Truesilver Champion", 8.5);
+        addCard("Fiery War Axe", 8.0);
+        addCard("Shadow Word: Pain", 6.5);
+        addCard("Holy Nova", 7.0);
+        addCard("Backstab", 7.0);
+        addCard("Eviscerate", 8.0);
+        addCard("Swipe", 8.0);
+        addCard("Starfall", 7.0);
+        addCard("Kill Command", 7.0);
+        addCard("Animal Companion", 8.0);
+        addCard("Hex", 7.5);
+        addCard("Lightning Bolt", 6.5);
+        addCard("Earth Elemental", 6.5);
+        addCard("Hellfire", 7.0);
+        addCard("Shadow Bolt", 6.0);
+        addCard("Darkbomb", 6.5);
+        addCard("Fiery Win Axe", 8.0);
     }
 
-    return String.format(
-            "★ SUOSITUS: KORTTI %d\n%s\n\nPisteet: %.1f / 10",
-            bestIndex + 1,
-            bestCard,
-            bestScore
-    );
-}
-
-public static double score(
-        String cardName
-) {
-
-    if (cardName == null ||
-            cardName.isEmpty()) {
-
-        return 0.0;
+    private static void addCard(
+            String name,
+            double score
+    ) {
+        CARDS.put(normalize(name),
+                new CardData(name, score));
     }
 
-    String normalized =
-            normalize(cardName);
+    public static String recommend(
+            String card1,
+            String card2,
+            String card3
+    ) {
 
-    Double knownScore =
-            CARD_SCORES.get(normalized);
+        String[] cards = {
+                card1,
+                card2,
+                card3
+        };
 
-    if (knownScore != null) {
-        return knownScore;
+        double[] scores = {
+                score(card1),
+                score(card2),
+                score(card3)
+        };
+
+        int bestIndex = -1;
+
+        double bestScore = -1;
+
+        for (int i = 0; i < 3; i++) {
+
+            if (!isValidCard(cards[i])) {
+                continue;
+            }
+
+            if (scores[i] > bestScore) {
+                bestScore = scores[i];
+                bestIndex = i;
+            }
+        }
+
+        if (bestIndex == -1) {
+            return "★ SUOSITUS: Ei tunnistettavaa korttia";
+        }
+
+        return String.format(
+                "★ SUOSITUS: KORTTI %d\n%s\n\nPisteet: %.1f / 10",
+                bestIndex + 1,
+                cards[bestIndex],
+                bestScore
+        );
     }
 
-    /*
-     * Tuntemattomalle kortille annetaan
-     * neutraali lähtöpiste.
-     *
-     * Tämä muutetaan myöhemmin oikeaksi
-     * korttidatan haulla.
-     */
-    return 5.0;
-}
+    public static double score(
+            String cardName
+    ) {
 
-private static String normalize(
-        String text
-) {
+        if (!isValidCard(cardName)) {
+            return 0.0;
+        }
 
-    if (text == null) {
-        return "";
+        String normalized =
+                normalize(cardName);
+
+        CardData card =
+                CARDS.get(normalized);
+
+        if (card != null) {
+            return card.score;
+        }
+
+        /*
+         * Tuntematon kortti.
+         *
+         * Tätä ei vielä arvioida oikeasti.
+         * Myöhemmin tähän tulee varsinainen
+         * Arena-arvio.
+         */
+        return 5.0;
     }
 
-    return text
-            .toLowerCase()
-            .replaceAll(
-                    "[^a-z0-9]",
-                    ""
-            );
-}
+    private static boolean isValidCard(
+            String cardName
+    ) {
 
+        if (cardName == null) {
+            return false;
+        }
+
+        if (cardName.trim().isEmpty()) {
+            return false;
+        }
+
+        if (cardName.equalsIgnoreCase(
+                "Ei tunnistettu")) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static String normalize(
+            String text
+    ) {
+
+        if (text == null) {
+            return "";
+        }
+
+        return text
+                .toLowerCase()
+                .replaceAll(
+                        "[^a-z0-9]",
+                        ""
+                );
+    }
 }
