@@ -14,6 +14,14 @@ import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.TextView;
 
+private static int projectionResultCode;
+private static Intent projectionData;
+
+public static void setProjectionData(int resultCode, Intent data) {
+    projectionResultCode = resultCode;
+    projectionData = data;
+}
+
 public class CaptureService extends Service {
 
     private static final String CHANNEL = "arena_helper";
