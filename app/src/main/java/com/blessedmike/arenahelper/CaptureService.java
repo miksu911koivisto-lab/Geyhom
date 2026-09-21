@@ -7,9 +7,16 @@ import android.app.Service;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.hardware.display.DisplayManager;
+import android.hardware.display.VirtualDisplay;
+import android.media.Image;
+import android.media.ImageReader;
+import android.media.projection.MediaProjection;
+import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.provider.Settings;
+import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.TextView;
@@ -24,7 +31,14 @@ public class CaptureService extends Service {
     private WindowManager wm;
     private TextView overlay;
 
-    public static void setProjectionData(int resultCode, Intent data) {
+    private MediaProjection mediaProjection;
+    private VirtualDisplay virtualDisplay;
+    private ImageReader imageReader;
+
+    public static void setProjectionData(
+            int resultCode,
+            Intent data) {
+
         projectionResultCode = resultCode;
         projectionData = data;
     }
@@ -38,23 +52,33 @@ public class CaptureService extends Service {
         Notification.Builder builder;
 
         if (Build.VERSION.SDK_INT >= 26) {
-            builder = new Notification.Builder(this, CHANNEL);
+            builder = new Notification.Builder(
+                    this,
+                    CHANNEL
+            );
         } else {
             builder = new Notification.Builder(this);
         }
 
         builder.setContentTitle("Arena Helper")
-                .setContentText("Arena Helper on päällä")
-                .setSmallIcon(android.R.drawable.ic_menu_info_details);
+                .setContentText(
+                        "Arena Helper on päällä"
+                )
+                .setSmallIcon(
+                        android.R.drawable.ic_menu_info_details
+                );
 
         if (Build.VERSION.SDK_INT >= 29) {
+
             startForeground(
                     10,
                     builder.build(),
                     android.content.pm.ServiceInfo
                             .FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             );
+
         } else {
+
             startForeground(
                     10,
                     builder.build()
@@ -76,10 +100,14 @@ public class CaptureService extends Service {
                     );
 
             NotificationManager manager =
-                    getSystemService(NotificationManager.class);
+                    getSystemService(
+                            NotificationManager.class
+                    );
 
             if (manager != null) {
-                manager.createNotificationChannel(channel);
+                manager.createNotificationChannel(
+                        channel
+                );
             }
         }
     }
@@ -102,11 +130,13 @@ public class CaptureService extends Service {
         overlay = new TextView(this);
 
         overlay.setText(
-                "Arena Helper\n✓ AVUSTAJA AKTIIVINEN"
+                "Arena Helper\n"
+                        + "Käynnistetään..."
         );
 
         overlay.setTextColor(Color.WHITE);
         overlay.setTextSize(16);
+
         overlay.setPadding(
                 30,
                 20,
@@ -121,10 +151,13 @@ public class CaptureService extends Service {
         int type;
 
         if (Build.VERSION.SDK_INT >= 26) {
+
             type =
                     WindowManager.LayoutParams
                             .TYPE_APPLICATION_OVERLAY;
+
         } else {
+
             type =
                     WindowManager.LayoutParams
                             .TYPE_PHONE;
@@ -158,17 +191,175 @@ public class CaptureService extends Service {
         }
     }
 
+    private void updateOverlay(String text) {
+
+        if (overlay != null) {
+
+            overlay.post(
+                    () -> overlay.setText(text)
+            );
+        }
+    }
+
     @Override
     public int onStartCommand(
             Intent intent,
             int flags,
             int startId) {
 
+        if (projectionData == null
+                || projectionResultCode == 0) {
+
+            updateOverlay(
+                    "Arena Helper\n"
+                            + "Näytön kaappaus ei onnistunut"
+            );
+
+            return START_NOT_STICKY;
+        }
+
+        startScreenCapture();
+
         return START_STICKY;
+    }
+
+    private void startScreenCapture() {
+
+        MediaProjectionManager manager =
+                (MediaProjectionManager)
+                        getSystemService(
+                                MEDIA_PROJECTION_SERVICE
+                        );
+
+        if (manager == null) {
+
+            updateOverlay(
+                    "Arena Helper\n"
+                            + "MediaProjection ei saatavilla"
+            );
+
+            return;
+        }
+
+        try {
+
+            mediaProjection =
+                    manager.getMediaProjection(
+                            projectionResultCode,
+                            projectionData
+                    );
+
+        } catch (Exception e) {
+
+            updateOverlay(
+                    "Arena Helper\n"
+                            + "MediaProjection epäonnistui"
+            );
+
+            e.printStackTrace();
+
+            return;
+        }
+
+        if (mediaProjection == null) {
+
+            updateOverlay(
+                    "Arena Helper\n"
+                            + "MediaProjection epäonnistui"
+            );
+
+            return;
+        }
+
+        DisplayMetrics metrics =
+                getResources().getDisplayMetrics();
+
+        int width = metrics.widthPixels;
+        int height = metrics.heightPixels;
+        int density = metrics.densityDpi;
+
+        imageReader = ImageReader.newInstance(
+                width,
+                height,
+                PixelFormat.RGBA_8888,
+                2
+        );
+
+        imageReader.setOnImageAvailableListener(
+                reader -> {
+
+                    Image image = null;
+
+                    try {
+
+                        image =
+                                reader.acquireLatestImage();
+
+                        if (image != null) {
+
+                            updateOverlay(
+                                    "Arena Helper\n"
+                                            + "Kuvakaappaus aktiivinen ✓\n"
+                                            + width
+                                            + " × "
+                                            + height
+                            );
+                        }
+
+                    } catch (Exception e) {
+
+                        e.printStackTrace();
+
+                    } finally {
+
+                        if (image != null) {
+                            image.close();
+                        }
+                    }
+
+                },
+                null
+        );
+
+        virtualDisplay =
+                mediaProjection.createVirtualDisplay(
+                        "ArenaHelperCapture",
+                        width,
+                        height,
+                        density,
+                        DisplayManager
+                                .VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                        imageReader.getSurface(),
+                        null,
+                        null
+                );
+
+        updateOverlay(
+                "Arena Helper\n"
+                        + "Kuvakaappaus käynnistyy..."
+        );
     }
 
     @Override
     public void onDestroy() {
+
+        if (virtualDisplay != null) {
+
+            virtualDisplay.release();
+            virtualDisplay = null;
+        }
+
+        if (imageReader != null) {
+
+            imageReader.close();
+            imageReader = null;
+        }
+
+        if (mediaProjection != null) {
+
+            mediaProjection.stop();
+            mediaProjection = null;
+        }
 
         if (wm != null && overlay != null) {
 
