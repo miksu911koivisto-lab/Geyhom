@@ -38,6 +38,7 @@ import java.nio.ByteBuffer;
 public class CaptureService extends Service {
 
 private static final String TAG = "ArenaHelper";
+
 private static final String CHANNEL_ID =
         "arena_helper_channel";
 
@@ -49,6 +50,7 @@ private ImageReader imageReader;
 private TextRecognizer recognizer;
 
 private Handler handler;
+
 private boolean processing = false;
 
 private WindowManager windowManager;
@@ -62,17 +64,8 @@ private static final long OCR_INTERVAL = 1500;
 
 /*
  * ============================================================
- * KORTTI 1:N OCR-VAKAUTUS
+ * KORTTI 1 OCR-VAKAUTUS
  * ============================================================
- *
- * Kortti 1:n OCR saa välillä huonoja tuloksia.
- * Esimerkiksi:
- *
- * Soldier of the Infinite
- * Soldier 2of the Infinite
- * Soldiero
- *
- * Siksi emme vaihda kortin nimeä jokaisella OCR-kierroksella.
  */
 
 private String stableCard1 = "";
@@ -81,22 +74,20 @@ private String candidateCard1 = "";
 
 private int candidateCard1Count = 0;
 
-/*
- * Kun sama ehdokas nähdään vähintään kaksi kertaa,
- * se voidaan hyväksyä.
- */
 private static final int CARD1_CONFIRMATIONS = 2;
 
 public static void setProjectionData(
         int resultCode,
         Intent data
 ) {
+
     projectionResultCode = resultCode;
     projectionData = data;
 }
 
 @Override
 public void onCreate() {
+
     super.onCreate();
 
     handler =
@@ -110,6 +101,7 @@ public void onCreate() {
             );
 
     createNotificationChannel();
+
     createOverlay();
 
     Log.d(
@@ -443,12 +435,14 @@ private void processLatestImage(
             OCR_INTERVAL) {
 
         closeLatestImage(reader);
+
         return;
     }
 
     if (processing) {
 
         closeLatestImage(reader);
+
         return;
     }
 
@@ -471,11 +465,13 @@ private void processLatestImage(
                 imageToBitmap(image);
 
         image.close();
+
         image = null;
 
         if (bitmap == null) {
 
             processing = false;
+
             return;
         }
 
@@ -620,30 +616,6 @@ private void processThreeCards(
                         width,
                         card3Right
                 );
-
-        Log.d(
-                TAG,
-                "CARD 1 CROP: " +
-                        card1Left +
-                        "-" +
-                        card1Right
-        );
-
-        Log.d(
-                TAG,
-                "CARD 2 CROP: " +
-                        card2Left +
-                        "-" +
-                        card2Right
-        );
-
-        Log.d(
-                TAG,
-                "CARD 3 CROP: " +
-                        card3Left +
-                        "-" +
-                        card3Right
-        );
 
         card1 =
                 Bitmap.createBitmap(
@@ -851,8 +823,8 @@ private void recognizeNormalCard(
                                     );
 
                             /*
-                             * VAIN KORTTI 1:
-                             * käytetään vakaata OCR-logiikkaa.
+                             * Kortti 1 käyttää
+                             * vakaata OCR-muistia.
                              */
                             if (index == 0) {
 
@@ -864,8 +836,8 @@ private void recognizeNormalCard(
                             } else {
 
                                 /*
-                                 * KORTTI 2 JA 3
-                                 * JÄTETÄÄN ENNALLEEN.
+                                 * Kortit 2 ja 3
+                                 * toimivat kuten ennen.
                                  */
                                 results[index] =
                                         cleaned;
@@ -898,10 +870,6 @@ private void recognizeNormalCard(
                                     e
                             );
 
-                            /*
-                             * Jos kortti 1:n OCR epäonnistuu,
-                             * ÄLÄ tyhjennä edellistä hyvää nimeä.
-                             */
                             if (index == 0 &&
                                     !stableCard1.isEmpty()) {
 
@@ -954,11 +922,6 @@ private void recognizeNormalCard(
     }
 }
 
-/*
- * ============================================================
- * KORTTI 1:N VAKAUTUS
- * ============================================================
- */
 private String stabilizeCard1(
         String detected
 ) {
@@ -966,34 +929,9 @@ private String stabilizeCard1(
     if (detected == null ||
             detected.isEmpty()) {
 
-        /*
-         * Huono/tyhjä OCR ei saa tuhota
-         * edellistä hyvää tulosta.
-         */
         return stableCard1;
     }
 
-    String normalized =
-            normalizeCard1ForComparison(
-                    detected
-            );
-
-    Log.d(
-            TAG,
-            "CARD 1 STABILIZER INPUT: " +
-                    detected
-    );
-
-    Log.d(
-            TAG,
-            "CARD 1 STABILIZER NORMALIZED: " +
-                    normalized
-    );
-
-    /*
-     * Jos uusi OCR on käytännössä sama kuin
-     * nykyinen vakaa tulos, pidetään vanha.
-     */
     if (!stableCard1.isEmpty() &&
             similarCard1(
                     stableCard1,
@@ -1009,17 +947,8 @@ private String stabilizeCard1(
     }
 
     /*
-     * Erityinen korjaus juuri Soldier of the Infinite
+     * Erityinen korjaus Soldier of the Infinite
      * -kortille.
-     *
-     * OCR:n antamat:
-     *
-     * Soldiero
-     * Soldier 2of the Infinite
-     * Soldierof the Infinite
-     * Soldier of the Infinite
-     *
-     * voidaan tunnistaa samaksi kortiksi.
      */
     String soldierFix =
             fixSoldierOfInfinite(
@@ -1027,12 +956,6 @@ private String stabilizeCard1(
             );
 
     if (!soldierFix.isEmpty()) {
-
-        Log.d(
-                TAG,
-                "CARD 1 SOLDIER FIX: " +
-                        soldierFix
-        );
 
         stableCard1 =
                 soldierFix;
@@ -1046,10 +969,6 @@ private String stabilizeCard1(
         return stableCard1;
     }
 
-    /*
-     * Jos sama ehdokas tulee uudestaan,
-     * kasvatetaan laskuria.
-     */
     if (candidateCard1.isEmpty() ||
             !similarCard1(
                     candidateCard1,
@@ -1074,10 +993,6 @@ private String stabilizeCard1(
                     candidateCard1Count
     );
 
-    /*
-     * Hyväksytään uusi nimi vasta kun se on
-     * nähty vähintään kaksi kertaa.
-     */
     if (candidateCard1Count >=
             CARD1_CONFIRMATIONS) {
 
@@ -1091,11 +1006,6 @@ private String stabilizeCard1(
         );
     }
 
-    /*
-     * Jos meillä on jo hyvä nimi,
-     * palautetaan aina se kunnes uusi nimi
-     * vahvistuu.
-     */
     if (!stableCard1.isEmpty()) {
 
         return stableCard1;
@@ -1104,11 +1014,6 @@ private String stabilizeCard1(
     return detected;
 }
 
-/*
- * Muuttaa OCR-tuloksen vertailua varten
- * pieniksi kirjaimiksi ja poistaa turhia
- * välilyöntejä.
- */
 private String normalizeCard1ForComparison(
         String text
 ) {
@@ -1117,22 +1022,14 @@ private String normalizeCard1ForComparison(
         return "";
     }
 
-    text =
-            text.toLowerCase();
-
-    text =
-            text.replaceAll(
+    return text
+            .toLowerCase()
+            .replaceAll(
                     "[^a-z0-9]",
                     ""
             );
-
-    return text;
 }
 
-/*
- * Tarkistaa ovatko kaksi OCR-tulosta
- * riittävän lähellä toisiaan.
- */
 private boolean similarCard1(
         String a,
         String b
@@ -1164,19 +1061,12 @@ private boolean similarCard1(
         return true;
     }
 
-    /*
-     * Jos toinen sisältää toisen,
-     * pidetään niitä samana ehdokkaana.
-     */
     if (aa.contains(bb) ||
             bb.contains(aa)) {
 
         return true;
     }
 
-    /*
-     * Lasketaan Levenshtein-etäisyys.
-     */
     int distance =
             levenshteinDistance(
                     aa,
@@ -1189,9 +1079,6 @@ private boolean similarCard1(
                     bb.length()
             );
 
-    /*
-     * Sallitaan pieni OCR-ero.
-     */
     return maxLength > 0 &&
             distance <=
                     Math.max(
@@ -1200,9 +1087,6 @@ private boolean similarCard1(
                     );
 }
 
-/*
- * OCR-virheiden etäisyys.
- */
 private int levenshteinDistance(
         String a,
         String b
@@ -1260,14 +1144,6 @@ private int levenshteinDistance(
     return previous[b.length()];
 }
 
-/*
- * ============================================================
- * SOLDIER OF THE INFINITE -KORJAUS
- * ============================================================
- *
- * Tämä korjaa juuri niitä OCR-muotoja joita
- * käyttäjän kuvauksessa esiintyy.
- */
 private String fixSoldierOfInfinite(
         String text
 ) {
@@ -1285,43 +1161,17 @@ private String fixSoldierOfInfinite(
                     ""
             );
 
-    /*
-     * Esimerkiksi:
-     *
-     * soldiero
-     * soldier
-     * soldier2oftheinfinite
-     * soldier2oftheinfinite
-     * soldieroftheinfinite
-     *
-     */
     if (normalized.startsWith("soldier")) {
 
-        /*
-         * Jos OCR tunnistaa "infinite"-osan,
-         * kyseessä on käytännössä varmasti
-         * tämä kortti.
-         */
         if (normalized.contains("infinite")) {
 
             return "Soldier of the Infinite";
         }
 
-        /*
-         * "Soldiero" on käyttäjän raportoima
-         * yleinen virhetulos.
-         */
         if (normalized.equals("soldiero") ||
                 normalized.equals("soldier0") ||
                 normalized.equals("soldier")) {
 
-            /*
-             * Älä kuitenkaan lukitse nimeä heti
-             * pelkän Soldier-sanan perusteella.
-             *
-             * Palautetaan tyhjä, jolloin aiempi
-             * vakaa tulos säilyy.
-             */
             if (!stableCard1.isEmpty()) {
                 return stableCard1;
             }
@@ -1333,9 +1183,6 @@ private String fixSoldierOfInfinite(
     return "";
 }
 
-/*
- * OCR-TULOKSEN PUHDISTUS
- */
 private String cleanCardName(
         String text
 ) {
@@ -1407,45 +1254,30 @@ private String cleanCardName(
         return "";
     }
 
-    /*
-     * Soldierof -> Soldier of
-     */
     bestLine =
             bestLine.replaceAll(
                     "(?i)\\bsoldierof\\b",
                     "Soldier of"
             );
 
-    /*
-     * Soldier 2of -> Soldier of
-     */
     bestLine =
             bestLine.replaceAll(
                     "(?i)\\bsoldier\\s*2\\s*of\\b",
                     "Soldier of"
             );
 
-    /*
-     * Soldier 20f -> Soldier of
-     */
     bestLine =
             bestLine.replaceAll(
                     "(?i)\\bsoldier\\s*2\\s*0f\\b",
                     "Soldier of"
             );
 
-    /*
-     * Normalisoi välilyönnit.
-     */
     bestLine =
             bestLine.replaceAll(
                     "\\s+",
                     " "
             ).trim();
 
-    /*
-     * Ensimmäinen kirjain isoksi.
-     */
     bestLine =
             capitalizeFirstLetter(
                     bestLine
@@ -1525,6 +1357,19 @@ private void showThreeCards(
                     ? "Ei tunnistettu"
                     : results[2];
 
+    /*
+     * ========================================================
+     * ARENA ADVISOR
+     * ========================================================
+     */
+
+    String recommendation =
+            ArenaAdvisor.recommend(
+                    card1,
+                    card2,
+                    card3
+            );
+
     String display =
             "KORTTI 1: " +
                     card1 +
@@ -1533,23 +1378,35 @@ private void showThreeCards(
                     card2 +
                     "\n\n" +
                     "KORTTI 3: " +
-                    card3;
+                    card3 +
+                    "\n\n" +
+                    "--------------------\n\n" +
+                    recommendation;
 
     updateOverlay(display);
 
     Log.d(
             TAG,
-            "CARD 1: " + card1
+            "CARD 1: " +
+                    card1
     );
 
     Log.d(
             TAG,
-            "CARD 2: " + card2
+            "CARD 2: " +
+                    card2
     );
 
     Log.d(
             TAG,
-            "CARD 3: " + card3
+            "CARD 3: " +
+                    card3
+    );
+
+    Log.d(
+            TAG,
+            "RECOMMENDATION: " +
+                    recommendation
     );
 }
 
