@@ -37,7 +37,8 @@ import java.nio.ByteBuffer;
 
 public class CaptureService extends Service {
 
-    private static final String TAG = "ArenaHelper";
+    private static final String TAG =
+            "ArenaHelper";
 
     private static final String CHANNEL_ID =
             "arena_helper_channel";
@@ -50,6 +51,7 @@ public class CaptureService extends Service {
     private TextRecognizer recognizer;
 
     private Handler handler;
+
     private boolean processing = false;
 
     private WindowManager windowManager;
@@ -75,6 +77,7 @@ public class CaptureService extends Service {
 
     private static final int CARD1_CONFIRMATIONS = 2;
 
+
     public static void setProjectionData(
             int resultCode,
             Intent data
@@ -83,8 +86,10 @@ public class CaptureService extends Service {
         projectionData = data;
     }
 
+
     @Override
     public void onCreate() {
+
         super.onCreate();
 
         handler =
@@ -98,6 +103,7 @@ public class CaptureService extends Service {
                 );
 
         createNotificationChannel();
+
         createOverlay();
 
         Log.d(
@@ -105,6 +111,7 @@ public class CaptureService extends Service {
                 "Arena Helper CaptureService started"
         );
     }
+
 
     @Override
     public int onStartCommand(
@@ -154,6 +161,7 @@ public class CaptureService extends Service {
             return START_NOT_STICKY;
         }
 
+
         if (projectionData != null) {
 
             startScreenCapture();
@@ -166,8 +174,16 @@ public class CaptureService extends Service {
             );
         }
 
+
         return START_NOT_STICKY;
     }
+
+
+    /*
+     * ============================================================
+     * OVERLAY
+     * ============================================================
+     */
 
     private void createOverlay() {
 
@@ -183,23 +199,31 @@ public class CaptureService extends Service {
                 return;
             }
 
+
             overlayText =
                     new TextView(this);
+
 
             overlayText.setText(
                     "Arena Helper\n\n" +
                             "Näytönjako käynnissä"
             );
 
+
             overlayText.setTextColor(
                     Color.WHITE
             );
 
-            overlayText.setTextSize(14);
+
+            overlayText.setTextSize(
+                    14
+            );
+
 
             overlayText.setGravity(
                     Gravity.CENTER
             );
+
 
             overlayText.setPadding(
                     25,
@@ -207,6 +231,7 @@ public class CaptureService extends Service {
                     25,
                     15
             );
+
 
             overlayText.setBackgroundColor(
                     Color.argb(
@@ -217,7 +242,9 @@ public class CaptureService extends Service {
                     )
             );
 
+
             int overlayType;
+
 
             if (Build.VERSION.SDK_INT >=
                     Build.VERSION_CODES.O) {
@@ -232,6 +259,7 @@ public class CaptureService extends Service {
                         WindowManager.LayoutParams
                                 .TYPE_PHONE;
             }
+
 
             WindowManager.LayoutParams params =
                     new WindowManager.LayoutParams(
@@ -251,16 +279,20 @@ public class CaptureService extends Service {
                             PixelFormat.TRANSLUCENT
                     );
 
+
             params.gravity =
                     Gravity.TOP |
                             Gravity.CENTER_HORIZONTAL;
 
+
             params.y = 80;
+
 
             windowManager.addView(
                     overlayText,
                     params
             );
+
 
         } catch (Exception e) {
 
@@ -272,6 +304,7 @@ public class CaptureService extends Service {
         }
     }
 
+
     private void updateOverlay(
             String text
     ) {
@@ -282,6 +315,7 @@ public class CaptureService extends Service {
             return;
         }
 
+
         handler.post(() -> {
 
             if (overlayText != null) {
@@ -290,6 +324,13 @@ public class CaptureService extends Service {
             }
         });
     }
+
+
+    /*
+     * ============================================================
+     * SCREEN CAPTURE
+     * ============================================================
+     */
 
     private void startScreenCapture() {
 
@@ -300,11 +341,13 @@ public class CaptureService extends Service {
                             "Käynnistetään OCR..."
             );
 
+
             MediaProjectionManager projectionManager =
                     (MediaProjectionManager)
                             getSystemService(
                                     Context.MEDIA_PROJECTION_SERVICE
                             );
+
 
             if (projectionManager == null) {
 
@@ -313,6 +356,7 @@ public class CaptureService extends Service {
                 );
             }
 
+
             mediaProjection =
                     projectionManager
                             .getMediaProjection(
@@ -320,12 +364,14 @@ public class CaptureService extends Service {
                                     projectionData
                             );
 
+
             if (mediaProjection == null) {
 
                 throw new IllegalStateException(
                         "MediaProjection on null"
                 );
             }
+
 
             mediaProjectionCallback =
                     new MediaProjection.Callback() {
@@ -338,6 +384,7 @@ public class CaptureService extends Service {
                                     "MediaProjection stopped"
                             );
 
+
                             updateOverlay(
                                     "Arena Helper\n\n" +
                                             "Näytönjako pysäytettiin"
@@ -345,30 +392,30 @@ public class CaptureService extends Service {
                         }
                     };
 
-            /*
-             * TÄRKEÄ:
-             * callback rekisteröidään ennen
-             * VirtualDisplayn luomista.
-             */
+
             mediaProjection.registerCallback(
                     mediaProjectionCallback,
                     handler
             );
+
 
             int width =
                     getResources()
                             .getDisplayMetrics()
                             .widthPixels;
 
+
             int height =
                     getResources()
                             .getDisplayMetrics()
                             .heightPixels;
 
+
             int density =
                     getResources()
                             .getDisplayMetrics()
                             .densityDpi;
+
 
             Log.d(
                     TAG,
@@ -378,6 +425,7 @@ public class CaptureService extends Service {
                             height
             );
 
+
             imageReader =
                     ImageReader.newInstance(
                             width,
@@ -385,6 +433,7 @@ public class CaptureService extends Service {
                             PixelFormat.RGBA_8888,
                             2
                     );
+
 
             mediaProjection.createVirtualDisplay(
                     "ArenaHelperDisplay",
@@ -397,16 +446,19 @@ public class CaptureService extends Service {
                     handler
             );
 
+
             imageReader.setOnImageAvailableListener(
                     reader ->
                             processLatestImage(reader),
                     handler
             );
 
+
             updateOverlay(
                     "Arena Helper\n\n" +
                             "Korttien haku käynnissä..."
             );
+
 
         } catch (Exception e) {
 
@@ -415,6 +467,7 @@ public class CaptureService extends Service {
                     "Screen capture error",
                     e
             );
+
 
             updateOverlay(
                     "Arena Helper\n\n" +
@@ -425,6 +478,13 @@ public class CaptureService extends Service {
         }
     }
 
+
+    /*
+     * ============================================================
+     * IMAGE PROCESSING
+     * ============================================================
+     */
+
     private void processLatestImage(
             ImageReader reader
     ) {
@@ -432,47 +492,62 @@ public class CaptureService extends Service {
         long now =
                 System.currentTimeMillis();
 
+
         if (now - lastOCRTime <
                 OCR_INTERVAL) {
 
             closeLatestImage(reader);
+
             return;
         }
+
 
         if (processing) {
 
             closeLatestImage(reader);
+
             return;
         }
 
+
         Image image = null;
+
 
         try {
 
             image =
                     reader.acquireLatestImage();
 
+
             if (image == null) {
                 return;
             }
+
 
             processing = true;
 
             lastOCRTime = now;
 
+
             Bitmap bitmap =
                     imageToBitmap(image);
 
+
             image.close();
+
             image = null;
+
 
             if (bitmap == null) {
 
                 processing = false;
+
                 return;
             }
 
+
             processThreeCards(bitmap);
+
 
         } catch (Exception e) {
 
@@ -482,19 +557,23 @@ public class CaptureService extends Service {
                     e
             );
 
+
             if (image != null) {
                 image.close();
             }
 
+
             processing = false;
         }
     }
+
 
     private void closeLatestImage(
             ImageReader reader
     ) {
 
         Image image = null;
+
 
         try {
 
@@ -504,10 +583,18 @@ public class CaptureService extends Service {
         } catch (Exception ignored) {
         }
 
+
         if (image != null) {
             image.close();
         }
     }
+
+
+    /*
+     * ============================================================
+     * CARD CROPS
+     * ============================================================
+     */
 
     private void processThreeCards(
             Bitmap source
@@ -516,12 +603,15 @@ public class CaptureService extends Service {
         int width =
                 source.getWidth();
 
+
         int height =
                 source.getHeight();
+
 
         Bitmap card1 = null;
         Bitmap card2 = null;
         Bitmap card3 = null;
+
 
         try {
 
@@ -530,53 +620,65 @@ public class CaptureService extends Service {
                             height * 0.45f
                     );
 
+
             int nameBottom =
                     (int) (
                             height * 0.55f
                     );
 
+
             int nameHeight =
                     nameBottom -
                             nameTop;
 
+
             /*
              * KORTTI 1
              */
+
             int card1Left =
                     (int) (
                             width * 0.065f
                     );
+
 
             int card1Right =
                     (int) (
                             width * 0.38f
                     );
 
+
             /*
              * KORTTI 2
              */
+
             int card2Left =
                     (int) (
                             width * 0.355f
                     );
+
 
             int card2Right =
                     (int) (
                             width * 0.645f
                     );
 
+
             /*
              * KORTTI 3
              */
+
             int card3Left =
                     (int) (
                             width * 0.60f
                     );
 
+
             int card3Right =
                     (int) (
                             width * 0.935f
                     );
+
 
             card1Left =
                     Math.max(
@@ -584,11 +686,13 @@ public class CaptureService extends Service {
                             card1Left
                     );
 
+
             card2Left =
                     Math.max(
                             0,
                             card2Left
                     );
+
 
             card3Left =
                     Math.max(
@@ -596,11 +700,13 @@ public class CaptureService extends Service {
                             card3Left
                     );
 
+
             card1Right =
                     Math.min(
                             width,
                             card1Right
                     );
+
 
             card2Right =
                     Math.min(
@@ -608,11 +714,13 @@ public class CaptureService extends Service {
                             card2Right
                     );
 
+
             card3Right =
                     Math.min(
                             width,
                             card3Right
                     );
+
 
             Log.d(
                     TAG,
@@ -622,6 +730,7 @@ public class CaptureService extends Service {
                             card1Right
             );
 
+
             Log.d(
                     TAG,
                     "CARD 2 CROP: " +
@@ -630,6 +739,7 @@ public class CaptureService extends Service {
                             card2Right
             );
 
+
             Log.d(
                     TAG,
                     "CARD 3 CROP: " +
@@ -637,6 +747,7 @@ public class CaptureService extends Service {
                             "-" +
                             card3Right
             );
+
 
             card1 =
                     Bitmap.createBitmap(
@@ -648,6 +759,7 @@ public class CaptureService extends Service {
                             nameHeight
                     );
 
+
             card2 =
                     Bitmap.createBitmap(
                             source,
@@ -657,6 +769,7 @@ public class CaptureService extends Service {
                                     card2Left,
                             nameHeight
                     );
+
 
             card3 =
                     Bitmap.createBitmap(
@@ -668,32 +781,40 @@ public class CaptureService extends Service {
                             nameHeight
                     );
 
+
             Bitmap prepared1 =
                     enlargeForOCR(card1);
+
 
             Bitmap prepared2 =
                     enlargeForOCR(card2);
 
+
             Bitmap prepared3 =
                     enlargeForOCR(card3);
+
 
             card1.recycle();
             card2.recycle();
             card3.recycle();
 
+
             card1 = null;
             card2 = null;
             card3 = null;
 
+
             if (!source.isRecycled()) {
                 source.recycle();
             }
+
 
             runCardOCR(
                     prepared1,
                     prepared2,
                     prepared3
             );
+
 
         } catch (Exception e) {
 
@@ -703,11 +824,13 @@ public class CaptureService extends Service {
                     e
             );
 
+
             if (card1 != null &&
                     !card1.isRecycled()) {
 
                 card1.recycle();
             }
+
 
             if (card2 != null &&
                     !card2.isRecycled()) {
@@ -715,17 +838,21 @@ public class CaptureService extends Service {
                 card2.recycle();
             }
 
+
             if (card3 != null &&
                     !card3.isRecycled()) {
 
                 card3.recycle();
             }
 
+
             if (!source.isRecycled()) {
                 source.recycle();
             }
 
+
             processing = false;
+
 
             updateOverlay(
                     "Arena Helper\n\n" +
@@ -734,6 +861,13 @@ public class CaptureService extends Service {
         }
     }
 
+
+    /*
+     * ============================================================
+     * OCR IMAGE PREPARATION
+     * ============================================================
+     */
+
     private Bitmap enlargeForOCR(
             Bitmap source
     ) {
@@ -741,8 +875,10 @@ public class CaptureService extends Service {
         int newWidth =
                 source.getWidth() * 2;
 
+
         int newHeight =
                 source.getHeight() * 2;
+
 
         Bitmap enlarged =
                 Bitmap.createBitmap(
@@ -751,15 +887,19 @@ public class CaptureService extends Service {
                         Bitmap.Config.ARGB_8888
                 );
 
+
         Canvas canvas =
                 new Canvas(enlarged);
+
 
         Paint paint =
                 new Paint(
                         Paint.ANTI_ALIAS_FLAG
                 );
 
+
         paint.setFilterBitmap(true);
+
 
         canvas.drawBitmap(
                 source,
@@ -773,8 +913,16 @@ public class CaptureService extends Service {
                 paint
         );
 
+
         return enlarged;
     }
+
+
+    /*
+     * ============================================================
+     * OCR
+     * ============================================================
+     */
 
     private void runCardOCR(
             Bitmap card1,
@@ -785,11 +933,13 @@ public class CaptureService extends Service {
         final String[] results =
                 new String[3];
 
+
         recognizeNormalCard(
                 card1,
                 0,
                 results
         );
+
 
         recognizeNormalCard(
                 card2,
@@ -797,12 +947,14 @@ public class CaptureService extends Service {
                 results
         );
 
+
         recognizeNormalCard(
                 card3,
                 2,
                 results
         );
     }
+
 
     private void recognizeNormalCard(
             Bitmap bitmap,
@@ -818,6 +970,7 @@ public class CaptureService extends Service {
                             0
                     );
 
+
             recognizer
                     .process(inputImage)
                     .addOnSuccessListener(
@@ -826,9 +979,11 @@ public class CaptureService extends Service {
                                 String raw =
                                         text.getText();
 
+
                                 if (raw == null) {
                                     raw = "";
                                 }
+
 
                                 Log.d(
                                         TAG,
@@ -838,10 +993,12 @@ public class CaptureService extends Service {
                                                 raw
                                 );
 
+
                                 String cleaned =
                                         cleanCardName(
                                                 raw
                                         );
+
 
                                 if (index == 0) {
 
@@ -856,6 +1013,7 @@ public class CaptureService extends Service {
                                             cleaned;
                                 }
 
+
                                 Log.d(
                                         TAG,
                                         "CLEAN OCR CARD " +
@@ -864,9 +1022,11 @@ public class CaptureService extends Service {
                                                 results[index]
                                 );
 
+
                                 if (!bitmap.isRecycled()) {
                                     bitmap.recycle();
                                 }
+
 
                                 checkOCRFinished(
                                         results
@@ -883,6 +1043,7 @@ public class CaptureService extends Service {
                                         e
                                 );
 
+
                                 if (index == 0 &&
                                         !stableCard1.isEmpty()) {
 
@@ -895,15 +1056,18 @@ public class CaptureService extends Service {
                                             "";
                                 }
 
+
                                 if (!bitmap.isRecycled()) {
                                     bitmap.recycle();
                                 }
+
 
                                 checkOCRFinished(
                                         results
                                 );
                             }
                     );
+
 
         } catch (Exception e) {
 
@@ -914,6 +1078,7 @@ public class CaptureService extends Service {
                     e
             );
 
+
             if (index == 0 &&
                     !stableCard1.isEmpty()) {
 
@@ -922,18 +1087,22 @@ public class CaptureService extends Service {
 
             } else {
 
-                results[index] = "";
+                results[index] =
+                        "";
             }
+
 
             if (!bitmap.isRecycled()) {
                 bitmap.recycle();
             }
+
 
             checkOCRFinished(
                     results
             );
         }
     }
+
 
     /*
      * ============================================================
@@ -951,10 +1120,12 @@ public class CaptureService extends Service {
             return stableCard1;
         }
 
+
         String normalized =
                 normalizeCard1ForComparison(
                         detected
                 );
+
 
         Log.d(
                 TAG,
@@ -962,11 +1133,13 @@ public class CaptureService extends Service {
                         detected
         );
 
+
         Log.d(
                 TAG,
                 "CARD 1 STABILIZER NORMALIZED: " +
                         normalized
         );
+
 
         if (!stableCard1.isEmpty() &&
                 similarCard1(
@@ -977,15 +1150,19 @@ public class CaptureService extends Service {
             candidateCard1 =
                     detected;
 
+
             candidateCard1Count++;
+
 
             return stableCard1;
         }
+
 
         String soldierFix =
                 fixSoldierOfInfinite(
                         detected
                 );
+
 
         if (!soldierFix.isEmpty()) {
 
@@ -995,17 +1172,22 @@ public class CaptureService extends Service {
                             soldierFix
             );
 
+
             stableCard1 =
                     soldierFix;
+
 
             candidateCard1 =
                     soldierFix;
 
+
             candidateCard1Count =
                     CARD1_CONFIRMATIONS;
 
+
             return stableCard1;
         }
+
 
         if (candidateCard1.isEmpty() ||
                 !similarCard1(
@@ -1016,12 +1198,14 @@ public class CaptureService extends Service {
             candidateCard1 =
                     detected;
 
+
             candidateCard1Count = 1;
 
         } else {
 
             candidateCard1Count++;
         }
+
 
         Log.d(
                 TAG,
@@ -1031,11 +1215,13 @@ public class CaptureService extends Service {
                         candidateCard1Count
         );
 
+
         if (candidateCard1Count >=
                 CARD1_CONFIRMATIONS) {
 
             stableCard1 =
                     candidateCard1;
+
 
             Log.d(
                     TAG,
@@ -1044,13 +1230,16 @@ public class CaptureService extends Service {
             );
         }
 
+
         if (!stableCard1.isEmpty()) {
 
             return stableCard1;
         }
 
+
         return detected;
     }
+
 
     private String normalizeCard1ForComparison(
             String text
@@ -1060,8 +1249,10 @@ public class CaptureService extends Service {
             return "";
         }
 
+
         text =
                 text.toLowerCase();
+
 
         text =
                 text.replaceAll(
@@ -1069,8 +1260,10 @@ public class CaptureService extends Service {
                         ""
                 );
 
+
         return text;
     }
+
 
     private boolean similarCard1(
             String a,
@@ -1083,15 +1276,18 @@ public class CaptureService extends Service {
             return false;
         }
 
+
         String aa =
                 normalizeCard1ForComparison(
                         a
                 );
 
+
         String bb =
                 normalizeCard1ForComparison(
                         b
                 );
+
 
         if (aa.isEmpty() ||
                 bb.isEmpty()) {
@@ -1099,9 +1295,11 @@ public class CaptureService extends Service {
             return false;
         }
 
+
         if (aa.equals(bb)) {
             return true;
         }
+
 
         if (aa.contains(bb) ||
                 bb.contains(aa)) {
@@ -1109,17 +1307,20 @@ public class CaptureService extends Service {
             return true;
         }
 
+
         int distance =
                 levenshteinDistance(
                         aa,
                         bb
                 );
 
+
         int maxLength =
                 Math.max(
                         aa.length(),
                         bb.length()
                 );
+
 
         return maxLength > 0 &&
                 distance <=
@@ -1129,6 +1330,7 @@ public class CaptureService extends Service {
                         );
     }
 
+
     private int levenshteinDistance(
             String a,
             String b
@@ -1137,8 +1339,10 @@ public class CaptureService extends Service {
         int[] previous =
                 new int[b.length() + 1];
 
+
         int[] current =
                 new int[b.length() + 1];
+
 
         for (int j = 0;
              j <= b.length();
@@ -1147,11 +1351,13 @@ public class CaptureService extends Service {
             previous[j] = j;
         }
 
+
         for (int i = 1;
              i <= a.length();
              i++) {
 
             current[0] = i;
+
 
             for (int j = 1;
                  j <= b.length();
@@ -1163,6 +1369,7 @@ public class CaptureService extends Service {
                                 ? 0
                                 : 1;
 
+
                 current[j] =
                         Math.min(
                                 Math.min(
@@ -1173,22 +1380,27 @@ public class CaptureService extends Service {
                         );
             }
 
+
             int[] temp =
                     previous;
 
+
             previous =
                     current;
+
 
             current =
                     temp;
         }
 
+
         return previous[b.length()];
     }
 
+
     /*
      * ============================================================
-     * SOLDIER OF THE INFINITE -KORJAUS
+     * SOLDIER OF THE INFINITE
      * ============================================================
      */
 
@@ -1200,8 +1412,10 @@ public class CaptureService extends Service {
             return "";
         }
 
+
         String normalized =
                 text.toLowerCase();
+
 
         normalized =
                 normalized.replaceAll(
@@ -1209,12 +1423,14 @@ public class CaptureService extends Service {
                         ""
                 );
 
+
         if (normalized.startsWith("soldier")) {
 
             if (normalized.contains("infinite")) {
 
                 return "Soldier of the Infinite";
             }
+
 
             if (normalized.equals("soldiero") ||
                     normalized.equals("soldier0") ||
@@ -1224,12 +1440,15 @@ public class CaptureService extends Service {
                     return stableCard1;
                 }
 
+
                 return "";
             }
         }
 
+
         return "";
     }
+
 
     /*
      * ============================================================
@@ -1245,26 +1464,33 @@ public class CaptureService extends Service {
             return "";
         }
 
+
         text =
                 text.trim();
+
 
         if (text.isEmpty()) {
             return "";
         }
 
+
         String[] lines =
                 text.split("\\r?\\n");
 
+
         String bestLine = "";
+
 
         for (String line : lines) {
 
             line =
                     line.trim();
 
+
             if (line.length() < 2) {
                 continue;
             }
+
 
             line =
                     line.replaceAll(
@@ -1272,16 +1498,20 @@ public class CaptureService extends Service {
                             ""
                     );
 
+
             line =
                     line.replaceAll(
                             "[^A-Za-zÅÄÖåäö0-9'\\- ]+$",
                             ""
                     );
 
+
             line =
                     line.trim();
 
+
             int letters = 0;
+
 
             for (int i = 0;
                  i < line.length();
@@ -1295,6 +1525,7 @@ public class CaptureService extends Service {
                 }
             }
 
+
             if (letters >= 2) {
 
                 bestLine =
@@ -1304,9 +1535,11 @@ public class CaptureService extends Service {
             }
         }
 
+
         if (bestLine.isEmpty()) {
             return "";
         }
+
 
         bestLine =
                 bestLine.replaceAll(
@@ -1314,11 +1547,13 @@ public class CaptureService extends Service {
                         "Soldier of"
                 );
 
+
         bestLine =
                 bestLine.replaceAll(
                         "(?i)\\bsoldier\\s*2\\s*of\\b",
                         "Soldier of"
                 );
+
 
         bestLine =
                 bestLine.replaceAll(
@@ -1326,19 +1561,23 @@ public class CaptureService extends Service {
                         "Soldier of"
                 );
 
+
         bestLine =
                 bestLine.replaceAll(
                         "\\s+",
                         " "
                 ).trim();
 
+
         bestLine =
                 capitalizeFirstLetter(
                         bestLine
                 );
 
+
         return bestLine;
     }
+
 
     private String capitalizeFirstLetter(
             String text
@@ -1350,8 +1589,10 @@ public class CaptureService extends Service {
             return text;
         }
 
+
         char[] chars =
                 text.toCharArray();
+
 
         for (int i = 0;
              i < chars.length;
@@ -1370,8 +1611,16 @@ public class CaptureService extends Service {
             }
         }
 
+
         return new String(chars);
     }
+
+
+    /*
+     * ============================================================
+     * OCR FINISHED
+     * ============================================================
+     */
 
     private void checkOCRFinished(
             String[] results
@@ -1384,14 +1633,17 @@ public class CaptureService extends Service {
             return;
         }
 
+
         showThreeCards(results);
+
 
         processing = false;
     }
 
+
     /*
      * ============================================================
-     * KORTIT + ARENAADVISOR
+     * KORTIT + ARENA ADVISOR
      * ============================================================
      */
 
@@ -1405,11 +1657,13 @@ public class CaptureService extends Service {
                         ? "Ei tunnistettu"
                         : results[0];
 
+
         String card2 =
                 results[1] == null ||
                         results[1].isEmpty()
                         ? "Ei tunnistettu"
                         : results[1];
+
 
         String card3 =
                 results[2] == null ||
@@ -1417,23 +1671,79 @@ public class CaptureService extends Service {
                         ? "Ei tunnistettu"
                         : results[2];
 
-        /*
-         * Lasketaan jokaisen kortin pisteet erikseen.
-         */
-        String score1 =
-                ArenaAdvisor.getCardScore(card1);
-
-        String score2 =
-                ArenaAdvisor.getCardScore(card2);
-
-        String score3 =
-                ArenaAdvisor.getCardScore(card3);
 
         /*
-         * Lähetetään kortit ArenaAdvisorille
-         * parhaan kortin löytämistä varten.
+         * TÄRKEÄ:
+         *
+         * Näytetään kortit ensin.
+         *
+         * Pisteiden laskeminen on omassa try/catchissa,
+         * joten jos ArenaAdvisorissa tulee virhe,
+         * OCR ei jää "Korttien haku käynnissä..." -tilaan.
          */
+
+        String score1 = "0.0";
+        String score2 = "0.0";
+        String score3 = "0.0";
+
+
+        try {
+
+            score1 =
+                    ArenaAdvisor.getCardScore(
+                            card1
+                    );
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Score error CARD 1",
+                    e
+            );
+        }
+
+
+        try {
+
+            score2 =
+                    ArenaAdvisor.getCardScore(
+                            card2
+                    );
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Score error CARD 2",
+                    e
+            );
+        }
+
+
+        try {
+
+            score3 =
+                    ArenaAdvisor.getCardScore(
+                            card3
+                    );
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Score error CARD 3",
+                    e
+            );
+        }
+
+
+        /*
+         * Suositus.
+         */
+
         String recommendation;
+
 
         try {
 
@@ -1452,9 +1762,11 @@ public class CaptureService extends Service {
                     e
             );
 
+
             recommendation =
                     "Suositusta ei voitu laskea";
         }
+
 
         if (recommendation == null ||
                 recommendation.trim().isEmpty()) {
@@ -1463,10 +1775,11 @@ public class CaptureService extends Service {
                     "Ei suositusta";
         }
 
+
         /*
-         * Näytetään nyt kaikkien kolmen kortin
-         * nimi + pisteet.
+         * Näyttö.
          */
+
         String display =
                 "KORTTI 1: " +
                         card1 +
@@ -1493,12 +1806,15 @@ public class CaptureService extends Service {
                         "\n\n" +
 
                         "--------------------" +
+
                         "\n\n" +
 
                         "SUOSITUS:\n" +
                         recommendation;
 
+
         updateOverlay(display);
+
 
         Log.d(
                 TAG,
@@ -1508,6 +1824,7 @@ public class CaptureService extends Service {
                         score1
         );
 
+
         Log.d(
                 TAG,
                 "CARD 2: " +
@@ -1515,6 +1832,7 @@ public class CaptureService extends Service {
                         " SCORE=" +
                         score2
         );
+
 
         Log.d(
                 TAG,
@@ -1524,12 +1842,20 @@ public class CaptureService extends Service {
                         score3
         );
 
+
         Log.d(
                 TAG,
                 "ARENA ADVISOR: " +
                         recommendation
         );
     }
+
+
+    /*
+     * ============================================================
+     * IMAGE -> BITMAP
+     * ============================================================
+     */
 
     private Bitmap imageToBitmap(
             Image image
@@ -1540,28 +1866,35 @@ public class CaptureService extends Service {
             Image.Plane[] planes =
                     image.getPlanes();
 
+
             if (planes.length == 0) {
                 return null;
             }
 
+
             ByteBuffer buffer =
                     planes[0].getBuffer();
+
 
             int pixelStride =
                     planes[0].getPixelStride();
 
+
             int rowStride =
                     planes[0].getRowStride();
+
 
             int rowPadding =
                     rowStride -
                             pixelStride *
                                     image.getWidth();
 
+
             int bitmapWidth =
                     image.getWidth() +
                             rowPadding /
                                     pixelStride;
+
 
             Bitmap bitmap =
                     Bitmap.createBitmap(
@@ -1570,13 +1903,17 @@ public class CaptureService extends Service {
                             Bitmap.Config.ARGB_8888
                     );
 
+
             buffer.rewind();
+
 
             bitmap.copyPixelsFromBuffer(
                     buffer
             );
 
+
             return bitmap;
+
 
         } catch (Exception e) {
 
@@ -1586,9 +1923,17 @@ public class CaptureService extends Service {
                     e
             );
 
+
             return null;
         }
     }
+
+
+    /*
+     * ============================================================
+     * NOTIFICATION
+     * ============================================================
+     */
 
     private void createNotificationChannel() {
 
@@ -1603,14 +1948,17 @@ public class CaptureService extends Service {
                                     .IMPORTANCE_LOW
                     );
 
+
             channel.setDescription(
                     "Arena Helper screen capture"
             );
+
 
             NotificationManager manager =
                     getSystemService(
                             NotificationManager.class
                     );
+
 
             if (manager != null) {
 
@@ -1620,6 +1968,7 @@ public class CaptureService extends Service {
             }
         }
     }
+
 
     private Notification createNotification() {
 
@@ -1640,6 +1989,13 @@ public class CaptureService extends Service {
                 .build();
     }
 
+
+    /*
+     * ============================================================
+     * DESTROY
+     * ============================================================
+     */
+
     @Override
     public void onDestroy() {
 
@@ -1655,8 +2011,10 @@ public class CaptureService extends Service {
             } catch (Exception ignored) {
             }
 
+
             mediaProjectionCallback = null;
         }
+
 
         if (overlayText != null &&
                 windowManager != null) {
@@ -1670,41 +2028,56 @@ public class CaptureService extends Service {
             } catch (Exception ignored) {
             }
 
+
             overlayText = null;
         }
+
 
         if (imageReader != null) {
 
             try {
+
                 imageReader.close();
+
             } catch (Exception ignored) {
             }
+
 
             imageReader = null;
         }
 
+
         if (mediaProjection != null) {
 
             try {
+
                 mediaProjection.stop();
+
             } catch (Exception ignored) {
             }
+
 
             mediaProjection = null;
         }
 
+
         if (recognizer != null) {
 
             try {
+
                 recognizer.close();
+
             } catch (Exception ignored) {
             }
+
 
             recognizer = null;
         }
 
+
         super.onDestroy();
     }
+
 
     @Nullable
     @Override
