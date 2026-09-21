@@ -505,13 +505,6 @@ public class CaptureService extends Service {
 
         try {
 
-            /*
-             * PYSTYSUUNTA
-             *
-             * Tämä on se toimiva 45-55 %
-             * rajaus.
-             */
-
             int nameTop =
                     (int) (
                             height * 0.45f
@@ -526,12 +519,6 @@ public class CaptureService extends Service {
                     nameBottom -
                             nameTop;
 
-            /*
-             * KORTTI 1
-             *
-             * 6.5 % - 38 %
-             */
-
             int card1Left =
                     (int) (
                             width * 0.065f
@@ -542,14 +529,6 @@ public class CaptureService extends Service {
                             width * 0.38f
                     );
 
-            /*
-             * KORTTI 2
-             *
-             * EI MUUTETA.
-             *
-             * 35.5 % - 64.5 %
-             */
-
             int card2Left =
                     (int) (
                             width * 0.355f
@@ -559,14 +538,6 @@ public class CaptureService extends Service {
                     (int) (
                             width * 0.645f
                     );
-
-            /*
-             * KORTTI 3
-             *
-             * EI MUUTETA.
-             *
-             * 60 % - 93.5 %
-             */
 
             int card3Left =
                     (int) (
@@ -638,12 +609,6 @@ public class CaptureService extends Service {
                             card3Right
             );
 
-            /*
-             * TEHDÄÄN KAIKKI KOLME
-             * SAMALLA TAVALLA KUIN
-             * TOIMIVASSA VERSIOSSA.
-             */
-
             card1 =
                     Bitmap.createBitmap(
                             source,
@@ -674,10 +639,6 @@ public class CaptureService extends Service {
                             nameHeight
                     );
 
-            /*
-             * KAIKKI NORMAALISTI 2X.
-             */
-
             Bitmap prepared1 =
                     enlargeForOCR(card1);
 
@@ -686,13 +647,6 @@ public class CaptureService extends Service {
 
             Bitmap prepared3 =
                     enlargeForOCR(card3);
-
-            /*
-             * KORTTI 1: toinen versio.
-             *
-             * Tämä EI muuta kortin 2 tai 3
-             * käsittelyä millään tavalla.
-             */
 
             Bitmap prepared1Second =
                     createCard1SecondVersion(
@@ -799,19 +753,6 @@ public class CaptureService extends Service {
         return enlarged;
     }
 
-    /*
-     * Kortti 1:n toinen OCR-versio.
-     *
-     * Tehdään hieman terävämpi kuva.
-     * Tämä voi auttaa erityisesti tilanteissa,
-     * joissa OCR lukee esimerkiksi:
-     *
-     * Soldier
-     *
-     * vaikka kuvassa on:
-     *
-     * Soldier of the Infinite
-     */
     private Bitmap createCard1SecondVersion(
             Bitmap source
     ) {
@@ -866,11 +807,6 @@ public class CaptureService extends Service {
 
         final String[] card1Results =
                 new String[2];
-
-        /*
-         * Kortti 1:
-         * kaksi erillistä OCR-yritystä.
-         */
 
         recognizeCard1Version(
                 card1First,
@@ -1024,9 +960,6 @@ public class CaptureService extends Service {
         }
     }
 
-    /*
-     * Valitaan kortti 1:n kahdesta OCR-tuloksesta.
-     */
     private String chooseBestCard1(
             String first,
             String second
@@ -1041,10 +974,10 @@ public class CaptureService extends Service {
         }
 
         first =
-                first.trim();
+                cleanCardName(first);
 
         second =
-                second.trim();
+                cleanCardName(second);
 
         if (first.isEmpty()) {
             return second;
@@ -1060,16 +993,6 @@ public class CaptureService extends Service {
         String b =
                 normalizeForComparison(second);
 
-        /*
-         * Jos toinen on toisen alku,
-         * käytetään pidempää.
-         *
-         * Soldier
-         * Soldier of the Infinite
-         *
-         * -> Soldier of the Infinite
-         */
-
         if (a.startsWith(b) ||
                 b.startsWith(a)) {
 
@@ -1084,12 +1007,6 @@ public class CaptureService extends Service {
             }
         }
 
-        /*
-         * Jos OCR tuottaa saman sanan
-         * hieman eri tavalla, valitaan
-         * pidempi versio.
-         */
-
         if (first.length() >
                 second.length()) {
 
@@ -1101,11 +1018,6 @@ public class CaptureService extends Service {
 
             return second;
         }
-
-        /*
-         * Jos pituus on sama,
-         * käytetään ensimmäistä.
-         */
 
         return first;
     }
@@ -1129,12 +1041,6 @@ public class CaptureService extends Service {
         );
     }
 
-    /*
-     * KORTTI 2 JA 3:
-     *
-     * Tämä on sama OCR-logiikka kuin
-     * toimivassa versiossa.
-     */
     private void recognizeNormalCard(
             Bitmap bitmap,
             int index,
@@ -1259,6 +1165,21 @@ public class CaptureService extends Service {
         processing = false;
     }
 
+    /*
+     * =========================================================
+     * OCR-TULOKSEN PUHDISTUS
+     * =========================================================
+     *
+     * Tähän lisätty vain kaksi korjausta:
+     *
+     * 1. Soldierof -> Soldier of
+     *
+     * 2. Korttinimen ensimmäinen kirjain aina isoksi.
+     *
+     * Muuta tekstin kirjainkokoa ei pakoteta, koska esimerkiksi
+     * korttinimissä voi olla sanoja, joiden oikea kirjainkoko
+     * pitää säilyttää.
+     */
     private String cleanCardName(
             String text
     ) {
@@ -1326,7 +1247,112 @@ public class CaptureService extends Service {
             }
         }
 
+        /*
+         * Jos mitään käyttökelpoista riviä
+         * ei löytynyt.
+         */
+        if (bestLine.isEmpty()) {
+            return "";
+        }
+
+        /*
+         * -----------------------------------------------------
+         * KORJAUS 1:
+         *
+         * OCR saattaa yhdistää Soldier + of:
+         *
+         * Soldierof
+         * soldierof
+         * SOLDIEROF
+         *
+         * Kaikki muutetaan muotoon:
+         *
+         * Soldier of
+         * -----------------------------------------------------
+         */
+        bestLine =
+                bestLine.replaceAll(
+                        "(?i)\\bsoldierof\\b",
+                        "Soldier of"
+                );
+
+        /*
+         * Myös mahdollinen ylimääräinen välilyönti
+         * normalisoidaan.
+         */
+        bestLine =
+                bestLine.replaceAll(
+                        "\\s+",
+                        " "
+                ).trim();
+
+        /*
+         * -----------------------------------------------------
+         * KORJAUS 2:
+         *
+         * OCR voi välillä antaa esimerkiksi:
+         *
+         * raban Wands
+         * Raban Wands
+         *
+         * Pakotetaan ensimmäinen kirjain isoksi.
+         *
+         * Vain ensimmäinen kirjain muutetaan.
+         * Muu kirjainkoko säilytetään.
+         * -----------------------------------------------------
+         */
+        bestLine =
+                capitalizeFirstLetter(
+                        bestLine
+                );
+
         return bestLine;
+    }
+
+    /*
+     * Muuttaa vain ensimmäisen kirjaimen isoksi.
+     *
+     * Esimerkiksi:
+     *
+     * raban Wands -> Raban Wands
+     * soldier of -> Soldier of
+     *
+     * eikä:
+     *
+     * RABAN WANDS
+     *
+     */
+    private String capitalizeFirstLetter(
+            String text
+    ) {
+
+        if (text == null ||
+                text.isEmpty()) {
+
+            return text;
+        }
+
+        char[] chars =
+                text.toCharArray();
+
+        for (int i = 0;
+             i < chars.length;
+             i++) {
+
+            if (Character.isLetter(
+                    chars[i]
+            )) {
+
+                chars[i] =
+                        Character.toUpperCase(
+                                chars[i]
+                        );
+
+                break;
+            }
+        }
+
+        return new String(chars);
     }
 
     private void showThreeCards(
