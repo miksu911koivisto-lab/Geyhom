@@ -53,12 +53,9 @@ public class CaptureService extends Service {
 
     private MediaProjection.Callback mediaProjectionCallback;
 
-    /*
-     * OCR suoritetaan vain ajoittain.
-     * Näin puhelin ei yritä käsitellä jokaista
-     * ruutukaappausta yhtä aikaa.
-     */
     private long lastOCRTime = 0;
+
+    // OCR tehdään noin kerran sekunnissa.
     private static final long OCR_INTERVAL = 1000;
 
     public static void setProjectionData(
@@ -345,6 +342,14 @@ public class CaptureService extends Service {
                             .getDisplayMetrics()
                             .densityDpi;
 
+            Log.d(
+                    TAG,
+                    "Capture resolution: " +
+                            width +
+                            "x" +
+                            height
+            );
+
             imageReader =
                     ImageReader.newInstance(
                             width,
@@ -373,7 +378,7 @@ public class CaptureService extends Service {
             updateOverlay(
                     "Arena Helper\n\n" +
                             "Näytönjako käynnissä\n" +
-                            "Etsitään kortteja..."
+                            "Etsitään Arena-kortteja..."
             );
 
         } catch (Exception e) {
@@ -465,7 +470,21 @@ public class CaptureService extends Service {
                 return;
             }
 
-            runOCR(bitmap);
+            /*
+             * Tässä vaiheessa emme syötä OCR:lle
+             * koko Hearthstone-näyttöä.
+             *
+             * Ensin rajataan alue,
+             * jossa Arena-kortit sijaitsevat.
+             */
+            Bitmap arenaBitmap =
+                    cropArenaCards(bitmap);
+
+            if (arenaBitmap != bitmap) {
+                bitmap.recycle();
+            }
+
+            runOCR(arenaBitmap);
 
         } catch (Exception e) {
 
@@ -480,6 +499,71 @@ public class CaptureService extends Service {
             }
 
             processing = false;
+        }
+    }
+
+    /*
+     * Näyttö on 2640 x 1200 vaakasuunnassa.
+     *
+     * Kolme Arena-korttia ovat suunnilleen
+     * keskellä näyttöä vierekkäin.
+     *
+     * Rajaus jätetään tarkoituksella hieman
+     * väljäksi ensimmäisessä versiossa.
+     */
+    private Bitmap cropArenaCards(
+            Bitmap source
+    ) {
+
+        int width =
+                source.getWidth();
+
+        int height =
+                source.getHeight();
+
+        int left =
+                (int) (width * 0.10f);
+
+        int top =
+                (int) (height * 0.12f);
+
+        int right =
+                (int) (width * 0.90f);
+
+        int bottom =
+                (int) (height * 0.92f);
+
+        int cropWidth =
+                right - left;
+
+        int cropHeight =
+                bottom - top;
+
+        if (cropWidth <= 0 ||
+                cropHeight <= 0) {
+
+            return source;
+        }
+
+        try {
+
+            return Bitmap.createBitmap(
+                    source,
+                    left,
+                    top,
+                    cropWidth,
+                    cropHeight
+            );
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Arena crop failed",
+                    e
+            );
+
+            return source;
         }
     }
 
@@ -542,11 +626,6 @@ public class CaptureService extends Service {
         }
     }
 
-    /*
-     * Tässä vaiheessa tunnistamme tekstin,
-     * mutta suodatamme pois aivan lyhyet
-     * satunnaiset OCR-tulokset.
-     */
     private void runOCR(
             Bitmap bitmap
     ) {
@@ -588,8 +667,7 @@ public class CaptureService extends Service {
 
                             updateOverlay(
                                     "Arena Helper\n\n" +
-                                            "Näytönjako käynnissä\n" +
-                                            "Etsitään korttien nimiä..."
+                                            "Arena-kortteja etsitään..."
                             );
                         }
 
@@ -656,11 +734,6 @@ public class CaptureService extends Service {
                 continue;
             }
 
-            /*
-             * Poistetaan rivejä, jotka koostuvat
-             * lähes pelkästään yksittäisistä
-             * symboleista tai numeroista.
-             */
             int letters = 0;
 
             for (int i = 0;
@@ -707,13 +780,13 @@ public class CaptureService extends Service {
 
         updateOverlay(
                 "Arena Helper\n\n" +
-                        "Tunnistettu teksti:\n\n" +
+                        "Arena-korteista tunnistettu:\n\n" +
                         displayText
         );
 
         Log.d(
                 TAG,
-                "OCR:\n" +
+                "Arena OCR:\n" +
                         text
         );
     }
@@ -730,6 +803,10 @@ public class CaptureService extends Service {
                             NotificationManager
                                     .IMPORTANCE_LOW
                     );
+
+            channel.setDescription(
+                    "Arena Helper screen capture"
+            );
 
             NotificationManager manager =
                     getSystemService(
