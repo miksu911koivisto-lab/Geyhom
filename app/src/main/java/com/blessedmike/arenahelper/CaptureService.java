@@ -7,14 +7,9 @@ import android.app.Service;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
-import android.hardware.display.DisplayManager;
-import android.hardware.display.VirtualDisplay;
-import android.media.Image;
-import android.media.ImageReader;
-import android.media.projection.MediaProjection;
-import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.os.IBinder;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.TextView;
@@ -23,19 +18,8 @@ public class CaptureService extends Service {
 
     private static final String CHANNEL = "arena_helper";
 
-    private static int projectionResultCode;
-    private static Intent projectionData;
-
     private WindowManager wm;
     private TextView overlay;
-    private MediaProjection mediaProjection;
-    private VirtualDisplay virtualDisplay;
-    private ImageReader imageReader;
-
-    public static void setProjectionData(int resultCode, Intent data) {
-        projectionResultCode = resultCode;
-        projectionData = data;
-    }
 
     @Override
     public void onCreate() {
@@ -71,11 +55,13 @@ public class CaptureService extends Service {
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
-            NotificationChannel channel = new NotificationChannel(
-                    CHANNEL,
-                    "Arena Helper",
-                    NotificationManager.IMPORTANCE_LOW
-            );
+
+            NotificationChannel channel =
+                    new NotificationChannel(
+                            CHANNEL,
+                            "Arena Helper",
+                            NotificationManager.IMPORTANCE_LOW
+                    );
 
             NotificationManager manager =
                     getSystemService(NotificationManager.class);
@@ -87,18 +73,34 @@ public class CaptureService extends Service {
     }
 
     private void showOverlay() {
+
+        if (Build.VERSION.SDK_INT >= 23 &&
+                !Settings.canDrawOverlays(this)) {
+
+            return;
+        }
+
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
 
+        if (wm == null) {
+            return;
+        }
+
         overlay = new TextView(this);
-        overlay.setText("Arena Helper\nKäynnistetään...");
+
+        overlay.setText("Arena Helper\n✓ AVUSTAJA AKTIIVINEN");
         overlay.setTextColor(Color.WHITE);
-        overlay.setTextSize(15);
-        overlay.setPadding(24, 16, 24, 16);
+        overlay.setTextSize(16);
+        overlay.setPadding(30, 20, 30, 20);
         overlay.setBackgroundColor(0xDD222222);
 
-        int type = Build.VERSION.SDK_INT >= 26
-                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                : WindowManager.LayoutParams.TYPE_PHONE;
+        int type;
+
+        if (Build.VERSION.SDK_INT >= 26) {
+            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
+        } else {
+            type = WindowManager.LayoutParams.TYPE_PHONE;
+        }
 
         WindowManager.LayoutParams params =
                 new WindowManager.LayoutParams(
@@ -109,142 +111,41 @@ public class CaptureService extends Service {
                         PixelFormat.TRANSLUCENT
                 );
 
-        params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        params.y = 120;
+        params.gravity =
+                Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+
+        params.y = 150;
 
         try {
+
             wm.addView(overlay, params);
+
         } catch (Exception e) {
+
             e.printStackTrace();
         }
     }
 
-    private void updateOverlay(String text) {
-        if (overlay != null) {
-            overlay.post(() -> overlay.setText(text));
-        }
-    }
-
     @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
+    public int onStartCommand(
+            Intent intent,
+            int flags,
+            int startId) {
 
-        if (projectionData == null || projectionResultCode == 0) {
-            updateOverlay(
-                    "Arena Helper\nNäytön kaappaus ei onnistunut"
-            );
-            return START_NOT_STICKY;
-        }
-
-        startScreenCapture();
-
-        return START_NOT_STICKY;
-    }
-
-    private void startScreenCapture() {
-
-        MediaProjectionManager manager =
-                (MediaProjectionManager)
-                        getSystemService(MEDIA_PROJECTION_SERVICE);
-
-        if (manager == null) {
-            updateOverlay("Arena Helper\nMediaProjection ei saatavilla");
-            return;
-        }
-
-        mediaProjection = manager.getMediaProjection(
-                projectionResultCode,
-                projectionData
-        );
-
-        if (mediaProjection == null) {
-            updateOverlay(
-                    "Arena Helper\nMediaProjection epäonnistui"
-            );
-            return;
-        }
-
-        android.util.DisplayMetrics metrics =
-                getResources().getDisplayMetrics();
-
-        int width = metrics.widthPixels;
-        int height = metrics.heightPixels;
-        int density = metrics.densityDpi;
-
-        imageReader = ImageReader.newInstance(
-                width,
-                height,
-                PixelFormat.RGBA_8888,
-                2
-        );
-
-        imageReader.setOnImageAvailableListener(
-                reader -> {
-
-                    Image image = null;
-
-                    try {
-                        image = reader.acquireLatestImage();
-
-                        if (image != null) {
-                            updateOverlay(
-                                    "Arena Helper\n" +
-                                    "Kuva saatu ✓\n" +
-                                    width + " × " + height
-                            );
-                        }
-
-                    } catch (Exception e) {
-                        e.printStackTrace();
-
-                    } finally {
-                        if (image != null) {
-                            image.close();
-                        }
-                    }
-
-                },
-                null
-        );
-
-        virtualDisplay = mediaProjection.createVirtualDisplay(
-                "ArenaHelperCapture",
-                width,
-                height,
-                density,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                imageReader.getSurface(),
-                null,
-                null
-        );
-
-        updateOverlay(
-                "Arena Helper\nKuvakaappaus aktiivinen ✓"
-        );
+        return START_STICKY;
     }
 
     @Override
     public void onDestroy() {
 
-        if (virtualDisplay != null) {
-            virtualDisplay.release();
-            virtualDisplay = null;
-        }
-
-        if (imageReader != null) {
-            imageReader.close();
-            imageReader = null;
-        }
-
-        if (mediaProjection != null) {
-            mediaProjection.stop();
-            mediaProjection = null;
-        }
-
         if (wm != null && overlay != null) {
+
             try {
                 wm.removeView(overlay);
             } catch (Exception ignored) {
             }
+
+            overlay = null;
         }
 
         super.onDestroy();
