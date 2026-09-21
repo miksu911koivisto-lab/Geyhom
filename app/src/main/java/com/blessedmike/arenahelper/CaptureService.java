@@ -18,8 +18,19 @@ public class CaptureService extends Service {
 
     private static final String CHANNEL_ID = "arena_helper";
 
+    private static int projectionResultCode;
+    private static Intent projectionData;
+
     private WindowManager windowManager;
     private TextView overlay;
+
+    public static void setProjectionData(
+            int resultCode,
+            Intent data) {
+
+        projectionResultCode = resultCode;
+        projectionData = data;
+    }
 
     @Override
     public void onCreate() {
@@ -81,7 +92,6 @@ public class CaptureService extends Service {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
                 && !Settings.canDrawOverlays(this)) {
-
             return;
         }
 
@@ -94,7 +104,10 @@ public class CaptureService extends Service {
 
         overlay = new TextView(this);
 
-        overlay.setText("ARENA HELPER\n\nAVUSTAJA AKTIIVINEN");
+        overlay.setText(
+                "ARENA HELPER\n\nAVUSTAJA AKTIIVINEN"
+        );
+
         overlay.setTextColor(Color.WHITE);
         overlay.setTextSize(18);
         overlay.setGravity(Gravity.CENTER);
