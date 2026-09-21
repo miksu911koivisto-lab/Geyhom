@@ -33,24 +33,8 @@ public class ArenaAdvisor {
     private static volatile boolean onlineDataLoaded = false;
     private static volatile boolean onlineDataLoading = false;
 
-    /*
-     * HearthArena scores are roughly in the 0-140 range.
-     *
-     * We convert them to our 0-10 scale using 130 as the
-     * approximate top-end of the current Arena scale.
-     *
-     * Example:
-     * 130 -> 10.0
-     * 109 -> 8.4
-     * 101 -> 7.8
-     *  58 -> 4.5
-     */
     private static final double HEARTHARENA_SCALE = 13.0;
 
-    /*
-     * If a card cannot be found online yet, don't give it 0.0.
-     * 5.0 means "unknown / neutral fallback".
-     */
     private static final double UNKNOWN_CARD_SCORE = 5.0;
 
     private static final Map<String, Double> ONLINE_SCORES =
@@ -241,11 +225,6 @@ public class ArenaAdvisor {
 
                 } catch (Exception ignored) {
 
-                    /*
-                     * Offline mode is completely valid.
-                     * Fallback cards remain available.
-                     */
-
                 } finally {
 
                     onlineDataLoading = false;
@@ -300,9 +279,6 @@ public class ArenaAdvisor {
 
             String text = html;
 
-            /*
-             * Convert common HTML separators to newlines.
-             */
             text = text.replaceAll(
                     "(?i)<br\\s*/?>",
                     "\n"
@@ -328,9 +304,6 @@ public class ArenaAdvisor {
                     "\n"
             );
 
-            /*
-             * Remove remaining tags.
-             */
             text = text.replaceAll(
                     "<[^>]+>",
                     " "
@@ -338,9 +311,6 @@ public class ArenaAdvisor {
 
             text = decodeHtml(text);
 
-            /*
-             * Normalize whitespace.
-             */
             text = text.replace("\r", "\n");
 
             String[] lines =
@@ -356,20 +326,6 @@ public class ArenaAdvisor {
                 if (line.length() == 0) {
                     continue;
                 }
-
-                /*
-                 * We are looking for a HearthArena score.
-                 *
-                 * Typical rendered structure:
-                 *
-                 * Card Name
-                 * 101
-                 *
-                 * or:
-                 *
-                 * 5. Card Name
-                 * 101
-                 */
 
                 Integer score =
                         extractScore(line);
@@ -399,12 +355,6 @@ public class ArenaAdvisor {
                 }
             }
 
-            /*
-             * Second parser.
-             *
-             * Some versions of HearthArena put the score and
-             * card name close together in the same HTML block.
-             */
             parseInlinePatterns(html);
 
         } catch (Exception ignored) {
@@ -415,14 +365,6 @@ public class ArenaAdvisor {
 
         try {
 
-            /*
-             * Look for:
-             *
-             * >Card Name<
-             * ... >101<
-             *
-             * This intentionally allows HTML between the two.
-             */
             Pattern pattern =
                     Pattern.compile(
                             ">\\s*([^<>\\r\\n]{3,80})\\s*<"
@@ -473,9 +415,6 @@ public class ArenaAdvisor {
                 line.replace("↓", "")
                         .trim();
 
-        /*
-         * Score must be just a number.
-         */
         if (cleaned.matches("\\d{1,3}")) {
 
             try {
@@ -491,9 +430,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * Sometimes there may be whitespace.
-         */
         Matcher matcher =
                 Pattern.compile(
                         "^\\s*(\\d{1,3})\\s*$"
@@ -535,9 +471,6 @@ public class ArenaAdvisor {
             return;
         }
 
-        /*
-         * Ignore rank numbers, mana values, etc.
-         */
         if (hearthArenaScore < 0 ||
                 hearthArenaScore > 200) {
             return;
@@ -581,6 +514,7 @@ public class ArenaAdvisor {
         return text
                 .replace("&amp;", "&")
                 .replace("&quot;", "\"")
+                .replace("&#039;", "'")
                 .replace("&#39;", "'")
                 .replace("&apos;", "'")
                 .replace("&lt;", "<")
@@ -611,10 +545,6 @@ public class ArenaAdvisor {
             return data;
         }
 
-        /*
-         * If the card is not manually defined, but HearthArena
-         * knows it, create a generic CardData automatically.
-         */
         Double onlineScore =
                 ONLINE_SCORES.get(key);
 
@@ -650,9 +580,6 @@ public class ArenaAdvisor {
             return generated;
         }
 
-        /*
-         * Fuzzy lookup.
-         */
         String fuzzy =
                 findClosestName(corrected);
 
@@ -723,9 +650,6 @@ public class ArenaAdvisor {
         int bestDistance =
                 Integer.MAX_VALUE;
 
-        /*
-         * First search manually known cards.
-         */
         for (String name : CARDS.keySet()) {
 
             CardData data =
@@ -755,9 +679,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * Then online cards.
-         */
         for (Map.Entry<String, String> entry :
                 ONLINE_NAMES.entrySet()) {
 
@@ -804,9 +725,6 @@ public class ArenaAdvisor {
         String normalized =
                 normalize(cleaned);
 
-        /*
-         * Soldier of the Infinite was the problematic OCR card.
-         */
         if (normalized.contains(
                 "soldieroftheinfinite"
         ) ||
@@ -829,9 +747,6 @@ public class ArenaAdvisor {
             return "Soldier of the Infinite";
         }
 
-        /*
-         * Common OCR corrections.
-         */
         if (normalized.equals(
                 "scrappyscavenger"
         ) ||
@@ -862,9 +777,6 @@ public class ArenaAdvisor {
             return "Arrival of the Titans";
         }
 
-        /*
-         * Exact known name.
-         */
         for (CardData data : CARDS.values()) {
 
             if (normalize(data.name)
@@ -874,9 +786,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * Exact online name.
-         */
         String online =
                 ONLINE_NAMES.get(normalized);
 
@@ -884,9 +793,6 @@ public class ArenaAdvisor {
             return online;
         }
 
-        /*
-         * Fuzzy OCR correction.
-         */
         String closest =
                 findClosestName(cleaned);
 
@@ -955,9 +861,6 @@ public class ArenaAdvisor {
 
         } else {
 
-            /*
-             * Try the online database one last time.
-             */
             Double online =
                     ONLINE_SCORES.get(
                             normalize(corrected)
@@ -973,9 +876,6 @@ public class ArenaAdvisor {
         double result =
                 base;
 
-        /*
-         * Small intrinsic bonuses for cards whose type is known.
-         */
         if (data != null) {
 
             if (data.removal) {
@@ -1010,9 +910,6 @@ public class ArenaAdvisor {
                 result += 0.05;
             }
 
-            /*
-             * Existing deck synergy system.
-             */
             result += synergyScore(data);
         }
 
@@ -1037,9 +934,6 @@ public class ArenaAdvisor {
 
         double bonus = 0.0;
 
-        /*
-         * Basic minion / spell balance.
-         */
         if (card.minion) {
 
             if (minionCount < 10) {
@@ -1058,9 +952,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * Removal.
-         */
         if (card.removal) {
 
             if (removalCount < 4) {
@@ -1070,9 +961,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * AoE.
-         */
         if (card.aoe) {
 
             if (aoeCount < 2) {
@@ -1082,9 +970,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * Draw.
-         */
         if (card.draw) {
 
             if (drawCount < 4) {
@@ -1092,9 +977,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * Discover.
-         */
         if (card.discover) {
 
             if (discoverCount < 4) {
@@ -1102,9 +984,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * Taunt.
-         */
         if (card.taunt) {
 
             if (tauntCount < 4) {
@@ -1112,9 +991,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * Divine Shield.
-         */
         if (card.divineShield) {
 
             if (divineShieldCount < 3) {
@@ -1122,9 +998,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * Battlecry / Deathrattle.
-         */
         if (card.battlecry) {
 
             if (battlecryCount < 8) {
@@ -1139,9 +1012,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * Tribes.
-         */
         if (card.mech && mechCount > 0) {
             bonus += 0.20;
         }
@@ -1182,9 +1052,6 @@ public class ArenaAdvisor {
             bonus += 0.20;
         }
 
-        /*
-         * Spell schools.
-         */
         if (card.nature && natureCount > 0) {
             bonus += 0.12;
         }
@@ -1209,9 +1076,6 @@ public class ArenaAdvisor {
             bonus += 0.15;
         }
 
-        /*
-         * Specific synergies from the existing advisor.
-         */
         String name =
                 normalize(card.name);
 
@@ -1341,9 +1205,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * Keep synergy influence controlled.
-         */
         return clamp(
                 bonus,
                 -0.50,
@@ -1454,10 +1315,6 @@ public class ArenaAdvisor {
 
         if (data == null) {
 
-            /*
-             * Still remember unknown cards so the deck history
-             * isn't lost.
-             */
             pickedCards.add(corrected);
             return;
         }
@@ -1720,13 +1577,6 @@ public class ArenaAdvisor {
     private static void loadFallbackCards() {
 
         CARDS.clear();
-
-        /*
-         * These are only fallback entries.
-         *
-         * The important change is that the application no longer
-         * depends on this list for every Arena card.
-         */
 
         add(
                 "Soldier of the Infinite",
@@ -2241,12 +2091,6 @@ public class ArenaAdvisor {
                 false
         );
 
-        /*
-         * Cards from the current draft that triggered the
-         * original 0.0 problem.
-         *
-         * Online data will override these automatically.
-         */
         add(
                 "Scrappy Scavenger",
                 7.77,
@@ -2372,19 +2216,12 @@ public class ArenaAdvisor {
                         .replace("↓", "")
                         .trim();
 
-        /*
-         * Remove ranking prefixes such as:
-         * 1. Card Name
-         */
         value =
                 value.replaceFirst(
                         "^\\s*\\d+\\.\\s*",
                         ""
                 );
 
-        /*
-         * Remove duplicated whitespace.
-         */
         value =
                 value.replaceAll(
                         "\\s+",
@@ -2433,9 +2270,6 @@ public class ArenaAdvisor {
             return false;
         }
 
-        /*
-         * Don't treat obvious UI text as cards.
-         */
         String normalized =
                 normalize(name);
 
@@ -2463,9 +2297,6 @@ public class ArenaAdvisor {
             return false;
         }
 
-        /*
-         * A card name normally contains at least one letter.
-         */
         boolean hasLetter = false;
 
         for (int i = 0;
