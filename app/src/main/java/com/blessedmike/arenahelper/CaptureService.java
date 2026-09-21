@@ -8,7 +8,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.media.Image;
 import android.media.ImageReader;
@@ -122,8 +124,11 @@ public class CaptureService extends Service {
         }
 
         if (projectionData != null) {
+
             startScreenCapture();
+
         } else {
+
             updateOverlay(
                     "Arena Helper\n\nNäytönjako puuttuu"
             );
@@ -234,6 +239,7 @@ public class CaptureService extends Service {
                             );
 
             if (projectionManager == null) {
+
                 throw new IllegalStateException(
                         "MediaProjectionManager puuttuu"
                 );
@@ -246,6 +252,7 @@ public class CaptureService extends Service {
                     );
 
             if (mediaProjection == null) {
+
                 throw new IllegalStateException(
                         "MediaProjection on null"
                 );
@@ -390,6 +397,7 @@ public class CaptureService extends Service {
             image = null;
 
             if (bitmap == null) {
+
                 processing = false;
                 return;
             }
@@ -429,39 +437,50 @@ public class CaptureService extends Service {
         try {
 
             /*
-             * KÄÄNNETÄÄN KOKO TÄMÄ TESTI
-             * NIMIEN OLETETTUUN KESKIKOHTAAN.
+             * Korttien nimet ovat näytön keskellä.
              *
-             * Näyttö 2640 x 1200:
+             * 1200 px korkealla näytöllä:
              *
-             * nimi-alue:
-             * noin Y = 540 ... 660
+             * 0.45 = 540 px
+             * 0.55 = 660 px
              *
-             * Tämä tarkoittaa keskiviivaa
-             * 600 px ympärillä.
+             * Eli OCR lukee alueen 540-660.
              */
 
-            int nameTop = (int) (height * 0.45f);
-            int nameBottom = (int) (height * 0.55f);
+            int nameTop =
+                    (int) (height * 0.45f);
+
+            int nameBottom =
+                    (int) (height * 0.55f);
 
             int nameHeight =
                     nameBottom - nameTop;
 
             /*
-             * Kolme korttia vaakasuunnassa.
+             * Korttien X-alueet.
              *
-             * Jätetään väliä korttien väliin,
-             * jotta viereisen kortin teksti ei pääse OCR:ään.
+             * Tehdään alueista hieman leveämmät,
+             * jotta nimen ensimmäiset ja viimeiset
+             * kirjaimet eivät leikkaannu.
              */
 
-            int card1Left = (int) (width * 0.08f);
-            int card1Right = (int) (width * 0.34f);
+            int card1Left =
+                    (int) (width * 0.065f);
 
-            int card2Left = (int) (width * 0.37f);
-            int card2Right = (int) (width * 0.63f);
+            int card1Right =
+                    (int) (width * 0.345f);
 
-            int card3Left = (int) (width * 0.66f);
-            int card3Right = (int) (width * 0.92f);
+            int card2Left =
+                    (int) (width * 0.355f);
+
+            int card2Right =
+                    (int) (width * 0.645f);
+
+            int card3Left =
+                    (int) (width * 0.655f);
+
+            int card3Right =
+                    (int) (width * 0.935f);
 
             card1 = Bitmap.createBitmap(
                     source,
@@ -487,10 +506,27 @@ public class CaptureService extends Service {
                     nameHeight
             );
 
+            /*
+             * Suurennetaan OCR-kuvat 2x.
+             */
+
+            Bitmap enlarged1 =
+                    enlargeForOCR(card1);
+
+            Bitmap enlarged2 =
+                    enlargeForOCR(card2);
+
+            Bitmap enlarged3 =
+                    enlargeForOCR(card3);
+
+            card1.recycle();
+            card2.recycle();
+            card3.recycle();
+
             runCardOCR(
-                    card1,
-                    card2,
-                    card3
+                    enlarged1,
+                    enlarged2,
+                    enlarged3
             );
 
             source.recycle();
@@ -524,6 +560,51 @@ public class CaptureService extends Service {
 
             processing = false;
         }
+    }
+
+    /*
+     * Suurentaa OCR-alueen 2x.
+     *
+     * Käytetään bilineaarista skaalausta,
+     * jotta kirjaimet säilyvät mahdollisimman
+     * selkeinä.
+     */
+    private Bitmap enlargeForOCR(Bitmap source) {
+
+        int newWidth =
+                source.getWidth() * 2;
+
+        int newHeight =
+                source.getHeight() * 2;
+
+        Bitmap enlarged =
+                Bitmap.createBitmap(
+                        newWidth,
+                        newHeight,
+                        Bitmap.Config.ARGB_8888
+                );
+
+        Canvas canvas =
+                new Canvas(enlarged);
+
+        Paint paint =
+                new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        paint.setFilterBitmap(true);
+
+        canvas.drawBitmap(
+                source,
+                null,
+                new android.graphics.Rect(
+                        0,
+                        0,
+                        newWidth,
+                        newHeight
+                ),
+                paint
+        );
+
+        return enlarged;
     }
 
     private void runCardOCR(
@@ -574,7 +655,8 @@ public class CaptureService extends Service {
                         result =
                                 cleanCardName(result);
 
-                        results[index] = result;
+                        results[index] =
+                                result;
 
                         if (!bitmap.isRecycled()) {
                             bitmap.recycle();
@@ -676,8 +758,16 @@ public class CaptureService extends Service {
             return "";
         }
 
+        text = text.trim();
+
+        if (text.isEmpty()) {
+            return "";
+        }
+
         String[] lines =
                 text.split("\\r?\\n");
+
+        String bestLine = "";
 
         for (String line : lines) {
 
@@ -687,11 +777,32 @@ public class CaptureService extends Service {
                 continue;
             }
 
+            /*
+             * Poistetaan tavallisimmat OCR:n
+             * aiheuttamat ylimääräiset merkit
+             * rivin alusta ja lopusta.
+             */
+
+            line = line.replaceAll(
+                    "^[^A-Za-zÅÄÖåäö0-9]+",
+                    ""
+            );
+
+            line = line.replaceAll(
+                    "[^A-Za-zÅÄÖåäö0-9'\\- ]+$",
+                    ""
+            );
+
+            line = line.trim();
+
             int letters = 0;
 
-            for (int i = 0; i < line.length(); i++) {
+            for (int i = 0;
+                 i < line.length();
+                 i++) {
 
-                char c = line.charAt(i);
+                char c =
+                        line.charAt(i);
 
                 if (Character.isLetter(c)) {
                     letters++;
@@ -699,11 +810,22 @@ public class CaptureService extends Service {
             }
 
             if (letters >= 2) {
-                return line;
+
+                /*
+                 * Jos rivillä on tekstiä,
+                 * käytetään sitä.
+                 *
+                 * Koska kuva-alue on jo erittäin
+                 * pieni, ensimmäinen järkevä rivi
+                 * on yleensä kortin nimi.
+                 */
+
+                bestLine = line;
+                break;
             }
         }
 
-        return "";
+        return bestLine;
     }
 
     private void showThreeCards(String[] results) {
