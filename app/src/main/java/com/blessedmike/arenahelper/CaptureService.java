@@ -499,12 +499,9 @@ public class CaptureService extends Service {
         try {
 
             /*
-             * PYSTYSUUNTA:
+             * PYSTYSUUNTA EI MUUTETA.
              *
-             * Tämä oli aiemmassa testissä
-             * lähes oikea.
-             *
-             * 45 % - 55 %
+             * Tämä alue toimii jo hyvin.
              */
 
             int nameTop =
@@ -522,19 +519,21 @@ public class CaptureService extends Service {
                             nameTop;
 
             /*
-             * VAAKARAJAUKSET:
+             * --------------------------------
+             * KORTTI 1
+             * --------------------------------
              *
-             * Palataan lähemmäs sitä
-             * versiota, joka tunnisti nimiä.
+             * Aiemmin:
              *
-             * Kortti 1:
              * 6.5 % - 34.5 %
              *
-             * Kortti 2:
-             * 35.5 % - 64.5 %
+             * Ensimmäisen kortin lopusta
+             * puuttui noin 3 kirjainta.
              *
-             * Kortti 3:
-             * 65.5 % - 93.5 %
+             * Nyt oikeaa reunaa siirretään
+             * hieman oikealle:
+             *
+             * 6.5 % - 38 %
              */
 
             int card1Left =
@@ -544,8 +543,16 @@ public class CaptureService extends Service {
 
             int card1Right =
                     (int) (
-                            width * 0.345f
+                            width * 0.38f
                     );
+
+            /*
+             * --------------------------------
+             * KORTTI 2
+             * --------------------------------
+             *
+             * Tätä EI muuteta.
+             */
 
             int card2Left =
                     (int) (
@@ -557,9 +564,26 @@ public class CaptureService extends Service {
                             width * 0.645f
                     );
 
+            /*
+             * --------------------------------
+             * KORTTI 3
+             * --------------------------------
+             *
+             * Aiemmin:
+             *
+             * 65.5 % - 93.5 %
+             *
+             * Alusta puuttui noin 5 kirjainta.
+             *
+             * Nyt vasenta reunaa siirretään
+             * selvästi vasemmalle:
+             *
+             * 60 % - 93.5 %
+             */
+
             int card3Left =
                     (int) (
-                            width * 0.655f
+                            width * 0.60f
                     );
 
             int card3Right =
@@ -658,7 +682,8 @@ public class CaptureService extends Service {
                     );
 
             /*
-             * Vain 2x suurennos.
+             * Pidetään 2x suurennos,
+             * koska se toimii tässä.
              */
 
             Bitmap prepared1 =
@@ -775,11 +800,6 @@ public class CaptureService extends Service {
         final String[] results =
                 new String[3];
 
-        /*
-         * Jokainen kortti käsitellään omana
-         * OCR-tehtävänään.
-         */
-
         recognizeSingleCard(
                 card1,
                 0,
@@ -833,13 +853,10 @@ public class CaptureService extends Service {
                                                 raw
                                 );
 
-                                String cleaned =
+                                results[index] =
                                         cleanCardName(
                                                 raw
                                         );
-
-                                results[index] =
-                                        cleaned;
 
                                 if (!bitmap.isRecycled()) {
                                     bitmap.recycle();
@@ -895,13 +912,6 @@ public class CaptureService extends Service {
             String[] results
     ) {
 
-        /*
-         * Null tarkoittaa vielä kesken.
-         * Tyhjä merkkijono tarkoittaa,
-         * että OCR valmistui mutta ei löytänyt
-         * nimeä.
-         */
-
         if (results[0] == null ||
                 results[1] == null ||
                 results[2] == null) {
@@ -941,20 +951,10 @@ public class CaptureService extends Service {
                 continue;
             }
 
-            /*
-             * Poistetaan vain OCR:n ylimääräiset
-             * merkit aivan alusta.
-             */
-
             line = line.replaceAll(
                     "^[^A-Za-zÅÄÖåäö0-9]+",
                     ""
             );
-
-            /*
-             * Poistetaan vain ylimääräiset merkit
-             * lopusta.
-             */
 
             line = line.replaceAll(
                     "[^A-Za-zÅÄÖåäö0-9'\\- ]+$",
@@ -1023,11 +1023,6 @@ public class CaptureService extends Service {
 
         Log.d(
                 TAG,
-                "===================="
-        );
-
-        Log.d(
-                TAG,
                 "CARD 1: " + card1
         );
 
@@ -1039,11 +1034,6 @@ public class CaptureService extends Service {
         Log.d(
                 TAG,
                 "CARD 3: " + card3
-        );
-
-        Log.d(
-                TAG,
-                "===================="
         );
     }
 
