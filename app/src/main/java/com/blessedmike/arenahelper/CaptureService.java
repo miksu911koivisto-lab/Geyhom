@@ -63,6 +63,7 @@ public class CaptureService extends Service {
 
     private static final long OCR_INTERVAL = 1500;
 
+
     /*
      * ============================================================
      * KORTTI 1:N OCR-VAKAUTUS
@@ -76,6 +77,45 @@ public class CaptureService extends Service {
     private int candidateCard1Count = 0;
 
     private static final int CARD1_CONFIRMATIONS = 2;
+
+
+    /*
+     * ============================================================
+     * ARENA-PICKIN SEURANTA
+     * ============================================================
+     *
+     * Säilytetään viimeisin varmasti tunnistettu kolmen kortin
+     * tarjous.
+     *
+     * Uuden tarjouksen tullessa verrataan sitä edelliseen.
+     *
+     * Jos edellisestä tarjouksesta puuttuu TÄSMÄLLEEN YKSI
+     * kortti ja kaksi muuta korttia ovat edelleen mukana,
+     * valinta voidaan päätellä turvallisesti.
+     *
+     * Jos päätelmä ei ole yksiselitteinen, mitään korttia ei
+     * tallenneta. Tämä estää väärien synergioiden syntymisen.
+     * ============================================================
+     */
+
+    private String confirmedCard1 = "";
+    private String confirmedCard2 = "";
+    private String confirmedCard3 = "";
+
+    private String pendingOffer1 = "";
+    private String pendingOffer2 = "";
+    private String pendingOffer3 = "";
+
+    private int pendingOfferCount = 0;
+
+    private static final int OFFER_CONFIRMATIONS = 2;
+
+
+    /*
+     * Estetään saman valinnan tallentaminen monta kertaa.
+     */
+
+    private String lastRecordedPick = "";
 
 
     public static void setProjectionData(
@@ -1643,6 +1683,443 @@ public class CaptureService extends Service {
 
     /*
      * ============================================================
+     * KORTTIEN VALIDOINNIT
+     * ============================================================
+     */
+
+    private boolean validCardName(
+            String card
+    ) {
+
+        if (card == null) {
+            return false;
+        }
+
+
+        String value =
+                card.trim();
+
+
+        if (value.isEmpty()) {
+            return false;
+        }
+
+
+        if (value.equalsIgnoreCase(
+                "Ei tunnistettu"
+        )) {
+            return false;
+        }
+
+
+        return true;
+    }
+
+
+    private String normalizeOfferCard(
+            String card
+    ) {
+
+        if (card == null) {
+            return "";
+        }
+
+
+        return card
+                .trim()
+                .toLowerCase()
+                .replaceAll(
+                        "[^a-z0-9]",
+                        ""
+                );
+    }
+
+
+    private boolean sameOfferCard(
+            String a,
+            String b
+    ) {
+
+        String aa =
+                normalizeOfferCard(a);
+
+
+        String bb =
+                normalizeOfferCard(b);
+
+
+        if (aa.isEmpty() ||
+                bb.isEmpty()) {
+
+            return false;
+        }
+
+
+        return aa.equals(bb) ||
+                aa.contains(bb) ||
+                bb.contains(aa);
+    }
+
+
+    private boolean sameOffer(
+            String a1,
+            String a2,
+            String a3,
+            String b1,
+            String b2,
+            String b3
+    ) {
+
+        return sameOfferCard(a1, b1) &&
+                sameOfferCard(a2, b2) &&
+                sameOfferCard(a3, b3);
+    }
+
+
+    /*
+     * ============================================================
+     * PICKIN PÄÄTTELY
+     * ============================================================
+     */
+
+    private void updateArenaPickTracking(
+            String card1,
+            String card2,
+            String card3
+    ) {
+
+        if (!validCardName(card1) ||
+                !validCardName(card2) ||
+                !validCardName(card3)) {
+
+            return;
+        }
+
+
+        /*
+         * Ensimmäinen tarjous.
+         */
+
+        if (confirmedCard1.isEmpty() ||
+                confirmedCard2.isEmpty() ||
+                confirmedCard3.isEmpty()) {
+
+            setPendingOffer(
+                    card1,
+                    card2,
+                    card3
+            );
+
+
+            if (pendingOfferCount >=
+                    OFFER_CONFIRMATIONS) {
+
+                confirmCurrentOffer();
+            }
+
+
+            return;
+        }
+
+
+        /*
+         * Jos sama tarjous jatkuu,
+         * ei tehdä mitään.
+         */
+
+        if (sameOffer(
+                confirmedCard1,
+                confirmedCard2,
+                confirmedCard3,
+                card1,
+                card2,
+                card3
+        )) {
+
+            pendingOfferCount = 0;
+
+            pendingOffer1 = "";
+            pendingOffer2 = "";
+            pendingOffer3 = "";
+
+            return;
+        }
+
+
+        /*
+         * Uusi tarjous havaittu.
+         *
+         * Varmistetaan se ensin kahdella peräkkäisellä
+         * samanlaisella OCR-tuloksella.
+         */
+
+        if (sameOffer(
+                pendingOffer1,
+                pendingOffer2,
+                pendingOffer3,
+                card1,
+                card2,
+                card3
+        )) {
+
+            pendingOfferCount++;
+
+        } else {
+
+            setPendingOffer(
+                    card1,
+                    card2,
+                    card3
+            );
+        }
+
+
+        if (pendingOfferCount >=
+                OFFER_CONFIRMATIONS) {
+
+            processConfirmedOfferChange();
+        }
+    }
+
+
+    private void setPendingOffer(
+            String card1,
+            String card2,
+            String card3
+    ) {
+
+        pendingOffer1 = card1;
+        pendingOffer2 = card2;
+        pendingOffer3 = card3;
+
+        pendingOfferCount = 1;
+    }
+
+
+    private void confirmCurrentOffer() {
+
+        confirmedCard1 =
+                pendingOffer1;
+
+        confirmedCard2 =
+                pendingOffer2;
+
+        confirmedCard3 =
+                pendingOffer3;
+
+        pendingOffer1 = "";
+        pendingOffer2 = "";
+        pendingOffer3 = "";
+
+        pendingOfferCount = 0;
+
+
+        Log.d(
+                TAG,
+                "ARENA OFFER CONFIRMED: " +
+                        confirmedCard1 +
+                        " | " +
+                        confirmedCard2 +
+                        " | " +
+                        confirmedCard3
+        );
+    }
+
+
+    private void processConfirmedOfferChange() {
+
+        String new1 =
+                pendingOffer1;
+
+        String new2 =
+                pendingOffer2;
+
+        String new3 =
+                pendingOffer3;
+
+
+        /*
+         * Selvitetään kuinka monta vanhaa korttia löytyy
+         * uudesta tarjouksesta.
+         */
+
+        boolean old1Found =
+                sameOfferCard(
+                        confirmedCard1,
+                        new1
+                ) ||
+                        sameOfferCard(
+                                confirmedCard1,
+                                new2
+                        ) ||
+                        sameOfferCard(
+                                confirmedCard1,
+                                new3
+                        );
+
+
+        boolean old2Found =
+                sameOfferCard(
+                        confirmedCard2,
+                        new1
+                ) ||
+                        sameOfferCard(
+                                confirmedCard2,
+                                new2
+                        ) ||
+                        sameOfferCard(
+                                confirmedCard2,
+                                new3
+                        );
+
+
+        boolean old3Found =
+                sameOfferCard(
+                        confirmedCard3,
+                        new1
+                ) ||
+                        sameOfferCard(
+                                confirmedCard3,
+                                new2
+                        ) ||
+                        sameOfferCard(
+                                confirmedCard3,
+                                new3
+                        );
+
+
+        int oldCardsFound = 0;
+
+        if (old1Found) {
+            oldCardsFound++;
+        }
+
+        if (old2Found) {
+            oldCardsFound++;
+        }
+
+        if (old3Found) {
+            oldCardsFound++;
+        }
+
+
+        /*
+         * TÄRKEÄ TURVASÄÄNTÖ:
+         *
+         * Jos uusi tarjous sisältää kaksi vanhaa korttia,
+         * kolmas vanha kortti on yksiselitteisesti valittu.
+         */
+
+        if (oldCardsFound == 2) {
+
+            String pickedCard = "";
+
+
+            if (!old1Found) {
+
+                pickedCard =
+                        confirmedCard1;
+
+            } else if (!old2Found) {
+
+                pickedCard =
+                        confirmedCard2;
+
+            } else if (!old3Found) {
+
+                pickedCard =
+                        confirmedCard3;
+            }
+
+
+            if (validCardName(pickedCard)) {
+
+                recordPickedCard(
+                        pickedCard
+                );
+            }
+        } else {
+
+            Log.d(
+                    TAG,
+                    "ARENA PICK NOT RECORDED: " +
+                            "selection was not unambiguous. " +
+                            "OLD_MATCHES=" +
+                            oldCardsFound
+            );
+        }
+
+
+        /*
+         * Uusi tarjous muuttuu nyt aktiiviseksi.
+         */
+
+        confirmedCard1 = new1;
+        confirmedCard2 = new2;
+        confirmedCard3 = new3;
+
+        pendingOffer1 = "";
+        pendingOffer2 = "";
+        pendingOffer3 = "";
+
+        pendingOfferCount = 0;
+    }
+
+
+    private void recordPickedCard(
+            String pickedCard
+    ) {
+
+        if (!validCardName(pickedCard)) {
+            return;
+        }
+
+
+        /*
+         * Sama kortti voidaan muuten saada tallennettua
+         * useamman kerran saman transition aikana.
+         */
+
+        if (sameOfferCard(
+                lastRecordedPick,
+                pickedCard
+        )) {
+
+            return;
+        }
+
+
+        lastRecordedPick =
+                pickedCard;
+
+
+        try {
+
+            ArenaAdvisor.recordPickedCard(
+                    pickedCard
+            );
+
+
+            Log.d(
+                    TAG,
+                    "ARENA PICK RECORDED: " +
+                            pickedCard
+            );
+
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Could not record picked card",
+                    e
+            );
+        }
+    }
+
+
+    /*
+     * ============================================================
      * KORTIT + ARENA ADVISOR
      * ============================================================
      */
@@ -1673,8 +2150,28 @@ public class CaptureService extends Service {
 
 
         /*
-         * TÄRKEÄ:
-         *
+         * Päivitetään pick-seuranta ennen pisteytystä.
+         */
+
+        try {
+
+            updateArenaPickTracking(
+                    card1,
+                    card2,
+                    card3
+            );
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Arena pick tracking error",
+                    e
+            );
+        }
+
+
+        /*
          * Näytetään kortit ensin.
          *
          * Pisteiden laskeminen on omassa try/catchissa,
