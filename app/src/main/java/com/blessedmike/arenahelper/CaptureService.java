@@ -15,7 +15,6 @@ import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.os.IBinder;
-import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.TextView;
@@ -23,14 +22,20 @@ import android.widget.TextView;
 public class CaptureService extends Service {
 
     private static final String CHANNEL = "arena_helper";
-    private static final int NOTIFICATION_ID = 10;
+
+    private static int projectionResultCode;
+    private static Intent projectionData;
 
     private WindowManager wm;
     private TextView overlay;
-
     private MediaProjection mediaProjection;
     private VirtualDisplay virtualDisplay;
     private ImageReader imageReader;
+
+    public static void setProjectionData(int resultCode, Intent data) {
+        projectionResultCode = resultCode;
+        projectionData = data;
+    }
 
     @Override
     public void onCreate() {
@@ -52,12 +57,13 @@ public class CaptureService extends Service {
 
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(
-                    NOTIFICATION_ID,
+                    10,
                     builder.build(),
-                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                    android.content.pm.ServiceInfo
+                            .FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             );
         } else {
-            startForeground(NOTIFICATION_ID, builder.build());
+            startForeground(10, builder.build());
         }
 
         showOverlay();
@@ -84,19 +90,15 @@ public class CaptureService extends Service {
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
 
         overlay = new TextView(this);
-        overlay.setText("Arena Helper\nKäynnissä\nOdotetaan pelikuvaa...");
+        overlay.setText("Arena Helper\nKäynnistetään...");
         overlay.setTextColor(Color.WHITE);
         overlay.setTextSize(15);
         overlay.setPadding(24, 16, 24, 16);
         overlay.setBackgroundColor(0xDD222222);
 
-        int type;
-
-        if (Build.VERSION.SDK_INT >= 26) {
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
-        } else {
-            type = WindowManager.LayoutParams.TYPE_PHONE;
-        }
+        int type = Build.VERSION.SDK_INT >= 26
+                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                : WindowManager.LayoutParams.TYPE_PHONE;
 
         WindowManager.LayoutParams params =
                 new WindowManager.LayoutParams(
@@ -126,28 +128,19 @@ public class CaptureService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
 
-        if (intent == null) {
+        if (projectionData == null || projectionResultCode == 0) {
+            updateOverlay(
+                    "Arena Helper\nNäytön kaappaus ei onnistunut"
+            );
             return START_NOT_STICKY;
         }
 
-        int resultCode = intent.getIntExtra(
-                "resultCode",
-                -1
-        );
-
-        Intent data = intent.getParcelableExtra("data" , Intent.class);
-
-        if (resultCode == -1 || data == null) {
-            updateOverlay("Arena Helper\nNäytön kaappaus ei onnistunut");
-            return START_NOT_STICKY;
-        }
-
-        startScreenCapture(resultCode, data);
+        startScreenCapture();
 
         return START_NOT_STICKY;
     }
 
-    private void startScreenCapture(int resultCode, Intent data) {
+    private void startScreenCapture() {
 
         MediaProjectionManager manager =
                 (MediaProjectionManager)
@@ -158,15 +151,20 @@ public class CaptureService extends Service {
             return;
         }
 
-        mediaProjection =
-                manager.getMediaProjection(resultCode, data);
+        mediaProjection = manager.getMediaProjection(
+                projectionResultCode,
+                projectionData
+        );
 
         if (mediaProjection == null) {
-            updateOverlay("Arena Helper\nNäytön kaappaus epäonnistui");
+            updateOverlay(
+                    "Arena Helper\nMediaProjection epäonnistui"
+            );
             return;
         }
 
-        DisplayMetrics metrics = getResources().getDisplayMetrics();
+        android.util.DisplayMetrics metrics =
+                getResources().getDisplayMetrics();
 
         int width = metrics.widthPixels;
         int height = metrics.heightPixels;
@@ -220,8 +218,7 @@ public class CaptureService extends Service {
         );
 
         updateOverlay(
-                "Arena Helper\n" +
-                "Kuvakaappaus aktiivinen ✓"
+                "Arena Helper\nKuvakaappaus aktiivinen ✓"
         );
     }
 
