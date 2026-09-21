@@ -4,6 +4,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
@@ -17,6 +18,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.TextView;
@@ -26,9 +28,9 @@ import androidx.core.app.NotificationCompat;
 
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.text.Text;
+import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
-import com.google.mlkit.vision.text.TextRecognition;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -36,410 +38,314 @@ import java.util.List;
 
 public class CaptureService extends Service {
 
-    private static final String CHANNEL_ID =
-            "ArenaHelperCapture";
-
-    private static final int NOTIFICATION_ID =
-            1001;
-
-    private static final long OCR_INTERVAL =
-            1500;
+    private static final String CHANNEL_ID = "ArenaHelperCapture";
+    private static final int NOTIFICATION_ID = 1001;
 
     private static int projectionResultCode;
-
     private static Intent projectionData;
 
     private MediaProjection mediaProjection;
-
     private VirtualDisplay virtualDisplay;
-
     private ImageReader imageReader;
 
+    private Handler handler;
     private TextRecognizer recognizer;
 
-    private Handler handler;
-
     private WindowManager windowManager;
-
     private TextView overlayText;
 
-    private boolean processing = false;
+    private boolean processingImage = false;
 
-    private int screenWidth;
-
-    private int screenHeight;
-
-    private int screenDensity;
-
-
-    // =========================================================
-    // PROJECTION DATA
-    // =========================================================
-
-    public static void setProjectionData(
-            int resultCode,
-            Intent data
-    ) {
-
-        projectionResultCode =
-                resultCode;
-
-        projectionData =
-                data;
-    }
-
-
-    // =========================================================
-    // CARD 1 STABILIZATION
-    // =========================================================
+    // ------------------------------------------------------------
+    // CARD 1 OCR STABILIZATION
+    // ------------------------------------------------------------
 
     private String stableCard1 = "";
-
     private String candidateCard1 = "";
-
     private int candidateCard1Count = 0;
 
     private static final int CARD1_CONFIRMATIONS = 2;
 
+    // ------------------------------------------------------------
+    // MEDIA PROJECTION DATA
+    // ------------------------------------------------------------
 
-    // =========================================================
-    // ON CREATE
-    // =========================================================
+    public static void setProjectionData(int resultCode, Intent data) {
+        projectionResultCode = resultCode;
+        projectionData = data;
+    }
+
+    // ------------------------------------------------------------
+    // SERVICE CREATE
+    // ------------------------------------------------------------
 
     @Override
     public void onCreate() {
-
         super.onCreate();
 
-        handler =
-                new Handler(
-                        Looper.getMainLooper()
-                );
+        handler = new Handler(Looper.getMainLooper());
 
-        recognizer =
-                TextRecognition.getClient(
-                        TextRecognizerOptions.DEFAULT_OPTIONS
-                );
+        recognizer = TextRecognition.getClient(
+                TextRecognizerOptions.DEFAULT_OPTIONS
+        );
 
-        windowManager =
-                (WindowManager)
-                        getSystemService(
-                                WINDOW_SERVICE
-                        );
+        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
 
         createNotificationChannel();
 
         createOverlay();
     }
 
-
-    // =========================================================
-    // START COMMAND
-    // =========================================================
+    // ------------------------------------------------------------
+    // SERVICE START
+    // ------------------------------------------------------------
 
     @Override
-    public int onStartCommand(
-            Intent intent,
-            int flags,
-            int startId
-    ) {
+    public int onStartCommand(Intent intent, int flags, int startId) {
 
         startForeground(
                 NOTIFICATION_ID,
                 createNotification()
         );
 
-        try {
-
-            /*
-             * Käytetään ensin MainActivityn
-             * tallentamia projection-tietoja.
-             */
-
-            if (projectionData != null) {
-
-                startCapture(
-                        projectionResultCode,
-                        projectionData
-                );
-
-                return START_STICKY;
-            }
-
-
-            /*
-             * Jos tiedot tulevat suoraan
-             * Service-intentistä.
-             */
+        // MainActivity normally stores the permission data here.
+        // Also support receiving it directly through the Intent.
+        if (intent != null) {
 
             int resultCode =
-                    intent != null
-                            ? intent.getIntExtra(
-                                    "resultCode",
-                                    -1
-                            )
-                            : -1;
+                    intent.getIntExtra(
+                            "resultCode",
+                            projectionResultCode
+                    );
 
             Intent data =
-                    intent != null
-                            ? intent.getParcelableExtra(
-                                    "data"
-                            )
-                            : null;
+                    intent.getParcelableExtra("data");
 
-
-            if (data != null &&
-                    resultCode != -1) {
-
-                startCapture(
-                        resultCode,
-                        data
-                );
-
-            } else {
-
-                showError(
-                        "MediaProjection-data puuttuu"
-                );
+            if (data != null) {
+                projectionData = data;
             }
 
-        } catch (Exception e) {
-
-            e.printStackTrace();
-
-            showError(
-                    "Capture-virhe: " +
-                            e.getMessage()
-            );
+            projectionResultCode = resultCode;
         }
+
+        startCapture();
 
         return START_STICKY;
     }
 
+    // ------------------------------------------------------------
+    // START SCREEN CAPTURE
+    // ------------------------------------------------------------
 
-    // =========================================================
-    // START CAPTURE
-    // =========================================================
+    private void startCapture() {
 
-    private void startCapture(
-            int resultCode,
-            Intent data
-    ) {
-
-        if (mediaProjection != null) {
+        if (projectionData == null) {
+            showOverlay("Capture error: permission data puuttuu");
             return;
         }
 
-        WindowManager wm =
-                (WindowManager)
-                        getSystemService(
-                                WINDOW_SERVICE
-                        );
+        try {
 
-        android.util.DisplayMetrics metrics =
-                new android.util.DisplayMetrics();
+            MediaProjectionManager projectionManager =
+                    (MediaProjectionManager)
+                            getSystemService(
+                                    MEDIA_PROJECTION_SERVICE
+                            );
 
-        wm.getDefaultDisplay()
-                .getRealMetrics(metrics);
+            mediaProjection =
+                    projectionManager.getMediaProjection(
+                            projectionResultCode,
+                            projectionData
+                    );
 
-        screenWidth =
-                metrics.widthPixels;
+            if (mediaProjection == null) {
+                showOverlay("Capture error: MediaProjection null");
+                return;
+            }
 
-        screenHeight =
-                metrics.heightPixels;
+            DisplayMetrics metrics =
+                    new DisplayMetrics();
 
-        screenDensity =
-                metrics.densityDpi;
+            WindowManager wm =
+                    (WindowManager)
+                            getSystemService(
+                                    WINDOW_SERVICE
+                            );
 
+            wm.getDefaultDisplay()
+                    .getRealMetrics(metrics);
 
-        MediaProjectionManager manager =
-                (MediaProjectionManager)
-                        getSystemService(
-                                MEDIA_PROJECTION_SERVICE
-                        );
+            int width = metrics.widthPixels;
+            int height = metrics.heightPixels;
+            int density = metrics.densityDpi;
 
+            // ----------------------------------------------------
+            // IMAGE READER
+            // ----------------------------------------------------
 
-        mediaProjection =
-                manager.getMediaProjection(
-                        resultCode,
-                        data
-                );
+            imageReader =
+                    ImageReader.newInstance(
+                            width,
+                            height,
+                            PixelFormat.RGBA_8888,
+                            2
+                    );
 
-
-        if (mediaProjection == null) {
-
-            showError(
-                    "MediaProjection ei käynnistynyt"
+            imageReader.setOnImageAvailableListener(
+                    reader -> processLatestImage(),
+                    handler
             );
 
-            return;
+            // ----------------------------------------------------
+            // IMPORTANT:
+            // Android requires a MediaProjection callback BEFORE
+            // createVirtualDisplay().
+            // ----------------------------------------------------
+
+            mediaProjection.registerCallback(
+                    new MediaProjection.Callback() {
+
+                        @Override
+                        public void onStop() {
+
+                            if (virtualDisplay != null) {
+                                virtualDisplay.release();
+                                virtualDisplay = null;
+                            }
+
+                            if (imageReader != null) {
+                                imageReader.close();
+                                imageReader = null;
+                            }
+
+                            showOverlay(
+                                    "Capture pysäytetty"
+                            );
+                        }
+                    },
+                    handler
+            );
+
+            // ----------------------------------------------------
+            // VIRTUAL DISPLAY
+            // ----------------------------------------------------
+
+            virtualDisplay =
+                    mediaProjection.createVirtualDisplay(
+                            "ArenaHelperCapture",
+                            width,
+                            height,
+                            density,
+                            DisplayManager
+                                    .VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                            imageReader.getSurface(),
+                            null,
+                            handler
+                    );
+
+            showOverlay(
+                    "Arena Helper aktiivinen"
+            );
+
+        } catch (Exception e) {
+
+            showOverlay(
+                    "Capture error: " +
+                            e.getClass().getSimpleName()
+            );
         }
-
-
-        imageReader =
-                ImageReader.newInstance(
-                        screenWidth,
-                        screenHeight,
-                        PixelFormat.RGBA_8888,
-                        2
-                );
-
-
-        virtualDisplay =
-                mediaProjection.createVirtualDisplay(
-                        "ArenaHelper",
-                        screenWidth,
-                        screenHeight,
-                        screenDensity,
-                        DisplayManager
-                                .VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                        imageReader.getSurface(),
-                        null,
-                        handler
-                );
-
-
-        imageReader.setOnImageAvailableListener(
-                reader ->
-                        processLatestImage(
-                                reader
-                        ),
-                handler
-        );
-
-
-        showStatus(
-                "Arena Helper aktiivinen"
-        );
     }
 
+    // ------------------------------------------------------------
+    // GET LATEST SCREEN IMAGE
+    // ------------------------------------------------------------
 
-    // =========================================================
-    // IMAGE PROCESSING
-    // =========================================================
+    private void processLatestImage() {
 
-    private void processLatestImage(
-            ImageReader reader
-    ) {
-
-        if (processing) {
+        if (processingImage) {
             return;
         }
+
+        if (imageReader == null) {
+            return;
+        }
+
+        processingImage = true;
 
         Image image = null;
 
         try {
 
             image =
-                    reader.acquireLatestImage();
+                    imageReader.acquireLatestImage();
 
             if (image == null) {
+                processingImage = false;
                 return;
             }
-
-            processing = true;
 
             Bitmap bitmap =
                     imageToBitmap(image);
 
             image.close();
-
             image = null;
 
-
             if (bitmap == null) {
-
-                processing = false;
-
+                processingImage = false;
                 return;
             }
 
-
-            processThreeCards(
-                    bitmap
-            );
+            processThreeCards(bitmap);
 
         } catch (Exception e) {
 
-            e.printStackTrace();
-
             if (image != null) {
-
                 try {
                     image.close();
                 } catch (Exception ignored) {
                 }
             }
 
-            processing = false;
+            processingImage = false;
         }
     }
 
+    // ------------------------------------------------------------
+    // OCR THREE CARDS
+    // ------------------------------------------------------------
 
-    // =========================================================
-    // THREE CARDS
-    // =========================================================
+    private void processThreeCards(Bitmap screen) {
 
-    private void processThreeCards(
-            Bitmap screen
-    ) {
+        int width = screen.getWidth();
+        int height = screen.getHeight();
 
-        int width =
-                screen.getWidth();
-
-        int height =
-                screen.getHeight();
-
-
-        /*
-         * ÄLÄ MUUTA NÄITÄ RAJAUKSIA.
-         * Nykyinen OCR toimii näillä.
-         */
-
+        // Same crop areas that were working previously.
         int nameTop =
-                (int)
-                        (height * 0.45f);
+                (int) (height * 0.45f);
 
         int nameBottom =
-                (int)
-                        (height * 0.55f);
-
-
-        // CARD 1
+                (int) (height * 0.55f);
 
         int card1Left =
-                (int)
-                        (width * 0.065f);
+                (int) (width * 0.065f);
 
         int card1Right =
-                (int)
-                        (width * 0.38f);
-
-
-        // CARD 2
+                (int) (width * 0.38f);
 
         int card2Left =
-                (int)
-                        (width * 0.355f);
+                (int) (width * 0.355f);
 
         int card2Right =
-                (int)
-                        (width * 0.645f);
-
-
-        // CARD 3
+                (int) (width * 0.645f);
 
         int card3Left =
-                (int)
-                        (width * 0.60f);
+                (int) (width * 0.60f);
 
         int card3Right =
-                (int)
-                        (width * 0.935f);
+                (int) (width * 0.935f);
 
-
-        Bitmap card1Bitmap =
-                safeCrop(
+        Bitmap card1 =
+                cropAndScale(
                         screen,
                         card1Left,
                         nameTop,
@@ -447,9 +353,8 @@ public class CaptureService extends Service {
                         nameBottom
                 );
 
-
-        Bitmap card2Bitmap =
-                safeCrop(
+        Bitmap card2 =
+                cropAndScale(
                         screen,
                         card2Left,
                         nameTop,
@@ -457,9 +362,8 @@ public class CaptureService extends Service {
                         nameBottom
                 );
 
-
-        Bitmap card3Bitmap =
-                safeCrop(
+        Bitmap card3 =
+                cropAndScale(
                         screen,
                         card3Left,
                         nameTop,
@@ -467,46 +371,18 @@ public class CaptureService extends Service {
                         nameBottom
                 );
 
-
-        List<Bitmap> bitmaps =
-                new ArrayList<>();
-
-        bitmaps.add(
-                enlargeForOCR(
-                        card1Bitmap
-                )
-        );
-
-        bitmaps.add(
-                enlargeForOCR(
-                        card2Bitmap
-                )
-        );
-
-        bitmaps.add(
-                enlargeForOCR(
-                        card3Bitmap
-                )
-        );
-
-
-        String[] results =
-                new String[3];
-
-
-        runCardOCR(
-                bitmaps,
-                results,
-                0
+        recognizeCards(
+                card1,
+                card2,
+                card3
         );
     }
 
+    // ------------------------------------------------------------
+    // CROP + 2X SCALE
+    // ------------------------------------------------------------
 
-    // =========================================================
-    // SAFE CROP
-    // =========================================================
-
-    private Bitmap safeCrop(
+    private Bitmap cropAndScale(
             Bitmap source,
             int left,
             int top,
@@ -514,361 +390,235 @@ public class CaptureService extends Service {
             int bottom
     ) {
 
-        left =
-                Math.max(
-                        0,
-                        Math.min(
-                                left,
-                                source.getWidth() - 1
-                        )
-                );
-
-
-        top =
-                Math.max(
-                        0,
-                        Math.min(
-                                top,
-                                source.getHeight() - 1
-                        )
-                );
-
+        left = Math.max(0, left);
+        top = Math.max(0, top);
 
         right =
-                Math.max(
-                        left + 1,
-                        Math.min(
-                                right,
-                                source.getWidth()
-                        )
+                Math.min(
+                        source.getWidth(),
+                        right
                 );
-
 
         bottom =
-                Math.max(
-                        top + 1,
-                        Math.min(
-                                bottom,
-                                source.getHeight()
-                        )
+                Math.min(
+                        source.getHeight(),
+                        bottom
                 );
 
+        int cropWidth =
+                right - left;
 
-        return Bitmap.createBitmap(
-                source,
-                left,
-                top,
-                right - left,
-                bottom - top
-        );
-    }
+        int cropHeight =
+                bottom - top;
 
-
-    // =========================================================
-    // ENLARGE
-    // =========================================================
-
-    private Bitmap enlargeForOCR(
-            Bitmap source
-    ) {
-
-        if (source == null) {
+        if (cropWidth <= 0 || cropHeight <= 0) {
             return null;
         }
 
-        int newWidth =
-                source.getWidth() * 2;
-
-        int newHeight =
-                source.getHeight() * 2;
-
+        Bitmap cropped =
+                Bitmap.createBitmap(
+                        source,
+                        left,
+                        top,
+                        cropWidth,
+                        cropHeight
+                );
 
         return Bitmap.createScaledBitmap(
-                source,
-                newWidth,
-                newHeight,
+                cropped,
+                cropWidth * 2,
+                cropHeight * 2,
                 true
         );
     }
 
+    // ------------------------------------------------------------
+    // RECOGNIZE ALL THREE
+    // ------------------------------------------------------------
 
-    // =========================================================
-    // OCR
-    // =========================================================
-
-    private void runCardOCR(
-            List<Bitmap> bitmaps,
-            String[] results,
-            int index
+    private void recognizeCards(
+            Bitmap bitmap1,
+            Bitmap bitmap2,
+            Bitmap bitmap3
     ) {
 
-        if (index >= bitmaps.size()) {
+        final String[] results =
+                new String[]{
+                        "",
+                        "",
+                        ""
+                };
 
-            checkOCRFinished(
-                    results
-            );
+        final int[] completed =
+                new int[]{
+                        0
+                };
 
-            return;
-        }
+        recognizeOne(
+                bitmap1,
+                text -> {
 
+                    results[0] =
+                            stabilizeCard1(
+                                    cleanCardName(text)
+                            );
 
-        Bitmap bitmap =
-                bitmaps.get(index);
+                    completed[0]++;
 
+                    if (completed[0] == 3) {
+                        showThreeCards(
+                                results[0],
+                                results[1],
+                                results[2]
+                        );
+                    }
+                }
+        );
+
+        recognizeOne(
+                bitmap2,
+                text -> {
+
+                    results[1] =
+                            cleanCardName(text);
+
+                    completed[0]++;
+
+                    if (completed[0] == 3) {
+                        showThreeCards(
+                                results[0],
+                                results[1],
+                                results[2]
+                        );
+                    }
+                }
+        );
+
+        recognizeOne(
+                bitmap3,
+                text -> {
+
+                    results[2] =
+                            cleanCardName(text);
+
+                    completed[0]++;
+
+                    if (completed[0] == 3) {
+                        showThreeCards(
+                                results[0],
+                                results[1],
+                                results[2]
+                        );
+                    }
+                }
+        );
+    }
+
+    // ------------------------------------------------------------
+    // ONE OCR REQUEST
+    // ------------------------------------------------------------
+
+    private void recognizeOne(
+            Bitmap bitmap,
+            final TextResultCallback callback
+    ) {
 
         if (bitmap == null) {
 
-            results[index] =
-                    "Ei tunnistettu";
-
-
-            runCardOCR(
-                    bitmaps,
-                    results,
-                    index + 1
+            callback.onResult(
+                    "Ei tunnistettu"
             );
 
             return;
         }
 
-
-        InputImage inputImage =
+        InputImage image =
                 InputImage.fromBitmap(
                         bitmap,
                         0
                 );
 
-
-        recognizer
-                .process(inputImage)
-
+        recognizer.process(image)
                 .addOnSuccessListener(
                         text -> {
 
-                            results[index] =
-                                    cleanCardName(
-                                            text
-                                                    .getText()
-                                    );
+                            String result =
+                                    text.getText();
 
+                            if (result == null ||
+                                    result.trim().isEmpty()) {
 
-                            runCardOCR(
-                                    bitmaps,
-                                    results,
-                                    index + 1
-                            );
+                                callback.onResult(
+                                        "Ei tunnistettu"
+                                );
+
+                            } else {
+
+                                callback.onResult(
+                                        result
+                                );
+                            }
                         }
                 )
-
                 .addOnFailureListener(
-                        e -> {
-
-                            results[index] =
-                                    "Ei tunnistettu";
-
-
-                            runCardOCR(
-                                    bitmaps,
-                                    results,
-                                    index + 1
-                            );
-                        }
+                        e ->
+                                callback.onResult(
+                                        "Ei tunnistettu"
+                                )
                 );
     }
 
-
-    // =========================================================
-    // CLEAN OCR
-    // =========================================================
-
-    private String cleanCardName(
-            String text
-    ) {
-
-        if (text == null) {
-            return "";
-        }
-
-
-        String cleaned =
-                text.trim();
-
-
-        cleaned =
-                cleaned.replace(
-                        "\n",
-                        " "
-                );
-
-
-        cleaned =
-                cleaned.replaceAll(
-                        "\\s+",
-                        " "
-                );
-
-
-        cleaned =
-                cleaned.replace(
-                        "Soldierof",
-                        "Soldier of"
-                );
-
-
-        cleaned =
-                cleaned.replace(
-                        "Soldier 2of",
-                        "Soldier of"
-                );
-
-
-        cleaned =
-                cleaned.replace(
-                        "Soldier 20f",
-                        "Soldier of"
-                );
-
-
-        cleaned =
-                fixSoldierOfInfinite(
-                        cleaned
-                );
-
-
-        if (cleaned.isEmpty()) {
-            return "";
-        }
-
-
-        return capitalizeFirstLetter(
-                cleaned
-        );
-    }
-
-
-    // =========================================================
-    // SOLDIER OF THE INFINITE FIX
-    // =========================================================
-
-    private String fixSoldierOfInfinite(
-            String text
-    ) {
-
-        if (text == null) {
-            return "";
-        }
-
-
-        String normalized =
-                text
-                        .toLowerCase()
-                        .replaceAll(
-                                "[^a-z0-9]",
-                                ""
-                        );
-
-
-        if (normalized.contains(
-                "soldierofinfinite"
-        )) {
-
-            return "Soldier of the Infinite";
-        }
-
-
-        if (normalized.contains(
-                "soldieroftheinfinite"
-        )) {
-
-            return "Soldier of the Infinite";
-        }
-
-
-        if (normalized.contains(
-                "soldier2oftheinfinite"
-        )) {
-
-            return "Soldier of the Infinite";
-        }
-
-
-        if (normalized.contains(
-                "soldier20ftheinfinite"
-        )) {
-
-            return "Soldier of the Infinite";
-        }
-
-
-        if (normalized.equals(
-                "soldier"
-        )) {
-
-            return "Soldier of the Infinite";
-        }
-
-
-        return text;
-    }
-
-
-    // =========================================================
+    // ------------------------------------------------------------
     // CARD 1 STABILIZATION
-    // =========================================================
+    // ------------------------------------------------------------
 
     private String stabilizeCard1(
-            String value
+            String detected
     ) {
 
-        if (value == null ||
-                value.trim().isEmpty()) {
-
-            if (stableCard1.isEmpty()) {
-                return "Ei tunnistettu";
-            }
-
-            return stableCard1;
-        }
-
-
-        value =
+        detected =
                 fixSoldierOfInfinite(
-                        value
+                        detected
                 );
 
+        if (!isValidCard(detected)) {
+
+            return stableCard1.isEmpty()
+                    ? "Ei tunnistettu"
+                    : stableCard1;
+        }
 
         if (stableCard1.isEmpty()) {
 
-            stableCard1 =
-                    value;
-
             candidateCard1 =
-                    value;
+                    detected;
 
-            candidateCard1Count =
-                    0;
+            candidateCard1Count = 1;
 
-            return stableCard1;
+            return detected;
         }
 
-
         if (similarCard1(
-                value,
-                stableCard1
+                stableCard1,
+                detected
         )) {
+
+            stableCard1 =
+                    fixSoldierOfInfinite(
+                            detected
+                    );
 
             candidateCard1 =
                     stableCard1;
 
-            candidateCard1Count =
-                    0;
+            candidateCard1Count = 0;
 
             return stableCard1;
         }
 
-
-        if (candidateCard1.equals(
-                value
+        if (similarCard1(
+                candidateCard1,
+                detected
         )) {
 
             candidateCard1Count++;
@@ -876,110 +626,80 @@ public class CaptureService extends Service {
         } else {
 
             candidateCard1 =
-                    value;
+                    detected;
 
-            candidateCard1Count =
-                    1;
+            candidateCard1Count = 1;
         }
-
 
         if (candidateCard1Count >=
                 CARD1_CONFIRMATIONS) {
 
             stableCard1 =
-                    candidateCard1;
+                    fixSoldierOfInfinite(
+                            candidateCard1
+                    );
 
-            candidateCard1Count =
-                    0;
+            candidateCard1Count = 0;
         }
 
-
-        return stableCard1;
+        return stableCard1.isEmpty()
+                ? detected
+                : stableCard1;
     }
 
-
-    // =========================================================
+    // ------------------------------------------------------------
     // CARD 1 SIMILARITY
-    // =========================================================
+    // ------------------------------------------------------------
 
     private boolean similarCard1(
             String a,
             String b
     ) {
 
-        if (a == null ||
-                b == null) {
-
+        if (a == null || b == null) {
             return false;
         }
 
+        String aa =
+                normalize(a);
 
-        String x =
-                normalizeCard1ForComparison(
-                        a
-                );
+        String bb =
+                normalize(b);
 
+        if (aa.isEmpty() || bb.isEmpty()) {
+            return false;
+        }
 
-        String y =
-                normalizeCard1ForComparison(
-                        b
-                );
-
-
-        if (x.equals(y)) {
+        if (aa.equals(bb)) {
             return true;
         }
 
-
         int distance =
                 levenshteinDistance(
-                        x,
-                        y
+                        aa,
+                        bb
                 );
-
 
         int max =
                 Math.max(
-                        x.length(),
-                        y.length()
+                        aa.length(),
+                        bb.length()
                 );
 
-
-        if (max <= 5) {
-
+        if (max <= 6) {
             return distance <= 1;
         }
 
+        if (max <= 12) {
+            return distance <= 2;
+        }
 
         return distance <= 3;
     }
 
-
-    // =========================================================
-    // NORMALIZE CARD 1
-    // =========================================================
-
-    private String normalizeCard1ForComparison(
-            String text
-    ) {
-
-        if (text == null) {
-            return "";
-        }
-
-
-        return text
-                .toLowerCase()
-                .replaceAll(
-                        "[^a-z0-9]",
-                        ""
-                );
-    }
-
-
-    // =========================================================
+    // ------------------------------------------------------------
     // LEVENSHTEIN
-    // =========================================================
+    // ------------------------------------------------------------
 
     private int levenshteinDistance(
             String a,
@@ -993,7 +713,6 @@ public class CaptureService extends Service {
                         b.length() + 1
                 ];
 
-
         for (int i = 0;
              i <= a.length();
              i++) {
@@ -1001,14 +720,12 @@ public class CaptureService extends Service {
             dp[i][0] = i;
         }
 
-
         for (int j = 0;
              j <= b.length();
              j++) {
 
             dp[0][j] = j;
         }
-
 
         for (int i = 1;
              i <= a.length();
@@ -1019,11 +736,11 @@ public class CaptureService extends Service {
                  j++) {
 
                 int cost =
-                        a.charAt(i - 1) ==
-                                b.charAt(j - 1)
+                        a.charAt(i - 1)
+                                ==
+                        b.charAt(j - 1)
                                 ? 0
                                 : 1;
-
 
                 dp[i][j] =
                         Math.min(
@@ -1031,80 +748,191 @@ public class CaptureService extends Service {
                                         dp[i - 1][j] + 1,
                                         dp[i][j - 1] + 1
                                 ),
-                                dp[i - 1][j - 1] +
-                                        cost
+                                dp[i - 1][j - 1]
+                                        + cost
                         );
             }
         }
 
-
-        return dp[
-                a.length()
-        ][
-                b.length()
-        ];
+        return dp[a.length()][b.length()];
     }
 
+    // ------------------------------------------------------------
+    // SOLDIER OF THE INFINITE FIX
+    // ------------------------------------------------------------
 
-    // =========================================================
-    // CAPITALIZE
-    // =========================================================
-
-    private String capitalizeFirstLetter(
+    private String fixSoldierOfInfinite(
             String text
     ) {
 
-        if (text == null ||
-                text.isEmpty()) {
-
-            return text;
+        if (text == null) {
+            return "";
         }
 
+        String normalized =
+                normalize(text);
 
-        return Character.toUpperCase(
-                text.charAt(0)
-        ) +
-                text.substring(1);
+        if (normalized.contains(
+                "soldier"
+        ) &&
+                normalized.contains(
+                        "infinite"
+                )) {
+
+            return "Soldier of the Infinite";
+        }
+
+        if (normalized.contains(
+                "sotdier"
+        ) ||
+                normalized.contains(
+                        "so1dier"
+                ) ||
+                normalized.contains(
+                        "soldiero"
+                ) ||
+                normalized.contains(
+                        "soldieroftheinfinite"
+                ) ||
+                normalized.contains(
+                        "soldier2oftheinfinite"
+                )) {
+
+            return "Soldier of the Infinite";
+        }
+
+        if (normalized.startsWith(
+                "soldier"
+        ) &&
+                normalized.length() >= 8) {
+
+            return "Soldier of the Infinite";
+        }
+
+        return text;
     }
 
+    // ------------------------------------------------------------
+    // CLEAN OCR TEXT
+    // ------------------------------------------------------------
 
-    // =========================================================
-    // OCR FINISHED
-    // =========================================================
-
-    private void checkOCRFinished(
-            String[] results
+    private String cleanCardName(
+            String text
     ) {
 
-        String card1 =
-                stabilizeCard1(
-                        results[0]
+        if (text == null) {
+            return "Ei tunnistettu";
+        }
+
+        text =
+                text.replace(
+                        "\n",
+                        " "
                 );
 
+        text =
+                text.replace(
+                        "\r",
+                        " "
+                );
 
-        String card2 =
-                results[1];
+        text =
+                text.replaceAll(
+                        "\\s+",
+                        " "
+                );
 
+        text =
+                text.trim();
 
-        String card3 =
-                results[2];
+        text =
+                fixSoldierOfInfinite(
+                        text
+                );
 
+        if (text.length() > 60) {
 
-        showThreeCards(
-                card1,
-                card2,
-                card3
-        );
+            String[] words =
+                    text.split("\\s+");
 
+            StringBuilder builder =
+                    new StringBuilder();
 
-        processing =
-                false;
+            for (int i = 0;
+                 i < words.length && i < 8;
+                 i++) {
+
+                if (i > 0) {
+                    builder.append(" ");
+                }
+
+                builder.append(
+                        words[i]
+                );
+            }
+
+            text =
+                    builder.toString();
+        }
+
+        if (text.isEmpty()) {
+            return "Ei tunnistettu";
+        }
+
+        return text;
     }
 
+    // ------------------------------------------------------------
+    // VALID CARD
+    // ------------------------------------------------------------
 
-    // =========================================================
-    // SHOW THREE CARDS + ADVISOR
-    // =========================================================
+    private boolean isValidCard(
+            String text
+    ) {
+
+        if (text == null) {
+            return false;
+        }
+
+        String value =
+                text.trim();
+
+        if (value.isEmpty()) {
+            return false;
+        }
+
+        if (value.equalsIgnoreCase(
+                "Ei tunnistettu"
+        )) {
+            return false;
+        }
+
+        return true;
+    }
+
+    // ------------------------------------------------------------
+    // NORMALIZE
+    // ------------------------------------------------------------
+
+    private String normalize(
+            String text
+    ) {
+
+        if (text == null) {
+            return "";
+        }
+
+        return text
+                .toLowerCase()
+                .replaceAll(
+                        "[^a-z0-9]",
+                        ""
+                );
+    }
+
+    // ------------------------------------------------------------
+    // SHOW RESULT
+    // ------------------------------------------------------------
 
     private void showThreeCards(
             String card1,
@@ -1112,14 +940,17 @@ public class CaptureService extends Service {
             String card3
     ) {
 
-        /*
-         * TÄRKEÄ:
-         *
-         * Käytetään nykyisen ArenaAdvisor.java:n
-         * olemassa olevaa metodia:
-         *
-         * recommend(String, String, String)
-         */
+        if (!isValidCard(card1)) {
+            card1 = "Ei tunnistettu";
+        }
+
+        if (!isValidCard(card2)) {
+            card2 = "Ei tunnistettu";
+        }
+
+        if (!isValidCard(card3)) {
+            card3 = "Ei tunnistettu";
+        }
 
         String recommendation =
                 ArenaAdvisor.recommend(
@@ -1128,34 +959,30 @@ public class CaptureService extends Service {
                         card3
                 );
 
-
-        String display =
-                "KORTTI 1: " +
+        String result =
+                "Kortti 1: " +
                         card1 +
                         "\n\n" +
 
-                        "KORTTI 2: " +
+                        "Kortti 2: " +
                         card2 +
                         "\n\n" +
 
-                        "KORTTI 3: " +
+                        "Kortti 3: " +
                         card3 +
                         "\n\n" +
 
-                        "--------------------\n\n" +
-
+                        "SUOSITUS:\n" +
                         recommendation;
 
+        showOverlay(result);
 
-        showStatus(
-                display
-        );
+        processingImage = false;
     }
 
-
-    // =========================================================
+    // ------------------------------------------------------------
     // IMAGE -> BITMAP
-    // =========================================================
+    // ------------------------------------------------------------
 
     private Bitmap imageToBitmap(
             Image image
@@ -1164,88 +991,86 @@ public class CaptureService extends Service {
         Image.Plane[] planes =
                 image.getPlanes();
 
+        if (planes == null ||
+                planes.length == 0) {
 
-        if (planes.length == 0) {
             return null;
         }
-
 
         Image.Plane plane =
                 planes[0];
 
-
         ByteBuffer buffer =
                 plane.getBuffer();
-
 
         int pixelStride =
                 plane.getPixelStride();
 
-
         int rowStride =
                 plane.getRowStride();
-
 
         int rowPadding =
                 rowStride -
                         pixelStride *
-                                screenWidth;
+                                image.getWidth();
 
+        int bitmapWidth =
+                image.getWidth()
+                        +
+                        rowPadding /
+                                pixelStride;
 
         Bitmap bitmap =
                 Bitmap.createBitmap(
-                        screenWidth +
-                                rowPadding /
-                                        pixelStride,
-                        screenHeight,
+                        bitmapWidth,
+                        image.getHeight(),
                         Bitmap.Config.ARGB_8888
                 );
 
+        buffer.rewind();
 
         bitmap.copyPixelsFromBuffer(
                 buffer
         );
 
+        if (bitmapWidth !=
+                image.getWidth()) {
 
-        return Bitmap.createBitmap(
-                bitmap,
-                0,
-                0,
-                screenWidth,
-                screenHeight
-        );
+            Bitmap cropped =
+                    Bitmap.createBitmap(
+                            bitmap,
+                            0,
+                            0,
+                            image.getWidth(),
+                            image.getHeight()
+                    );
+
+            bitmap.recycle();
+
+            bitmap = cropped;
+        }
+
+        return bitmap;
     }
 
-
-    // =========================================================
+    // ------------------------------------------------------------
     // OVERLAY
-    // =========================================================
+    // ------------------------------------------------------------
 
     private void createOverlay() {
+
+        if (windowManager == null) {
+            return;
+        }
 
         overlayText =
                 new TextView(this);
 
-
         overlayText.setText(
-                "Arena Helper käynnistyy..."
+                "Arena Helper aktiivinen"
         );
 
-
-        overlayText.setTextSize(
-                16
-        );
-
-
-        overlayText.setTextColor(
-                android.graphics.Color.WHITE
-        );
-
-
-        overlayText.setBackgroundColor(
-                0xCC000000
-        );
-
+        overlayText.setTextSize(16);
 
         overlayText.setPadding(
                 20,
@@ -1254,9 +1079,11 @@ public class CaptureService extends Service {
                 20
         );
 
+        overlayText.setGravity(
+                Gravity.CENTER
+        );
 
         int overlayType;
-
 
         if (Build.VERSION.SDK_INT >=
                 Build.VERSION_CODES.O) {
@@ -1272,26 +1099,27 @@ public class CaptureService extends Service {
                             .TYPE_PHONE;
         }
 
-
         WindowManager.LayoutParams params =
                 new WindowManager.LayoutParams(
-                        WindowManager.LayoutParams.WRAP_CONTENT,
-                        WindowManager.LayoutParams.WRAP_CONTENT,
+                        WindowManager.LayoutParams
+                                .WRAP_CONTENT,
+                        WindowManager.LayoutParams
+                                .WRAP_CONTENT,
                         overlayType,
-                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
-                                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                        WindowManager.LayoutParams
+                                .FLAG_NOT_FOCUSABLE |
+                                WindowManager.LayoutParams
+                                .FLAG_NOT_TOUCHABLE |
+                                WindowManager.LayoutParams
+                                .FLAG_LAYOUT_NO_LIMITS,
                         PixelFormat.TRANSLUCENT
                 );
-
 
         params.gravity =
                 Gravity.TOP |
                         Gravity.CENTER_HORIZONTAL;
 
-
-        params.y =
-                100;
-
+        params.y = 80;
 
         try {
 
@@ -1300,25 +1128,21 @@ public class CaptureService extends Service {
                     params
             );
 
-        } catch (Exception e) {
-
-            e.printStackTrace();
+        } catch (Exception ignored) {
         }
     }
 
-
-    // =========================================================
+    // ------------------------------------------------------------
     // UPDATE OVERLAY
-    // =========================================================
+    // ------------------------------------------------------------
 
-    private void showStatus(
+    private void showOverlay(
             String text
     ) {
 
         if (overlayText == null) {
             return;
         }
-
 
         handler.post(
                 () ->
@@ -1328,21 +1152,9 @@ public class CaptureService extends Service {
         );
     }
 
-
-    private void showError(
-            String text
-    ) {
-
-        showStatus(
-                "Arena Helper\n\n" +
-                        text
-        );
-    }
-
-
-    // =========================================================
+    // ------------------------------------------------------------
     // NOTIFICATION CHANNEL
-    // =========================================================
+    // ------------------------------------------------------------
 
     private void createNotificationChannel() {
 
@@ -1357,31 +1169,25 @@ public class CaptureService extends Service {
                                     .IMPORTANCE_LOW
                     );
 
-
             channel.setDescription(
                     "Arena Helper screen capture"
             );
 
-
             NotificationManager manager =
-                    getSystemService(
-                            NotificationManager.class
-                    );
+                    (NotificationManager)
+                            getSystemService(
+                                    Context.NOTIFICATION_SERVICE
+                            );
 
-
-            if (manager != null) {
-
-                manager.createNotificationChannel(
-                        channel
-                );
-            }
+            manager.createNotificationChannel(
+                    channel
+            );
         }
     }
 
-
-    // =========================================================
+    // ------------------------------------------------------------
     // NOTIFICATION
-    // =========================================================
+    // ------------------------------------------------------------
 
     private Notification createNotification() {
 
@@ -1398,76 +1204,43 @@ public class CaptureService extends Service {
                 .setSmallIcon(
                         android.R.drawable.ic_menu_view
                 )
-                .setOngoing(
-                        true
-                )
+                .setOngoing(true)
                 .build();
     }
 
-
-    // =========================================================
+    // ------------------------------------------------------------
     // DESTROY
-    // =========================================================
+    // ------------------------------------------------------------
 
     @Override
     public void onDestroy() {
 
-        super.onDestroy();
+        if (virtualDisplay != null) {
 
-
-        if (handler != null) {
-
-            handler.removeCallbacksAndMessages(
-                    null
-            );
+            virtualDisplay.release();
+            virtualDisplay = null;
         }
-
 
         if (imageReader != null) {
 
-            try {
-
-                imageReader.close();
-
-            } catch (Exception ignored) {
-            }
+            imageReader.close();
+            imageReader = null;
         }
-
-
-        if (virtualDisplay != null) {
-
-            try {
-
-                virtualDisplay.release();
-
-            } catch (Exception ignored) {
-            }
-        }
-
 
         if (mediaProjection != null) {
 
-            try {
-
-                mediaProjection.stop();
-
-            } catch (Exception ignored) {
-            }
+            mediaProjection.stop();
+            mediaProjection = null;
         }
-
 
         if (recognizer != null) {
 
-            try {
-
-                recognizer.close();
-
-            } catch (Exception ignored) {
-            }
+            recognizer.close();
+            recognizer = null;
         }
 
-
-        if (overlayText != null) {
+        if (overlayText != null &&
+                windowManager != null) {
 
             try {
 
@@ -1480,12 +1253,13 @@ public class CaptureService extends Service {
 
             overlayText = null;
         }
+
+        super.onDestroy();
     }
 
-
-    // =========================================================
+    // ------------------------------------------------------------
     // BIND
-    // =========================================================
+    // ------------------------------------------------------------
 
     @Nullable
     @Override
@@ -1494,5 +1268,14 @@ public class CaptureService extends Service {
     ) {
 
         return null;
+    }
+
+    // ------------------------------------------------------------
+    // CALLBACK INTERFACE
+    // ------------------------------------------------------------
+
+    private interface TextResultCallback {
+
+        void onResult(String text);
     }
 }
