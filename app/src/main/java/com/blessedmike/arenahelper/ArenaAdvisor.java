@@ -1,20 +1,69 @@
 package com.blessedmike.arenahelper;
 
+import android.os.Handler;
+import android.os.Looper;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class ArenaAdvisor {
+
+    // ============================================================
+    // ONLINE ARENA DATA
+    // ============================================================
+
+    private static final String HEARTHARENA_URL =
+            "https://www.heartharena.com/tierlist";
+
+    private static final ExecutorService NETWORK_EXECUTOR =
+            Executors.newSingleThreadExecutor();
+
+    private static volatile boolean onlineDataLoaded = false;
+    private static volatile boolean onlineDataLoading = false;
+
+    /*
+     * HearthArena scores are roughly in the 0-140 range.
+     *
+     * We convert them to our 0-10 scale using 130 as the
+     * approximate top-end of the current Arena scale.
+     *
+     * Example:
+     * 130 -> 10.0
+     * 109 -> 8.4
+     * 101 -> 7.8
+     *  58 -> 4.5
+     */
+    private static final double HEARTHARENA_SCALE = 13.0;
+
+    /*
+     * If a card cannot be found online yet, don't give it 0.0.
+     * 5.0 means "unknown / neutral fallback".
+     */
+    private static final double UNKNOWN_CARD_SCORE = 5.0;
+
+    private static final Map<String, Double> ONLINE_SCORES =
+            new HashMap<>();
+
+    private static final Map<String, String> ONLINE_NAMES =
+            new HashMap<>();
 
     // ============================================================
     // CARD DATA
     // ============================================================
 
-    private static class CardData {
+    public static class CardData {
 
         String name;
         double baseScore;
@@ -46,6 +95,7 @@ public class ArenaAdvisor {
         boolean pirate;
         boolean naga;
         boolean quilboar;
+
         boolean nature;
         boolean frost;
         boolean fire;
@@ -73,7 +123,6 @@ public class ArenaAdvisor {
         ) {
             this.name = name;
             this.baseScore = baseScore;
-
             this.mana = mana;
             this.attack = attack;
             this.health = health;
@@ -93,21 +142,16 @@ public class ArenaAdvisor {
         }
     }
 
-    private static final Map<String, CardData> CARDS = new HashMap<>();
-    private static final Map<String, String> OCR_ALIASES = new HashMap<>();
+    private static final Map<String, CardData> CARDS =
+            new HashMap<>();
 
     // ============================================================
-    // ARENA DECK MEMORY
+    // PICK HISTORY
     // ============================================================
 
-    private static final List<String> pickedCards = new ArrayList<>();
+    private static final ArrayList<String> pickedCards =
+            new ArrayList<>();
 
-    /*
-     * Synergy counters.
-     *
-     * These are calculated from cards that have actually been
-     * selected into the Arena deck.
-     */
     private static int minionCount = 0;
     private static int spellCount = 0;
     private static int weaponCount = 0;
@@ -140,996 +184,1175 @@ public class ArenaAdvisor {
     private static int arcaneCount = 0;
 
     // ============================================================
-    // CURRENT CARD DATABASE
+    // START ONLINE LOADING
     // ============================================================
 
     static {
+        loadFallbackCards();
+        refreshOnlineTierlist();
+    }
 
-        // --------------------------------------------------------
-        // CURRENT / ARENA CARDS
-        // --------------------------------------------------------
+    public static void refreshOnlineTierlist() {
 
-        addCard(new CardData(
-                "Soldier of the Infinite",
-                4.1, 3, 3, 3,
-                true, false, false,
-                false, false, false, false,
-                true, false, false, false
-        ));
+        if (onlineDataLoading) {
+            return;
+        }
 
-        addCard(new CardData(
-                "Bursting Leyline",
-                4.1, 4, 0, 0,
-                false, true, false,
-                true, false, false, false,
-                false, false, false, false
-        ));
+        onlineDataLoading = true;
 
-        addCard(new CardData(
-                "Contraband Wands",
-                4.6, 4, 0, 0,
-                false, true, false,
-                false, false, false, true,
-                false, false, false, false
-        ));
+        NETWORK_EXECUTOR.execute(new Runnable() {
+            @Override
+            public void run() {
 
-        addCard(new CardData(
-                "Crystallized Leyline",
-                5.4, 3, 0, 0,
-                false, true, false,
-                false, false, true, false,
-                false, false, false, false
-        ));
+                HttpURLConnection connection = null;
 
-        addCard(new CardData(
-                "Surge Needle",
-                5.6, 3, 0, 0,
-                false, false, true,
-                true, false, false, false,
-                false, false, false, false
-        ));
+                try {
 
-        addCard(new CardData(
-                "Leyline Nexus",
-                4.5, 5, 0, 0,
-                false, true, false,
-                false, true, false, false,
-                false, false, false, false
-        ));
+                    URL url = new URL(HEARTHARENA_URL);
 
-        addCard(new CardData(
-                "Mystic Runesaber",
-                5.5, 4, 3, 4,
-                true, false, false,
-                false, false, false, false,
-                false, false, true, false
-        ));
+                    connection = (HttpURLConnection) url.openConnection();
 
-        addCard(new CardData(
-                "Ley Walker",
-                0.0, 2, 2, 2,
-                true, false, false,
-                false, false, false, false,
-                false, false, false, false
-        ));
+                    connection.setRequestMethod("GET");
+                    connection.setConnectTimeout(8000);
+                    connection.setReadTimeout(10000);
 
-        addCard(new CardData(
-                "Cold Snap",
-                5.8, 2, 0, 0,
-                false, true, false,
-                true, false, false, false,
-                false, false, false, false
-        ));
+                    connection.setRequestProperty(
+                            "User-Agent",
+                            "ArenaHelper/1.0 Android"
+                    );
 
-        addCard(new CardData(
-                "Code Violet",
-                5.5, 3, 0, 0,
-                false, true, false,
-                false, true, false, false,
-                false, false, false, false
-        ));
+                    int responseCode =
+                            connection.getResponseCode();
 
-        addCard(new CardData(
-                "Tunneling Geomancer",
-                5.4, 4, 4, 4,
-                true, false, false,
-                false, false, false, false,
-                false, false, true, false
-        ));
+                    if (responseCode >= 200 &&
+                            responseCode < 300) {
 
-        addCard(new CardData(
-                "Watfin",
-                6.5, 3, 3, 4,
-                true, false, false,
-                false, false, false, false,
-                false, false, true, false
-        ));
+                        InputStream input =
+                                connection.getInputStream();
 
-        addCard(new CardData(
-                "Zilliax Deluxe 3000",
-                6.2, 5, 3, 5,
-                true, false, false,
-                false, false, false, false,
-                true, true, false, false
-        ));
+                        String html =
+                                readStream(input);
 
-        addCard(new CardData(
-                "Shadowed Informant",
-                7.0, 4, 4, 4,
-                true, false, false,
-                false, false, false, true,
-                false, false, true, false
-        ));
+                        parseHearthArena(html);
 
-        addCard(new CardData(
-                "Hopeful Dryad",
-                6.3, 3, 3, 4,
-                true, false, false,
-                false, false, false, false,
-                false, false, true, false
-        ));
+                        onlineDataLoaded =
+                                !ONLINE_SCORES.isEmpty();
+                    }
 
-        addCard(new CardData(
-                "Raptor Herald",
-                6.8, 4, 4, 4,
-                true, false, false,
-                false, false, false, false,
-                false, false, true, false
-        ));
+                } catch (Exception ignored) {
 
-        addCard(new CardData(
-                "Carrier Whelp",
-                6.9, 4, 3, 4,
-                true, false, false,
-                false, false, false, false,
-                false, false, false, true
-        ));
+                    /*
+                     * Offline mode is completely valid.
+                     * Fallback cards remain available.
+                     */
 
-        addCard(new CardData(
-                "Experimental Animation",
-                8.9, 4, 4, 5,
-                true, false, false,
-                false, false, false, false,
-                false, false, false, true
-        ));
+                } finally {
 
-        addCard(new CardData(
-                "Obsessive Technician",
-                8.9, 4, 4, 4,
-                true, false, false,
-                false, false, true, false,
-                false, false, true, false
-        ));
+                    onlineDataLoading = false;
 
-        addCard(new CardData(
-                "Violet Punisher",
-                7.9, 5, 5, 5,
-                true, false, false,
-                false, false, false, false,
-                false, false, true, false
-        ));
-
-        addCard(new CardData(
-                "Whelp of the Infinite",
-                7.9, 4, 4, 4,
-                true, false, false,
-                false, false, false, false,
-                false, false, false, true
-        ));
-
-        addCard(new CardData(
-                "Infested Breath",
-                7.8, 4, 0, 0,
-                false, true, false,
-                true, false, false, false,
-                false, false, false, false
-        ));
-
-        addCard(new CardData(
-                "Emergency Surgery",
-                6.2, 3, 0, 0,
-                false, true, false,
-                false, false, false, false,
-                false, false, false, false
-        ));
-
-        addCard(new CardData(
-                "Drink Blood",
-                5.6, 2, 0, 0,
-                false, true, false,
-                true, false, false, false,
-                false, false, false, false
-        ));
-
-        addCard(new CardData(
-                "Disguised Doctor",
-                4.4, 4, 3, 4,
-                true, false, false,
-                false, false, false, false,
-                false, false, true, false
-        ));
-
-        addCard(new CardData(
-                "Corpse Cannon",
-                7.4, 6, 6, 6,
-                true, false, false,
-                false, true, false, false,
-                false, false, false, true
-        ));
-
-        addCard(new CardData(
-                "Void Soul",
-                5.5, 3, 3, 3,
-                true, false, false,
-                false, false, false, false,
-                false, false, false, false
-        ));
-
-        addCard(new CardData(
-                "Void Blast",
-                6.2, 4, 0, 0,
-                false, true, false,
-                true, true, false, false,
-                false, false, false, false
-        ));
-
-        addCard(new CardData(
-                "Vicious Voidscale",
-                6.6, 3, 3, 3,
-                true, false, false,
-                false, false, false, false,
-                false, false, true, false
-        ));
-
-        addCard(new CardData(
-                "Widow's Bite",
-                5.8, 3, 3, 2,
-                false, false, true,
-                true, false, false, false,
-                false, false, false, false
-        ));
-
-        addCard(new CardData(
-                "Infest the Scullery",
-                4.5, 4, 0, 0,
-                false, true, false,
-                false, true, false, false,
-                false, false, false, false
-        ));
-
-        addCard(new CardData(
-                "Underbelly Network",
-                7.3, 4, 4, 4,
-                true, false, false,
-                false, false, false, false,
-                false, false, true, false
-        ));
-
-        addCard(new CardData(
-                "Guard Dog",
-                6.8, 3, 3, 4,
-                true, false, false,
-                false, false, false, false,
-                true, false, true, false
-        ));
-
-        addCard(new CardData(
-                "Dig for Freedom",
-                6.9, 4, 0, 0,
-                false, true, false,
-                false, false, false, true,
-                false, false, false, false
-        ));
-
-        addCard(new CardData(
-                "Vigilant Sentry",
-                1.9, 2, 2, 2,
-                true, false, false,
-                false, false, false, false,
-                true, false, false, false
-        ));
-
-        addCard(new CardData(
-                "Truth Seeker",
-                5.9, 4, 4, 4,
-                true, false, false,
-                false, false, false, false,
-                false, false, true, false
-        ));
-
-        addCard(new CardData(
-                "Judgment",
-                6.7, 4, 0, 0,
-                false, true, false,
-                true, false, false, false,
-                false, false, false, false
-        ));
-
-        addCard(new CardData(
-                "Holy Bola!",
-                4.3, 3, 0, 0,
-                false, true, false,
-                true, false, false, false,
-                false, false, false, false
-        ));
-
-        addCard(new CardData(
-                "Dalaran Champion",
-                4.2, 4, 4, 4,
-                true, false, false,
-                false, false, false, false,
-                false, false, true, false
-        ));
-
-        addCard(new CardData(
-                "Commander Beatrix",
-                4.2, 5, 4, 5,
-                true, false, false,
-                false, false, false, false,
-                true, false, true, false
-        ));
-
-        addCard(new CardData(
-                "Undeath Sentence",
-                3.9, 5, 0, 0,
-                false, true, false,
-                true, false, false, false,
-                false, false, false, false
-        ));
-
-        addCard(new CardData(
-                "Karov the Broken",
-                7.4, 6, 6, 6,
-                true, false, false,
-                false, false, false, false,
-                true, false, true, false
-        ));
-
-        addCard(new CardData(
-                "Jade Guardians",
-                5.8, 6, 5, 5,
-                true, false, false,
-                false, false, false, false,
-                true, false, false, false
-        ));
-
-        addCard(new CardData(
-                "Inspector Murloc Holmes",
-                5.0, 5, 4, 5,
-                true, false, false,
-                false, false, false, true,
-                false, false, true, false
-        ));
-
-        addCard(new CardData(
-                "Jailhouse Manastorm",
-                9.3, 7, 5, 5,
-                true, false, false,
-                false, false, false, false,
-                false, false, true, false
-        ));
-
-        addCard(new CardData(
-                "Warptooth",
-                6.9, 5, 5, 5,
-                true, false, false,
-                false, false, false, false,
-                false, false, true, false
-        ));
-
-        // --------------------------------------------------------
-        // OLD / KNOWN CARDS
-        // --------------------------------------------------------
-
-        addCard(new CardData(
-                "Raban Wands",
-                6.5, 4, 0, 0,
-                false, true, false,
-                true, false, false, false,
-                false, false, false, false
-        ));
-
-        addCard(new CardData(
-                "Frostbolt",
-                7.5, 2, 0, 0,
-                false, true, false,
-                true, false, false, false,
-                false, false, false, false
-        ));
-
-        addCard(new CardData(
-                "Fireball",
-                8.0, 4, 0, 0,
-                false, true, false,
-                true, false, false, false,
-                false, false, false, false
-        ));
-
-        // --------------------------------------------------------
-        // OCR ALIASES
-        // --------------------------------------------------------
-
-        addAlias("soldiero", "Soldier of the Infinite");
-        addAlias("soldier0", "Soldier of the Infinite");
-        addAlias("soldier", "Soldier of the Infinite");
-        addAlias("sotdier", "Soldier of the Infinite");
-        addAlias("so1dier", "Soldier of the Infinite");
-        addAlias("soldieroftheinfinite", "Soldier of the Infinite");
-        addAlias("soldierolftheinfinite", "Soldier of the Infinite");
-        addAlias("soldierolf theinfinite", "Soldier of the Infinite");
-        addAlias("soldierolf the infinite", "Soldier of the Infinite");
-        addAlias("soldieroftheinfinite", "Soldier of the Infinite");
-
-        addAlias("burstingleyline", "Bursting Leyline");
-        addAlias("crystallizedleyline", "Crystallized Leyline");
-        addAlias("contrabandwands", "Contraband Wands");
-        addAlias("surge needle", "Surge Needle");
-        addAlias("surgen eedle", "Surge Needle");
-        addAlias("ley linenexus", "Leyline Nexus");
-        addAlias("leyline nexus", "Leyline Nexus");
-        addAlias("mysticrunesaber", "Mystic Runesaber");
-        addAlias("leywalker", "Ley Walker");
-        addAlias("coldsnap", "Cold Snap");
-        addAlias("codeviolet", "Code Violet");
-        addAlias("tunnelinggeomancer", "Tunneling Geomancer");
-        addAlias("watfin", "Watfin");
-        addAlias("shadowedinformant", "Shadowed Informant");
-        addAlias("hopefuldryad", "Hopeful Dryad");
-        addAlias("raptorherald", "Raptor Herald");
-        addAlias("carrierwhelp", "Carrier Whelp");
-        addAlias("experimentalanimation", "Experimental Animation");
-        addAlias("obsessivetechnician", "Obsessive Technician");
-        addAlias("violetpunisher", "Violet Punisher");
-        addAlias("whelp of the infinite", "Whelp of the Infinite");
-        addAlias("whelp ofthe infinite", "Whelp of the Infinite");
-        addAlias("infestedbreath", "Infested Breath");
-        addAlias("emergencysurgery", "Emergency Surgery");
-        addAlias("drinkblood", "Drink Blood");
-        addAlias("disguiseddoctor", "Disguised Doctor");
-        addAlias("corpsecannon", "Corpse Cannon");
-        addAlias("voidsoul", "Void Soul");
-        addAlias("voidblast", "Void Blast");
-        addAlias("viciousvoidscale", "Vicious Voidscale");
-        addAlias("widowsbite", "Widow's Bite");
-        addAlias("infestthescullery", "Infest the Scullery");
-        addAlias("underbellynetwork", "Underbelly Network");
-        addAlias("guarddog", "Guard Dog");
-        addAlias("digforfreedom", "Dig for Freedom");
-        addAlias("vigilantsentry", "Vigilant Sentry");
-        addAlias("truthseeker", "Truth Seeker");
-        addAlias("judgment", "Judgment");
-        addAlias("holybola", "Holy Bola!");
-        addAlias("dalaranchampion", "Dalaran Champion");
-        addAlias("commanderbeatrix", "Commander Beatrix");
-        addAlias("undeathsentence", "Undeath Sentence");
-        addAlias("karovthebroken", "Karov the Broken");
-        addAlias("jadeguardians", "Jade Guardians");
-        addAlias("inspectormurlocholmes", "Inspector Murloc Holmes");
-        addAlias("jailhousemanastorm", "Jailhouse Manastorm");
-        addAlias("warptooth", "Warptooth");
+                    if (connection != null) {
+                        connection.disconnect();
+                    }
+                }
+            }
+        });
     }
 
     // ============================================================
-    // DATABASE HELPERS
+    // READ STREAM
     // ============================================================
 
-    private static void addCard(CardData card) {
-        CARDS.put(normalize(card.name), card);
+    private static String readStream(InputStream input)
+            throws Exception {
+
+        BufferedReader reader =
+                new BufferedReader(
+                        new InputStreamReader(input, "UTF-8")
+                );
+
+        StringBuilder result =
+                new StringBuilder();
+
+        String line;
+
+        while ((line = reader.readLine()) != null) {
+
+            result.append(line);
+            result.append("\n");
+        }
+
+        reader.close();
+
+        return result.toString();
     }
 
-    private static void addAlias(String alias, String cardName) {
-        OCR_ALIASES.put(normalize(alias), cardName);
+    // ============================================================
+    // PARSE HEARTHARENA
+    // ============================================================
+
+    private static void parseHearthArena(String html) {
+
+        if (html == null || html.length() == 0) {
+            return;
+        }
+
+        try {
+
+            String text = html;
+
+            /*
+             * Convert common HTML separators to newlines.
+             */
+            text = text.replaceAll(
+                    "(?i)<br\\s*/?>",
+                    "\n"
+            );
+
+            text = text.replaceAll(
+                    "(?i)</p>",
+                    "\n"
+            );
+
+            text = text.replaceAll(
+                    "(?i)</div>",
+                    "\n"
+            );
+
+            text = text.replaceAll(
+                    "(?i)</li>",
+                    "\n"
+            );
+
+            text = text.replaceAll(
+                    "(?i)</h[1-6]>",
+                    "\n"
+            );
+
+            /*
+             * Remove remaining tags.
+             */
+            text = text.replaceAll(
+                    "<[^>]+>",
+                    " "
+            );
+
+            text = decodeHtml(text);
+
+            /*
+             * Normalize whitespace.
+             */
+            text = text.replace("\r", "\n");
+
+            String[] lines =
+                    text.split("\n");
+
+            String previousName = null;
+
+            for (int i = 0; i < lines.length; i++) {
+
+                String line =
+                        cleanWebLine(lines[i]);
+
+                if (line.length() == 0) {
+                    continue;
+                }
+
+                /*
+                 * We are looking for a HearthArena score.
+                 *
+                 * Typical rendered structure:
+                 *
+                 * Card Name
+                 * 101
+                 *
+                 * or:
+                 *
+                 * 5. Card Name
+                 * 101
+                 */
+
+                Integer score =
+                        extractScore(line);
+
+                if (score != null) {
+
+                    if (previousName != null) {
+
+                        addOnlineScore(
+                                previousName,
+                                score
+                        );
+
+                        previousName = null;
+                    }
+
+                    continue;
+                }
+
+                String possibleName =
+                        cleanCardNameForLookup(line);
+
+                if (isPossibleCardName(possibleName)) {
+
+                    previousName =
+                            possibleName;
+                }
+            }
+
+            /*
+             * Second parser.
+             *
+             * Some versions of HearthArena put the score and
+             * card name close together in the same HTML block.
+             */
+            parseInlinePatterns(html);
+
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static void parseInlinePatterns(String html) {
+
+        try {
+
+            /*
+             * Look for:
+             *
+             * >Card Name<
+             * ... >101<
+             *
+             * This intentionally allows HTML between the two.
+             */
+            Pattern pattern =
+                    Pattern.compile(
+                            ">\\s*([^<>\\r\\n]{3,80})\\s*<"
+                                    + "[^>]*>"
+                                    + "(?:[^<>]*<[^>]+>){0,8}"
+                                    + "\\s*(\\d{1,3})\\s*<",
+                            Pattern.CASE_INSENSITIVE
+                    );
+
+            Matcher matcher =
+                    pattern.matcher(html);
+
+            while (matcher.find()) {
+
+                String name =
+                        cleanCardNameForLookup(
+                                decodeHtml(
+                                        matcher.group(1)
+                                )
+                        );
+
+                int score;
+
+                try {
+                    score =
+                            Integer.parseInt(
+                                    matcher.group(2)
+                            );
+                } catch (Exception e) {
+                    continue;
+                }
+
+                if (isPossibleCardName(name)
+                        && score >= 0
+                        && score <= 200) {
+
+                    addOnlineScore(name, score);
+                }
+            }
+
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static Integer extractScore(String line) {
+
+        String cleaned =
+                line.replace("↓", "")
+                        .trim();
+
+        /*
+         * Score must be just a number.
+         */
+        if (cleaned.matches("\\d{1,3}")) {
+
+            try {
+
+                int value =
+                        Integer.parseInt(cleaned);
+
+                if (value >= 0 && value <= 200) {
+                    return value;
+                }
+
+            } catch (Exception ignored) {
+            }
+        }
+
+        /*
+         * Sometimes there may be whitespace.
+         */
+        Matcher matcher =
+                Pattern.compile(
+                        "^\\s*(\\d{1,3})\\s*$"
+                ).matcher(cleaned);
+
+        if (matcher.find()) {
+
+            try {
+
+                int value =
+                        Integer.parseInt(
+                                matcher.group(1)
+                        );
+
+                if (value >= 0 && value <= 200) {
+                    return value;
+                }
+
+            } catch (Exception ignored) {
+            }
+        }
+
+        return null;
+    }
+
+    private static void addOnlineScore(
+            String name,
+            int hearthArenaScore
+    ) {
+
+        if (name == null) {
+            return;
+        }
+
+        name =
+                cleanCardNameForLookup(name);
+
+        if (!isPossibleCardName(name)) {
+            return;
+        }
+
+        /*
+         * Ignore rank numbers, mana values, etc.
+         */
+        if (hearthArenaScore < 0 ||
+                hearthArenaScore > 200) {
+            return;
+        }
+
+        double converted =
+                hearthArenaScore /
+                        HEARTHARENA_SCALE;
+
+        converted =
+                clamp(
+                        converted,
+                        0.0,
+                        10.0
+                );
+
+        String key =
+                normalize(name);
+
+        ONLINE_SCORES.put(
+                key,
+                converted
+        );
+
+        ONLINE_NAMES.put(
+                key,
+                name
+        );
+    }
+
+    // ============================================================
+    // HTML DECODING
+    // ============================================================
+
+    private static String decodeHtml(String text) {
+
+        if (text == null) {
+            return "";
+        }
+
+        return text
+                .replace("&amp;", "&")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'")
+                .replace("&apos;", "'")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&nbsp;", " ");
+    }
+
+    // ============================================================
+    // CARD LOOKUP
+    // ============================================================
+
+    private static CardData findCard(String cardName) {
+
+        if (cardName == null) {
+            return null;
+        }
+
+        String corrected =
+                correctOcr(cardName);
+
+        String key =
+                normalize(corrected);
+
+        CardData data =
+                CARDS.get(key);
+
+        if (data != null) {
+            return data;
+        }
+
+        /*
+         * If the card is not manually defined, but HearthArena
+         * knows it, create a generic CardData automatically.
+         */
+        Double onlineScore =
+                ONLINE_SCORES.get(key);
+
+        if (onlineScore != null) {
+
+            CardData generated =
+                    new CardData(
+                            ONLINE_NAMES.containsKey(key)
+                                    ? ONLINE_NAMES.get(key)
+                                    : corrected,
+                            onlineScore,
+                            0,
+                            0,
+                            0,
+                            true,
+                            false,
+                            false,
+                            false,
+                            false,
+                            false,
+                            false,
+                            false,
+                            false,
+                            false,
+                            false
+                    );
+
+            CARDS.put(
+                    key,
+                    generated
+            );
+
+            return generated;
+        }
+
+        /*
+         * Fuzzy lookup.
+         */
+        String fuzzy =
+                findClosestName(corrected);
+
+        if (fuzzy != null) {
+
+            CardData fuzzyData =
+                    CARDS.get(
+                            normalize(fuzzy)
+                    );
+
+            if (fuzzyData != null) {
+                return fuzzyData;
+            }
+
+            Double fuzzyScore =
+                    ONLINE_SCORES.get(
+                            normalize(fuzzy)
+                    );
+
+            if (fuzzyScore != null) {
+
+                CardData generated =
+                        new CardData(
+                                fuzzy,
+                                fuzzyScore,
+                                0,
+                                0,
+                                0,
+                                true,
+                                false,
+                                false,
+                                false,
+                                false,
+                                false,
+                                false,
+                                false,
+                                false,
+                                false,
+                                false
+                        );
+
+                CARDS.put(
+                        normalize(fuzzy),
+                        generated
+                );
+
+                return generated;
+            }
+        }
+
+        return null;
+    }
+
+    private static String findClosestName(
+            String input
+    ) {
+
+        if (input == null ||
+                input.length() < 4) {
+            return null;
+        }
+
+        String normalizedInput =
+                normalize(input);
+
+        String bestName = null;
+
+        int bestDistance =
+                Integer.MAX_VALUE;
+
+        /*
+         * First search manually known cards.
+         */
+        for (String name : CARDS.keySet()) {
+
+            CardData data =
+                    CARDS.get(name);
+
+            if (data == null) {
+                continue;
+            }
+
+            int distance =
+                    levenshtein(
+                            normalizedInput,
+                            name
+                    );
+
+            int allowed =
+                    Math.max(
+                            2,
+                            normalizedInput.length() / 5
+                    );
+
+            if (distance <= allowed &&
+                    distance < bestDistance) {
+
+                bestDistance = distance;
+                bestName = data.name;
+            }
+        }
+
+        /*
+         * Then online cards.
+         */
+        for (Map.Entry<String, String> entry :
+                ONLINE_NAMES.entrySet()) {
+
+            String key = entry.getKey();
+
+            int distance =
+                    levenshtein(
+                            normalizedInput,
+                            key
+                    );
+
+            int allowed =
+                    Math.max(
+                            2,
+                            normalizedInput.length() / 5
+                    );
+
+            if (distance <= allowed &&
+                    distance < bestDistance) {
+
+                bestDistance = distance;
+                bestName = entry.getValue();
+            }
+        }
+
+        return bestName;
     }
 
     // ============================================================
     // OCR CORRECTION
     // ============================================================
 
-    private static String correctOcr(String input) {
+    public static String correctOcr(
+            String cardName
+    ) {
 
-        if (input == null) {
+        if (cardName == null) {
             return "";
         }
 
-        String original = input.trim();
+        String cleaned =
+                cleanCardNameForLookup(cardName);
 
-        if (original.length() == 0) {
-            return "";
-        }
+        String normalized =
+                normalize(cleaned);
 
-        String normalized = normalize(original);
-
-        if (OCR_ALIASES.containsKey(normalized)) {
-            return OCR_ALIASES.get(normalized);
-        }
-
-        // Soldier of the Infinite is particularly prone to OCR errors.
-        if (normalized.equals("soldiero")
-                || normalized.equals("soldier0")
-                || normalized.equals("soldier")
-                || normalized.startsWith("soldiero")
-                || normalized.startsWith("soldier0")
-                || normalized.startsWith("sotdier")
-                || normalized.startsWith("so1dier")) {
+        /*
+         * Soldier of the Infinite was the problematic OCR card.
+         */
+        if (normalized.contains(
+                "soldieroftheinfinite"
+        ) ||
+                normalized.contains(
+                        "so1dieroftheinfinite"
+                ) ||
+                normalized.contains(
+                        "sodieroftheinfinite"
+                ) ||
+                normalized.contains(
+                        "soldierofihfinite"
+                ) ||
+                normalized.contains(
+                        "soldierofinfinite"
+                ) ||
+                normalized.contains(
+                        "soldieroftheinfinit"
+                )) {
 
             return "Soldier of the Infinite";
         }
 
-        // Common OCR omissions.
-        if (normalized.contains("soldier")
-                && (normalized.contains("infinite")
-                || normalized.contains("infinit")
-                || normalized.contains("infinte"))) {
+        /*
+         * Common OCR corrections.
+         */
+        if (normalized.equals(
+                "scrappyscavenger"
+        ) ||
+                normalized.equals(
+                        "scrappyscavenger"
+                )) {
 
-            return "Soldier of the Infinite";
+            return "Scrappy Scavenger";
         }
 
-        return original;
-    }
+        if (normalized.equals(
+                "tricksyimproviser"
+        ) ||
+                normalized.equals(
+                        "tricksyimproviser"
+                )) {
 
-    // ============================================================
-    // PUBLIC SCORE API
-    // ============================================================
-
-    public static String getCardScore(String cardName) {
-
-        double value = score(cardName);
-
-        return formatScore(value);
-    }
-
-    public static String getCardScore(double value) {
-
-        return formatScore(clamp(value, 0.0, 10.0));
-    }
-
-    // ============================================================
-    // NUMERIC SCORE
-    // ============================================================
-
-    private static double score(String cardName) {
-
-        String corrected = correctOcr(cardName);
-
-        if (corrected.length() == 0) {
-            return 0.0;
+            return "Tricksy Improviser";
         }
 
-        CardData card = CARDS.get(normalize(corrected));
+        if (normalized.equals(
+                "arrivalofthetitans"
+        ) ||
+                normalized.equals(
+                        "arrivalofthetitan"
+                )) {
+
+            return "Arrival of the Titans";
+        }
+
+        /*
+         * Exact known name.
+         */
+        for (CardData data : CARDS.values()) {
+
+            if (normalize(data.name)
+                    .equals(normalized)) {
+
+                return data.name;
+            }
+        }
+
+        /*
+         * Exact online name.
+         */
+        String online =
+                ONLINE_NAMES.get(normalized);
+
+        if (online != null) {
+            return online;
+        }
+
+        /*
+         * Fuzzy OCR correction.
+         */
+        String closest =
+                findClosestName(cleaned);
+
+        if (closest != null) {
+            return closest;
+        }
+
+        return cleaned;
+    }
+
+    // ============================================================
+    // SCORE
+    // ============================================================
+
+    public static String getCardScore(
+            String cardName
+    ) {
+
+        double score =
+                score(cardName);
+
+        return String.format(
+                Locale.US,
+                "%.1f",
+                score
+        );
+    }
+
+    public static String getCardScore(
+            double value
+    ) {
+
+        return String.format(
+                Locale.US,
+                "%.1f",
+                clamp(
+                        value,
+                        0.0,
+                        10.0
+                )
+        );
+    }
+
+    public static double score(
+            String cardName
+    ) {
+
+        if (cardName == null ||
+                cardName.trim().length() == 0) {
+
+            return UNKNOWN_CARD_SCORE;
+        }
+
+        String corrected =
+                correctOcr(cardName);
+
+        CardData data =
+                findCard(corrected);
+
+        double base;
+
+        if (data != null) {
+
+            base =
+                    data.baseScore;
+
+        } else {
+
+            /*
+             * Try the online database one last time.
+             */
+            Double online =
+                    ONLINE_SCORES.get(
+                            normalize(corrected)
+                    );
+
+            if (online != null) {
+                base = online;
+            } else {
+                base = UNKNOWN_CARD_SCORE;
+            }
+        }
+
+        double result =
+                base;
+
+        /*
+         * Small intrinsic bonuses for cards whose type is known.
+         */
+        if (data != null) {
+
+            if (data.removal) {
+                result += 0.10;
+            }
+
+            if (data.aoe) {
+                result += 0.15;
+            }
+
+            if (data.draw) {
+                result += 0.08;
+            }
+
+            if (data.discover) {
+                result += 0.10;
+            }
+
+            if (data.taunt) {
+                result += 0.05;
+            }
+
+            if (data.divineShield) {
+                result += 0.08;
+            }
+
+            if (data.battlecry) {
+                result += 0.05;
+            }
+
+            if (data.deathrattle) {
+                result += 0.05;
+            }
+
+            /*
+             * Existing deck synergy system.
+             */
+            result += synergyScore(data);
+        }
+
+        return clamp(
+                result,
+                0.0,
+                10.0
+        );
+    }
+
+    // ============================================================
+    // SYNERGY
+    // ============================================================
+
+    private static double synergyScore(
+            CardData card
+    ) {
 
         if (card == null) {
             return 0.0;
         }
 
-        double value = card.baseScore;
+        double bonus = 0.0;
 
         /*
-         * Small intrinsic quality bonuses.
-         *
-         * These are deliberately small because the database's base
-         * score remains the most important component.
+         * Basic minion / spell balance.
+         */
+        if (card.minion) {
+
+            if (minionCount < 10) {
+                bonus += 0.15;
+            } else if (minionCount > 20) {
+                bonus -= 0.15;
+            }
+        }
+
+        if (card.spell) {
+
+            if (spellCount < 5) {
+                bonus += 0.12;
+            } else if (spellCount > 12) {
+                bonus -= 0.15;
+            }
+        }
+
+        /*
+         * Removal.
          */
         if (card.removal) {
-            value += 0.10;
+
+            if (removalCount < 4) {
+                bonus += 0.15;
+            } else if (removalCount >= 7) {
+                bonus -= 0.08;
+            }
         }
 
+        /*
+         * AoE.
+         */
         if (card.aoe) {
-            value += 0.15;
+
+            if (aoeCount < 2) {
+                bonus += 0.18;
+            } else if (aoeCount >= 4) {
+                bonus -= 0.10;
+            }
         }
 
+        /*
+         * Draw.
+         */
         if (card.draw) {
-            value += 0.08;
+
+            if (drawCount < 4) {
+                bonus += 0.12;
+            }
         }
 
+        /*
+         * Discover.
+         */
         if (card.discover) {
-            value += 0.10;
+
+            if (discoverCount < 4) {
+                bonus += 0.12;
+            }
         }
 
+        /*
+         * Taunt.
+         */
         if (card.taunt) {
-            value += 0.05;
+
+            if (tauntCount < 4) {
+                bonus += 0.06;
+            }
         }
 
+        /*
+         * Divine Shield.
+         */
         if (card.divineShield) {
-            value += 0.08;
+
+            if (divineShieldCount < 3) {
+                bonus += 0.06;
+            }
         }
 
+        /*
+         * Battlecry / Deathrattle.
+         */
         if (card.battlecry) {
-            value += 0.05;
+
+            if (battlecryCount < 8) {
+                bonus += 0.05;
+            }
         }
 
         if (card.deathrattle) {
-            value += 0.05;
+
+            if (deathrattleCount < 5) {
+                bonus += 0.05;
+            }
         }
 
         /*
-         * New deck-dependent synergy system.
+         * Tribes.
          */
-        value += synergyScore(card);
-
-        /*
-         * Keep synergy from completely overpowering the actual
-         * Arena value.
-         */
-        value = clamp(value, 0.0, 10.0);
-
-        return value;
-    }
-
-    // ============================================================
-    // SYNERGY ENGINE
-    // ============================================================
-
-    private static double synergyScore(CardData card) {
-
-        if (pickedCards.isEmpty()) {
-            return 0.0;
-        }
-
-        double bonus = 0.0;
-
-        // --------------------------------------------------------
-        // GENERIC MINION / SPELL BALANCE
-        // --------------------------------------------------------
-
-        if (card.minion && spellCount >= 5) {
-            bonus += 0.10;
-        }
-
-        if (card.spell && minionCount >= 5) {
-            bonus += 0.10;
-        }
-
-        // --------------------------------------------------------
-        // REMOVAL SYNERGY
-        // --------------------------------------------------------
-
-        if (card.removal && removalCount >= 2) {
-            bonus += 0.10;
-        }
-
-        if (card.aoe && aoeCount == 0) {
-            bonus += 0.25;
-        }
-
-        if (card.removal && aoeCount == 0 && minionCount >= 6) {
-            bonus += 0.10;
-        }
-
-        // --------------------------------------------------------
-        // DRAW SYNERGY
-        // --------------------------------------------------------
-
-        if (card.draw && drawCount >= 2) {
-            bonus += 0.12;
-        }
-
-        /*
-         * A deck with very little draw gets extra value from the
-         * first draw cards.
-         */
-        if (card.draw && drawCount == 0 && pickedCards.size() >= 5) {
-            bonus += 0.18;
-        }
-
-        // --------------------------------------------------------
-        // DISCOVER
-        // --------------------------------------------------------
-
-        if (card.discover && discoverCount >= 1) {
-            bonus += 0.12;
-        }
-
-        if (card.discover && spellCount >= 5) {
-            bonus += 0.08;
-        }
-
-        // --------------------------------------------------------
-        // TAUNT
-        // --------------------------------------------------------
-
-        if (card.taunt && tauntCount >= 2) {
-            bonus += 0.10;
-        }
-
-        if (card.taunt && tauntCount == 0 && pickedCards.size() >= 7) {
-            bonus += 0.15;
-        }
-
-        // --------------------------------------------------------
-        // DIVINE SHIELD
-        // --------------------------------------------------------
-
-        if (card.divineShield && divineShieldCount >= 1) {
-            bonus += 0.12;
-        }
-
-        // --------------------------------------------------------
-        // BATTLECRY
-        // --------------------------------------------------------
-
-        if (card.battlecry && battlecryCount >= 2) {
-            bonus += 0.10;
-        }
-
-        // --------------------------------------------------------
-        // DEATHRATTLE
-        // --------------------------------------------------------
-
-        if (card.deathrattle && deathrattleCount >= 1) {
+        if (card.mech && mechCount > 0) {
             bonus += 0.20;
         }
 
-        if (card.deathrattle && deathrattleCount >= 3) {
-            bonus += 0.10;
-        }
-
-        if (card.name.equals("Corpse Cannon") && deathrattleCount >= 2) {
-            bonus += 0.25;
-        }
-
-        if (card.name.equals("Carrier Whelp") && deathrattleCount >= 2) {
-            bonus += 0.15;
-        }
-
-        if (card.name.equals("Whelp of the Infinite") && deathrattleCount >= 2) {
-            bonus += 0.15;
-        }
-
-        if (card.name.equals("Experimental Animation") && deathrattleCount >= 2) {
-            bonus += 0.15;
-        }
-
-        // --------------------------------------------------------
-        // CLASS / TRIBE-LIKE SYNERGIES
-        // --------------------------------------------------------
-
-        if (card.mech && mechCount >= 2) {
+        if (card.beast && beastCount > 0) {
             bonus += 0.20;
         }
 
-        if (card.beast && beastCount >= 2) {
-            bonus += 0.18;
+        if (card.dragon && dragonCount > 0) {
+            bonus += 0.20;
         }
 
-        if (card.dragon && dragonCount >= 2) {
-            bonus += 0.18;
+        if (card.undead && undeadCount > 0) {
+            bonus += 0.20;
         }
 
-        if (card.undead && undeadCount >= 2) {
-            bonus += 0.18;
+        if (card.elemental && elementalCount > 0) {
+            bonus += 0.20;
         }
 
-        if (card.elemental && elementalCount >= 2) {
-            bonus += 0.18;
+        if (card.demon && demonCount > 0) {
+            bonus += 0.20;
         }
 
-        if (card.demon && demonCount >= 2) {
-            bonus += 0.18;
+        if (card.murloc && murlocCount > 0) {
+            bonus += 0.20;
         }
 
-        if (card.murloc && murlocCount >= 2) {
-            bonus += 0.18;
+        if (card.pirate && pirateCount > 0) {
+            bonus += 0.20;
         }
 
-        if (card.pirate && pirateCount >= 2) {
-            bonus += 0.18;
+        if (card.naga && nagaCount > 0) {
+            bonus += 0.20;
         }
 
-        if (card.naga && nagaCount >= 2) {
-            bonus += 0.18;
+        if (card.quilboar && quilboarCount > 0) {
+            bonus += 0.20;
         }
-
-        if (card.quilboar && quilboarCount >= 2) {
-            bonus += 0.18;
-        }
-
-        // --------------------------------------------------------
-        // SPELL SCHOOL STYLE SYNERGIES
-        // --------------------------------------------------------
-
-        if (card.nature && natureCount >= 2) {
-            bonus += 0.15;
-        }
-
-        if (card.frost && frostCount >= 2) {
-            bonus += 0.15;
-        }
-
-        if (card.fire && fireCount >= 2) {
-            bonus += 0.15;
-        }
-
-        if (card.shadow && shadowCount >= 2) {
-            bonus += 0.15;
-        }
-
-        if (card.holy && holyCount >= 2) {
-            bonus += 0.15;
-        }
-
-        if (card.arcane && arcaneCount >= 2) {
-            bonus += 0.15;
-        }
-
-        // --------------------------------------------------------
-        // SPECIFIC KNOWN SYNERGIES
-        // --------------------------------------------------------
-
-        String name = normalize(card.name);
 
         /*
-         * Soldier of the Infinite:
-         * Taunt cards make a defensive curve more coherent.
+         * Spell schools.
          */
-        if (name.equals(normalize("Soldier of the Infinite"))) {
+        if (card.nature && natureCount > 0) {
+            bonus += 0.12;
+        }
 
-            if (tauntCount >= 2) {
+        if (card.frost && frostCount > 0) {
+            bonus += 0.15;
+        }
+
+        if (card.fire && fireCount > 0) {
+            bonus += 0.15;
+        }
+
+        if (card.shadow && shadowCount > 0) {
+            bonus += 0.12;
+        }
+
+        if (card.holy && holyCount > 0) {
+            bonus += 0.12;
+        }
+
+        if (card.arcane && arcaneCount > 0) {
+            bonus += 0.15;
+        }
+
+        /*
+         * Specific synergies from the existing advisor.
+         */
+        String name =
+                normalize(card.name);
+
+        if (name.equals(
+                normalize("Soldier of the Infinite")
+        )) {
+
+            if (arcaneCount > 0) {
                 bonus += 0.20;
             }
-
-            if (minionCount >= 5) {
-                bonus += 0.08;
-            }
         }
 
-        /*
-         * Contraband Wands:
-         * More spells and Discover make spell-heavy picks more
-         * attractive.
-         */
-        if (name.equals(normalize("Contraband Wands"))) {
-
-            if (spellCount >= 4) {
-                bonus += 0.20;
-            }
-
-            if (discoverCount >= 1) {
-                bonus += 0.12;
-            }
-        }
-
-        /*
-         * Bursting Leyline / Crystallized Leyline / Leyline Nexus:
-         * spell-heavy decks get additional value.
-         */
-        if (name.equals(normalize("Bursting Leyline"))
-                || name.equals(normalize("Crystallized Leyline"))
-                || name.equals(normalize("Leyline Nexus"))) {
-
-            if (spellCount >= 4) {
-                bonus += 0.20;
-            }
-
-            if (spellCount >= 8) {
-                bonus += 0.10;
-            }
-        }
-
-        /*
-         * Surge Needle:
-         * Weapon/removal package.
-         */
-        if (name.equals(normalize("Surge Needle"))) {
-
-            if (removalCount >= 2) {
-                bonus += 0.12;
-            }
-
-            if (weaponCount >= 1) {
-                bonus += 0.10;
-            }
-        }
-
-        /*
-         * Cold Snap:
-         * Removal-heavy and spell-heavy decks.
-         */
-        if (name.equals(normalize("Cold Snap"))) {
-
-            if (spellCount >= 4) {
-                bonus += 0.15;
-            }
-
-            if (removalCount >= 2) {
-                bonus += 0.15;
-            }
-        }
-
-        /*
-         * Code Violet / Void Blast:
-         * AoE/removal packages.
-         */
-        if (name.equals(normalize("Code Violet"))
-                || name.equals(normalize("Void Blast"))) {
-
-            if (removalCount >= 2) {
-                bonus += 0.15;
-            }
-
-            if (aoeCount >= 1) {
-                bonus += 0.12;
-            }
-        }
-
-        /*
-         * Shadowed Informant / Dig for Freedom:
-         * Discover-heavy decks.
-         */
-        if (name.equals(normalize("Shadowed Informant"))
-                || name.equals(normalize("Dig for Freedom"))) {
-
-            if (discoverCount >= 1) {
-                bonus += 0.18;
-            }
-
-            if (drawCount >= 2) {
-                bonus += 0.08;
-            }
-        }
-
-        /*
-         * Guard Dog / Commander Beatrix / Jade Guardians:
-         * Taunt package.
-         */
-        if (name.equals(normalize("Guard Dog"))
-                || name.equals(normalize("Commander Beatrix"))
-                || name.equals(normalize("Jade Guardians"))) {
-
-            if (tauntCount >= 2) {
-                bonus += 0.18;
-            }
-        }
-
-        /*
-         * Emergency Surgery:
-         * Minion-heavy decks get more value from support effects.
-         */
-        if (name.equals(normalize("Emergency Surgery"))) {
-
-            if (minionCount >= 7) {
-                bonus += 0.15;
-            }
-        }
-
-        /*
-         * Corpse Cannon:
-         * Deathrattle-heavy decks.
-         */
-        if (name.equals(normalize("Corpse Cannon"))) {
-
-            if (deathrattleCount >= 2) {
-                bonus += 0.30;
-            }
-        }
-
-        /*
-         * Underbelly Network:
-         * Larger minion packages make it more useful.
-         */
-        if (name.equals(normalize("Underbelly Network"))) {
-
-            if (minionCount >= 8) {
-                bonus += 0.15;
-            }
-        }
-
-        /*
-         * Jailhouse Manastorm:
-         * Very strong standalone card, but especially useful in a
-         * spell-heavy deck.
-         */
-        if (name.equals(normalize("Jailhouse Manastorm"))) {
+        if (name.equals(
+                normalize("Contraband Wands")
+        )) {
 
             if (spellCount >= 5) {
                 bonus += 0.20;
             }
         }
 
-        return clamp(bonus, -0.50, 1.00);
+        if (name.equals(
+                normalize("Bursting Leyline")
+        ) ||
+                name.equals(
+                        normalize("Crystallized Leyline")
+                ) ||
+                name.equals(
+                        normalize("Leyline Nexus")
+                )) {
+
+            if (spellCount >= 5) {
+                bonus += 0.20;
+            }
+        }
+
+        if (name.equals(
+                normalize("Surge Needle")
+        )) {
+
+            if (spellCount >= 4) {
+                bonus += 0.15;
+            }
+        }
+
+        if (name.equals(
+                normalize("Cold Snap")
+        )) {
+
+            if (frostCount >= 2) {
+                bonus += 0.20;
+            }
+        }
+
+        if (name.equals(
+                normalize("Code Violet")
+        ) ||
+                name.equals(
+                        normalize("Void Blast")
+                )) {
+
+            if (spellCount >= 6) {
+                bonus += 0.15;
+            }
+        }
+
+        if (name.equals(
+                normalize("Shadowed Informant")
+        ) ||
+                name.equals(
+                        normalize("Dig for Freedom")
+                )) {
+
+            if (drawCount >= 2) {
+                bonus += 0.15;
+            }
+        }
+
+        if (name.equals(
+                normalize("Guard Dog")
+        ) ||
+                name.equals(
+                        normalize("Commander Beatrix")
+                ) ||
+                name.equals(
+                        normalize("Jade Guardians")
+                )) {
+
+            if (tauntCount >= 2) {
+                bonus += 0.15;
+            }
+        }
+
+        if (name.equals(
+                normalize("Emergency Surgery")
+        )) {
+
+            if (deathrattleCount >= 2) {
+                bonus += 0.20;
+            }
+        }
+
+        if (name.equals(
+                normalize("Corpse Cannon")
+        )) {
+
+            if (deathrattleCount >= 3) {
+                bonus += 0.25;
+            }
+        }
+
+        if (name.equals(
+                normalize("Underbelly Network")
+        )) {
+
+            if (pirateCount >= 2) {
+                bonus += 0.20;
+            }
+        }
+
+        if (name.equals(
+                normalize("Jailhouse Manastorm")
+        )) {
+
+            if (spellCount >= 8) {
+                bonus += 0.20;
+            }
+        }
+
+        /*
+         * Keep synergy influence controlled.
+         */
+        return clamp(
+                bonus,
+                -0.50,
+                1.00
+        );
     }
 
     // ============================================================
-    // RECOMMENDATION API
+    // RECOMMENDATION
     // ============================================================
 
     public static String recommend(
@@ -1138,20 +1361,28 @@ public class ArenaAdvisor {
             String card3
     ) {
 
-        double score1 = score(card1);
-        double score2 = score(card2);
-        double score3 = score(card3);
+        double score1 =
+                score(card1);
 
-        int best = getBestIndex(score1, score2, score3);
+        double score2 =
+                score(card2);
 
-        String bestCard;
+        double score3 =
+                score(card3);
 
-        if (best == 1) {
-            bestCard = correctOcr(card1);
-        } else if (best == 2) {
-            bestCard = correctOcr(card2);
-        } else {
-            bestCard = correctOcr(card3);
+        int best = 1;
+
+        double bestScore =
+                score1;
+
+        if (score2 > bestScore) {
+            best = 2;
+            bestScore = score2;
+        }
+
+        if (score3 > bestScore) {
+            best = 3;
+            bestScore = score3;
         }
 
         return "SUOSITUS: Kortti " + best;
@@ -1163,7 +1394,18 @@ public class ArenaAdvisor {
             int score3
     ) {
 
-        int best = getBestIndex(score1, score2, score3);
+        int best = 1;
+
+        if (score2 > score1 &&
+                score2 >= score3) {
+
+            best = 2;
+
+        } else if (score3 > score1 &&
+                score3 > score2) {
+
+            best = 3;
+        }
 
         return "SUOSITUS: Kortti " + best;
     }
@@ -1174,172 +1416,161 @@ public class ArenaAdvisor {
             double score3
     ) {
 
-        int best = getBestIndex(score1, score2, score3);
+        int best = 1;
+
+        double bestScore =
+                score1;
+
+        if (score2 > bestScore) {
+            best = 2;
+            bestScore = score2;
+        }
+
+        if (score3 > bestScore) {
+            best = 3;
+        }
 
         return "SUOSITUS: Kortti " + best;
     }
 
-    private static int getBestIndex(
-            double score1,
-            double score2,
-            double score3
+    // ============================================================
+    // PICK TRACKING
+    // ============================================================
+
+    public static void recordPickedCard(
+            String cardName
     ) {
 
-        if (score1 >= score2 && score1 >= score3) {
-            return 1;
-        }
-
-        if (score2 >= score1 && score2 >= score3) {
-            return 2;
-        }
-
-        return 3;
-    }
-
-    // ============================================================
-    // PICKED CARD MEMORY
-    // ============================================================
-
-    /**
-     * Call this when the player has actually selected a card.
-     *
-     * Example:
-     *
-     * ArenaAdvisor.recordPickedCard("Soldier of the Infinite");
-     */
-    public static void recordPickedCard(String cardName) {
-
-        String corrected = correctOcr(cardName);
-
-        if (corrected.length() == 0) {
+        if (cardName == null ||
+                cardName.trim().length() == 0) {
             return;
         }
 
-        CardData card = CARDS.get(normalize(corrected));
+        String corrected =
+                correctOcr(cardName);
 
-        if (card == null) {
+        CardData data =
+                findCard(corrected);
+
+        if (data == null) {
+
+            /*
+             * Still remember unknown cards so the deck history
+             * isn't lost.
+             */
+            pickedCards.add(corrected);
             return;
         }
 
-        /*
-         * Prevent accidental duplicate registration.
-         *
-         * The same card can technically be drafted multiple times,
-         * so we do NOT use this as a duplicate-card prohibition.
-         * We simply add every actual pick.
-         */
-        pickedCards.add(card.name);
+        pickedCards.add(
+                data.name
+        );
 
-        updateCounters(card);
-    }
-
-    private static void updateCounters(CardData card) {
-
-        if (card.minion) {
+        if (data.minion) {
             minionCount++;
         }
 
-        if (card.spell) {
+        if (data.spell) {
             spellCount++;
         }
 
-        if (card.weapon) {
+        if (data.weapon) {
             weaponCount++;
         }
 
-        if (card.removal) {
+        if (data.removal) {
             removalCount++;
         }
 
-        if (card.aoe) {
+        if (data.aoe) {
             aoeCount++;
         }
 
-        if (card.draw) {
+        if (data.draw) {
             drawCount++;
         }
 
-        if (card.discover) {
+        if (data.discover) {
             discoverCount++;
         }
 
-        if (card.taunt) {
+        if (data.taunt) {
             tauntCount++;
         }
 
-        if (card.divineShield) {
+        if (data.divineShield) {
             divineShieldCount++;
         }
 
-        if (card.battlecry) {
+        if (data.battlecry) {
             battlecryCount++;
         }
 
-        if (card.deathrattle) {
+        if (data.deathrattle) {
             deathrattleCount++;
         }
 
-        if (card.mech) {
+        if (data.mech) {
             mechCount++;
         }
 
-        if (card.beast) {
+        if (data.beast) {
             beastCount++;
         }
 
-        if (card.dragon) {
+        if (data.dragon) {
             dragonCount++;
         }
 
-        if (card.undead) {
+        if (data.undead) {
             undeadCount++;
         }
 
-        if (card.elemental) {
+        if (data.elemental) {
             elementalCount++;
         }
 
-        if (card.demon) {
+        if (data.demon) {
             demonCount++;
         }
 
-        if (card.murloc) {
+        if (data.murloc) {
             murlocCount++;
         }
 
-        if (card.pirate) {
+        if (data.pirate) {
             pirateCount++;
         }
 
-        if (card.naga) {
+        if (data.naga) {
             nagaCount++;
         }
 
-        if (card.quilboar) {
+        if (data.quilboar) {
             quilboarCount++;
         }
 
-        if (card.nature) {
+        if (data.nature) {
             natureCount++;
         }
 
-        if (card.frost) {
+        if (data.frost) {
             frostCount++;
         }
 
-        if (card.fire) {
+        if (data.fire) {
             fireCount++;
         }
 
-        if (card.shadow) {
+        if (data.shadow) {
             shadowCount++;
         }
 
-        if (card.holy) {
+        if (data.holy) {
             holyCount++;
         }
 
-        if (card.arcane) {
+        if (data.arcane) {
             arcaneCount++;
         }
     }
@@ -1348,11 +1579,6 @@ public class ArenaAdvisor {
     // RESET
     // ============================================================
 
-    /**
-     * Clears the current Arena deck memory.
-     *
-     * Call this when starting a completely new Arena run.
-     */
     public static void resetArena() {
 
         pickedCards.clear();
@@ -1390,109 +1616,982 @@ public class ArenaAdvisor {
     }
 
     // ============================================================
-    // DEBUG / STATUS
+    // INFORMATION
     // ============================================================
 
     public static int getPickedCardCount() {
         return pickedCards.size();
     }
 
-    public static List<String> getPickedCards() {
-        return new ArrayList<>(pickedCards);
+    public static ArrayList<String> getPickedCards() {
+        return new ArrayList<>(
+                pickedCards
+        );
     }
 
-    /**
-     * Useful for debugging the current Arena deck.
-     */
     public static String getDeckSummary() {
 
-        return "Arena: "
-                + pickedCards.size()
-                + " korttia | "
-                + "Minionit " + minionCount
-                + " | Spells " + spellCount
-                + " | Removal " + removalCount
-                + " | AoE " + aoeCount
-                + " | Draw " + drawCount
-                + " | Discover " + discoverCount
-                + " | Taunt " + tauntCount
-                + " | Deathrattle " + deathrattleCount;
+        return
+                "Kortteja: " + pickedCards.size()
+                        + "\nMinioneja: " + minionCount
+                        + "\nLoitsuja: " + spellCount
+                        + "\nAseita: " + weaponCount
+                        + "\nPoistoja: " + removalCount
+                        + "\nAoE: " + aoeCount
+                        + "\nNostoa: " + drawCount
+                        + "\nDiscover: " + discoverCount
+                        + "\nTaunt: " + tauntCount
+                        + "\nBattlecry: " + battlecryCount
+                        + "\nDeathrattle: " + deathrattleCount;
+    }
+
+    public static String getReason(
+            String cardName
+    ) {
+
+        String corrected =
+                correctOcr(cardName);
+
+        CardData data =
+                findCard(corrected);
+
+        double value =
+                score(corrected);
+
+        if (data == null) {
+
+            return String.format(
+                    Locale.US,
+                    "Tuntematon kortti – varapiste %.1f/10",
+                    value
+            );
+        }
+
+        StringBuilder reason =
+                new StringBuilder();
+
+        reason.append(
+                String.format(
+                        Locale.US,
+                        "Arvo %.1f/10",
+                        value
+                )
+        );
+
+        if (data.removal) {
+            reason.append(" • poisto");
+        }
+
+        if (data.aoe) {
+            reason.append(" • AoE");
+        }
+
+        if (data.draw) {
+            reason.append(" • kortinnostoa");
+        }
+
+        if (data.discover) {
+            reason.append(" • Discover");
+        }
+
+        if (data.taunt) {
+            reason.append(" • Taunt");
+        }
+
+        if (data.battlecry) {
+            reason.append(" • Battlecry");
+        }
+
+        if (data.deathrattle) {
+            reason.append(" • Deathrattle");
+        }
+
+        if (onlineDataLoaded) {
+            reason.append(" • Arena-data päivitetty");
+        }
+
+        return reason.toString();
     }
 
     // ============================================================
-    // REASON
+    // FALLBACK DATABASE
     // ============================================================
 
-    public static String getReason(String cardName) {
+    private static void loadFallbackCards() {
 
-        String corrected = correctOcr(cardName);
-        CardData card = CARDS.get(normalize(corrected));
+        CARDS.clear();
 
-        if (card == null) {
-            return "Korttia ei löytynyt tietokannasta.";
+        /*
+         * These are only fallback entries.
+         *
+         * The important change is that the application no longer
+         * depends on this list for every Arena card.
+         */
+
+        add(
+                "Soldier of the Infinite",
+                4.46,
+                0,
+                0,
+                0,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        add(
+                "Bursting Leyline",
+                4.46,
+                0,
+                0,
+                0,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        add(
+                "Contraband Wands",
+                5.00,
+                0,
+                0,
+                0,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        add(
+                "Crystallized Leyline",
+                5.92,
+                0,
+                0,
+                0,
+                false,
+                true,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        add(
+                "Surge Needle",
+                6.08,
+                0,
+                0,
+                0,
+                false,
+                true,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        add(
+                "Leyline Nexus",
+                4.85,
+                0,
+                0,
+                0,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        add(
+                "Mystic Runesaber",
+                5.92,
+                0,
+                0,
+                0,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        add(
+                "Ley Walker",
+                6.85,
+                0,
+                0,
+                0,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false
+        );
+
+        add(
+                "Cold Snap",
+                5.77,
+                0,
+                0,
+                0,
+                false,
+                true,
+                false,
+                true,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        add(
+                "Code Violet",
+                5.54,
+                0,
+                0,
+                0,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        add(
+                "Tunneling Geomancer",
+                4.85,
+                0,
+                0,
+                0,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                true,
+                false
+        );
+
+        add(
+                "Watfin",
+                6.15,
+                0,
+                0,
+                0,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        add(
+                "Shadowed Informant",
+                7.23,
+                0,
+                0,
+                0,
+                true,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                true,
+                false
+        );
+
+        add(
+                "Hopeful Dryad",
+                6.23,
+                0,
+                0,
+                0,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false
+        );
+
+        add(
+                "Raptor Herald",
+                6.92,
+                0,
+                0,
+                0,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false
+        );
+
+        add(
+                "Carrier Whelp",
+                6.92,
+                0,
+                0,
+                0,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true
+        );
+
+        add(
+                "Violet Punisher",
+                7.92,
+                0,
+                0,
+                0,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        add(
+                "Whelp of the Infinite",
+                7.92,
+                0,
+                0,
+                0,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        add(
+                "Infested Breath",
+                7.77,
+                0,
+                0,
+                0,
+                false,
+                true,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        add(
+                "Emergency Surgery",
+                7.38,
+                0,
+                0,
+                0,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        add(
+                "Corpse Cannon",
+                7.54,
+                0,
+                0,
+                0,
+                true,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true
+        );
+
+        add(
+                "Underbelly Network",
+                7.30,
+                0,
+                0,
+                0,
+                true,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                true,
+                false
+        );
+
+        add(
+                "Guard Dog",
+                6.77,
+                0,
+                0,
+                0,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                true,
+                false
+        );
+
+        add(
+                "Dig for Freedom",
+                6.92,
+                0,
+                0,
+                0,
+                false,
+                true,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        add(
+                "Jailhouse Manastorm",
+                10.0,
+                0,
+                0,
+                0,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false
+        );
+
+        add(
+                "Frostbolt",
+                7.50,
+                2,
+                0,
+                0,
+                false,
+                true,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        add(
+                "Fireball",
+                8.00,
+                4,
+                0,
+                0,
+                false,
+                true,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        /*
+         * Cards from the current draft that triggered the
+         * original 0.0 problem.
+         *
+         * Online data will override these automatically.
+         */
+        add(
+                "Scrappy Scavenger",
+                7.77,
+                0,
+                0,
+                0,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        add(
+                "Tricksy Improviser",
+                8.38,
+                5,
+                3,
+                5,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false
+        );
+
+        add(
+                "Arrival of the Titans",
+                7.50,
+                6,
+                0,
+                0,
+                false,
+                true,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+    }
+
+    // ============================================================
+    // ADD FALLBACK CARD
+    // ============================================================
+
+    private static void add(
+            String name,
+            double score,
+            int mana,
+            int attack,
+            int health,
+            boolean minion,
+            boolean spell,
+            boolean weapon,
+            boolean removal,
+            boolean aoe,
+            boolean draw,
+            boolean discover,
+            boolean taunt,
+            boolean divineShield,
+            boolean battlecry,
+            boolean deathrattle
+    ) {
+
+        CardData data =
+                new CardData(
+                        name,
+                        score,
+                        mana,
+                        attack,
+                        health,
+                        minion,
+                        spell,
+                        weapon,
+                        removal,
+                        aoe,
+                        draw,
+                        discover,
+                        taunt,
+                        divineShield,
+                        battlecry,
+                        deathrattle
+                );
+
+        CARDS.put(
+                normalize(name),
+                data
+        );
+    }
+
+    // ============================================================
+    // TEXT CLEANING
+    // ============================================================
+
+    private static String cleanCardNameForLookup(
+            String text
+    ) {
+
+        if (text == null) {
+            return "";
         }
 
-        double base = card.baseScore;
-        double total = score(corrected);
-        double synergy = total - base;
+        String value =
+                decodeHtml(text)
+                        .replace("\u00A0", " ")
+                        .replace("↓", "")
+                        .trim();
 
-        if (synergy > 0.05) {
+        /*
+         * Remove ranking prefixes such as:
+         * 1. Card Name
+         */
+        value =
+                value.replaceFirst(
+                        "^\\s*\\d+\\.\\s*",
+                        ""
+                );
 
-            return "Perusarvo "
-                    + formatScore(base)
-                    + " + synergiat "
-                    + formatScore(synergy)
-                    + " = "
-                    + formatScore(total);
+        /*
+         * Remove duplicated whitespace.
+         */
+        value =
+                value.replaceAll(
+                        "\\s+",
+                        " "
+                );
+
+        return value.trim();
+    }
+
+    private static String cleanWebLine(
+            String line
+    ) {
+
+        if (line == null) {
+            return "";
         }
 
-        return "Perusarvo " + formatScore(base);
+        String result =
+                decodeHtml(line);
+
+        result =
+                result.replace(
+                        "\u00A0",
+                        " "
+                );
+
+        result =
+                result.replaceAll(
+                        "\\s+",
+                        " "
+                );
+
+        return result.trim();
+    }
+
+    private static boolean isPossibleCardName(
+            String name
+    ) {
+
+        if (name == null) {
+            return false;
+        }
+
+        if (name.length() < 3 ||
+                name.length() > 100) {
+            return false;
+        }
+
+        /*
+         * Don't treat obvious UI text as cards.
+         */
+        String normalized =
+                normalize(name);
+
+        if (normalized.equals("great") ||
+                normalized.equals("good") ||
+                normalized.equals("aboveaverage") ||
+                normalized.equals("average") ||
+                normalized.equals("belowaverage") ||
+                normalized.equals("bad") ||
+                normalized.equals("terrible")) {
+
+            return false;
+        }
+
+        if (name.equalsIgnoreCase(
+                "Death Knight Cards"
+        ) ||
+                name.equalsIgnoreCase(
+                        "Mage Cards"
+                ) ||
+                name.equalsIgnoreCase(
+                        "Neutral Cards"
+                )) {
+
+            return false;
+        }
+
+        /*
+         * A card name normally contains at least one letter.
+         */
+        boolean hasLetter = false;
+
+        for (int i = 0;
+             i < name.length();
+             i++) {
+
+            if (Character.isLetter(
+                    name.charAt(i)
+            )) {
+
+                hasLetter = true;
+                break;
+            }
+        }
+
+        return hasLetter;
     }
 
     // ============================================================
     // NORMALIZATION
     // ============================================================
 
-    private static String normalize(String value) {
+    private static String normalize(
+            String text
+    ) {
 
-        if (value == null) {
+        if (text == null) {
             return "";
         }
 
-        String result = value
-                .toLowerCase(Locale.US)
-                .trim();
+        String lower =
+                text.toLowerCase(
+                        Locale.US
+                );
 
-        result = result
-                .replace("’", "'")
-                .replace("`", "'")
-                .replace("\"", "")
-                .replace(".", "")
-                .replace(",", "")
-                .replace("!", "")
-                .replace("?", "")
-                .replace(":", "")
-                .replace(";", "")
-                .replace("-", "")
-                .replace("_", "")
-                .replace("/", "")
-                .replace("\\", "");
+        StringBuilder result =
+                new StringBuilder();
 
-        result = result.replaceAll("\\s+", "");
+        for (int i = 0;
+             i < lower.length();
+             i++) {
 
-        return result;
+            char c =
+                    lower.charAt(i);
+
+            if (Character.isLetterOrDigit(c)) {
+
+                result.append(c);
+            }
+        }
+
+        return result.toString();
     }
 
     // ============================================================
-    // FORMATTING
+    // LEVENSHTEIN
     // ============================================================
 
-    private static String formatScore(double value) {
+    private static int levenshtein(
+            String a,
+            String b
+    ) {
 
-        value = clamp(value, 0.0, 10.0);
+        if (a == null) {
+            return b == null ? 0 : b.length();
+        }
 
-        return String.format(Locale.US, "%.1f", value);
+        if (b == null) {
+            return a.length();
+        }
+
+        int[] previous =
+                new int[b.length() + 1];
+
+        int[] current =
+                new int[b.length() + 1];
+
+        for (int j = 0;
+             j <= b.length();
+             j++) {
+
+            previous[j] = j;
+        }
+
+        for (int i = 1;
+             i <= a.length();
+             i++) {
+
+            current[0] = i;
+
+            for (int j = 1;
+                 j <= b.length();
+                 j++) {
+
+                int cost =
+                        a.charAt(i - 1)
+                                == b.charAt(j - 1)
+                                ? 0
+                                : 1;
+
+                current[j] =
+                        Math.min(
+                                Math.min(
+                                        current[j - 1] + 1,
+                                        previous[j] + 1
+                                ),
+                                previous[j - 1] + cost
+                        );
+            }
+
+            int[] temp =
+                    previous;
+
+            previous =
+                    current;
+
+            current =
+                    temp;
+        }
+
+        return previous[b.length()];
     }
+
+    // ============================================================
+    // CLAMP
+    // ============================================================
 
     private static double clamp(
             double value,
