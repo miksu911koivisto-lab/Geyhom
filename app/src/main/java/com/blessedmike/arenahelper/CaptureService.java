@@ -66,17 +66,48 @@ public class CaptureService extends Service {
 
     /*
      * ============================================================
-     * KORTTI 1:N OCR-VAKAUTUS
+     * KAIKKIEN KOLMEN KORTIN OCR-VAKAUTUS
+     * ============================================================
+     *
+     * Kortin nimen pitää esiintyä kahdessa peräkkäisessä OCR:ssa
+     * ennen kuin uusi nimi hyväksytään.
+     *
+     * Lisäksi ArenaAdvisor.correctOcr() yritetään suorittaa ennen
+     * vertailua. Näin esimerkiksi:
+     *
+     * Unstable Spellcaaster
+     *
+     * voidaan muuttaa oikeaksi nimeksi:
+     *
+     * Unstable Spellcaster
+     *
+     * ennen kuin nimi päätyy ruudulle.
+     *
+     * Lopun OCR-roskat kuten ".", ",", ":" jne. poistetaan.
      * ============================================================
      */
 
-    private String stableCard1 = "";
+    private static final int CARD_CONFIRMATIONS = 2;
 
-    private String candidateCard1 = "";
 
-    private int candidateCard1Count = 0;
+    private static class CardStability {
 
-    private static final int CARD1_CONFIRMATIONS = 2;
+        String stable = "";
+
+        String candidate = "";
+
+        int candidateCount = 0;
+    }
+
+
+    private final CardStability card1Stability =
+            new CardStability();
+
+    private final CardStability card2Stability =
+            new CardStability();
+
+    private final CardStability card3Stability =
+            new CardStability();
 
 
     /*
@@ -94,7 +125,7 @@ public class CaptureService extends Service {
      * valinta voidaan päätellä turvallisesti.
      *
      * Jos päätelmä ei ole yksiselitteinen, mitään korttia ei
-     * tallenneta. Tämä estää väärien synergioiden syntymisen.
+     * tallenneta.
      * ============================================================
      */
 
@@ -1040,23 +1071,21 @@ public class CaptureService extends Service {
                                         );
 
 
-                                if (index == 0) {
+                                /*
+                                 * Kaikki kolme korttia menevät
+                                 * saman vakautuslogiikan läpi.
+                                 */
 
-                                    results[0] =
-                                            stabilizeCard1(
-                                                    cleaned
-                                            );
-
-                                } else {
-
-                                    results[index] =
-                                            cleaned;
-                                }
+                                results[index] =
+                                        stabilizeCard(
+                                                cleaned,
+                                                index
+                                        );
 
 
                                 Log.d(
                                         TAG,
-                                        "CLEAN OCR CARD " +
+                                        "CLEAN/STABLE OCR CARD " +
                                                 (index + 1) +
                                                 ": " +
                                                 results[index]
@@ -1084,17 +1113,10 @@ public class CaptureService extends Service {
                                 );
 
 
-                                if (index == 0 &&
-                                        !stableCard1.isEmpty()) {
-
-                                    results[0] =
-                                            stableCard1;
-
-                                } else {
-
-                                    results[index] =
-                                            "";
-                                }
+                                results[index] =
+                                        getStableCard(
+                                                index
+                                        );
 
 
                                 if (!bitmap.isRecycled()) {
@@ -1119,17 +1141,10 @@ public class CaptureService extends Service {
             );
 
 
-            if (index == 0 &&
-                    !stableCard1.isEmpty()) {
-
-                results[0] =
-                        stableCard1;
-
-            } else {
-
-                results[index] =
-                        "";
-            }
+            results[index] =
+                    getStableCard(
+                            index
+                    );
 
 
             if (!bitmap.isRecycled()) {
@@ -1146,142 +1161,322 @@ public class CaptureService extends Service {
 
     /*
      * ============================================================
-     * KORTTI 1:N VAKAUTUS
+     * KAIKKIEN KOLMEN KORTIN VAKAUTUS
      * ============================================================
      */
 
-    private String stabilizeCard1(
-            String detected
+    private String stabilizeCard(
+            String detected,
+            int index
     ) {
 
-        if (detected == null ||
-                detected.isEmpty()) {
-
-            return stableCard1;
-        }
-
-
         String normalized =
-                normalizeCard1ForComparison(
+                normalizeDetectedCardName(
                         detected
                 );
 
 
+        if (normalized.isEmpty()) {
+
+            return getStableCard(index);
+        }
+
+
+        CardStability state =
+                getCardStability(index);
+
+
         Log.d(
                 TAG,
-                "CARD 1 STABILIZER INPUT: " +
+                "CARD " +
+                        (index + 1) +
+                        " STABILIZER INPUT: " +
                         detected
         );
 
 
         Log.d(
                 TAG,
-                "CARD 1 STABILIZER NORMALIZED: " +
+                "CARD " +
+                        (index + 1) +
+                        " STABILIZER NORMALIZED: " +
                         normalized
         );
 
 
-        if (!stableCard1.isEmpty() &&
-                similarCard1(
-                        stableCard1,
-                        detected
+        /*
+         * Jos uusi OCR on käytännössä sama kuin nykyinen
+         * vakaa nimi, pidetään nykyinen nimi.
+         *
+         * Tämä estää turhat muutokset esimerkiksi silloin,
+         * kun OCR lisää pisteen tai yhden ylimääräisen kirjaimen.
+         */
+
+        if (!state.stable.isEmpty() &&
+                similarCardNames(
+                        state.stable,
+                        normalized
                 )) {
 
-            candidateCard1 =
-                    detected;
+            /*
+             * Jos ArenaAdvisorin korjaus tuotti paremman
+             * version, käytetään sitä vakaana nimenä.
+             */
 
+            state.stable =
+                    normalized;
 
-            candidateCard1Count++;
+            state.candidate =
+                    normalized;
 
+            state.candidateCount =
+                    CARD_CONFIRMATIONS;
 
-            return stableCard1;
+            return state.stable;
         }
 
 
+        /*
+         * Sama ehdokas uudelleen.
+         */
+
+        if (!state.candidate.isEmpty() &&
+                similarCardNames(
+                        state.candidate,
+                        normalized
+                )) {
+
+            state.candidateCount++;
+
+        } else {
+
+            /*
+             * Kokonaan uusi ehdokas.
+             */
+
+            state.candidate =
+                    normalized;
+
+            state.candidateCount = 1;
+        }
+
+
+        Log.d(
+                TAG,
+                "CARD " +
+                        (index + 1) +
+                        " CANDIDATE: " +
+                        state.candidate +
+                        " COUNT=" +
+                        state.candidateCount
+        );
+
+
+        /*
+         * Vasta toinen peräkkäinen havainto hyväksytään.
+         */
+
+        if (state.candidateCount >=
+                CARD_CONFIRMATIONS) {
+
+            state.stable =
+                    state.candidate;
+
+
+            Log.d(
+                    TAG,
+                    "CARD " +
+                            (index + 1) +
+                            " NEW STABLE: " +
+                            state.stable
+            );
+        }
+
+
+        /*
+         * Jos meillä on jo vakaa nimi, näytetään sitä
+         * uuden ehdokkaan sijaan.
+         */
+
+        if (!state.stable.isEmpty()) {
+
+            return state.stable;
+        }
+
+
+        /*
+         * Ensimmäinen havainto:
+         * palautetaan se väliaikaisesti, jotta overlay ei
+         * jää tyhjäksi ennen toista OCR-kierrosta.
+         */
+
+        return normalized;
+    }
+
+
+    private CardStability getCardStability(
+            int index
+    ) {
+
+        if (index == 0) {
+            return card1Stability;
+        }
+
+
+        if (index == 1) {
+            return card2Stability;
+        }
+
+
+        return card3Stability;
+    }
+
+
+    private String getStableCard(
+            int index
+    ) {
+
+        return getCardStability(index).stable;
+    }
+
+
+    /*
+     * ============================================================
+     * OCR-NIMEN NORMALISOINTI
+     * ============================================================
+     *
+     * Tässä vaiheessa tehdään kaikki sellaiset korjaukset,
+     * jotka eivät muuta oikeaa kortin nimeä.
+     * ============================================================
+     */
+
+    private String normalizeDetectedCardName(
+            String text
+    ) {
+
+        if (text == null) {
+            return "";
+        }
+
+
+        text =
+                text.trim();
+
+
+        if (text.isEmpty()) {
+            return "";
+        }
+
+
+        /*
+         * Poistetaan OCR:n lisäämä välilyönti/piste/merkki
+         * nimen lopusta.
+         */
+
+        text =
+                text.replaceAll(
+                        "[\\s\\.,:;|]+$",
+                        ""
+                );
+
+
+        text =
+                text.replaceAll(
+                        "\\s{2,}",
+                        " "
+                );
+
+
+        text =
+                text.trim();
+
+
+        /*
+         * Soldier of the Infinite -erikoiskorjaus.
+         */
+
         String soldierFix =
                 fixSoldierOfInfinite(
-                        detected
+                        text
                 );
 
 
         if (!soldierFix.isEmpty()) {
 
-            Log.d(
-                    TAG,
-                    "CARD 1 SOLDIER FIX: " +
-                            soldierFix
-            );
-
-
-            stableCard1 =
+            text =
                     soldierFix;
-
-
-            candidateCard1 =
-                    soldierFix;
-
-
-            candidateCard1Count =
-                    CARD1_CONFIRMATIONS;
-
-
-            return stableCard1;
         }
 
 
-        if (candidateCard1.isEmpty() ||
-                !similarCard1(
-                        candidateCard1,
-                        detected
-                )) {
+        /*
+         * ArenaAdvisor saa tehdä lopullisen tunnetun
+         * korttinimen OCR-korjauksen.
+         *
+         * Jos se ei muuta nimeä, käytetään alkuperäistä.
+         */
 
-            candidateCard1 =
-                    detected;
+        try {
 
-
-            candidateCard1Count = 1;
-
-        } else {
-
-            candidateCard1Count++;
-        }
+            String corrected =
+                    ArenaAdvisor.correctOcr(
+                            text
+                    );
 
 
-        Log.d(
-                TAG,
-                "CARD 1 CANDIDATE: " +
-                        candidateCard1 +
-                        " COUNT=" +
-                        candidateCard1Count
-        );
+            if (corrected != null &&
+                    !corrected.trim().isEmpty() &&
+                    !corrected.equalsIgnoreCase(
+                            "Ei tunnistettu"
+                    )) {
 
+                text =
+                        corrected.trim();
+            }
 
-        if (candidateCard1Count >=
-                CARD1_CONFIRMATIONS) {
-
-            stableCard1 =
-                    candidateCard1;
-
+        } catch (Exception e) {
 
             Log.d(
                     TAG,
-                    "CARD 1 NEW STABLE: " +
-                            stableCard1
+                    "OCR correction unavailable",
+                    e
             );
         }
 
 
-        if (!stableCard1.isEmpty()) {
+        /*
+         * Poistetaan korjauksen jälkeenkin mahdollinen
+         * loppupiste tai muu OCR-roska.
+         */
 
-            return stableCard1;
-        }
+        text =
+                text.replaceAll(
+                        "[\\s\\.,:;|]+$",
+                        ""
+                );
 
 
-        return detected;
+        text =
+                text.replaceAll(
+                        "\\s{2,}",
+                        " "
+                );
+
+
+        text =
+                text.trim();
+
+
+        return text;
     }
 
 
-    private String normalizeCard1ForComparison(
+    /*
+     * ============================================================
+     * OCR-NIMIEN VERTAILU
+     * ============================================================
+     */
+
+    private String normalizeCardForComparison(
             String text
     ) {
 
@@ -1294,6 +1489,11 @@ public class CaptureService extends Service {
                 text.toLowerCase();
 
 
+        /*
+         * Pisteet, pilkut, välilyönnit ja muut OCR-merkit
+         * eivät vaikuta siihen, ovatko nimet samoja.
+         */
+
         text =
                 text.replaceAll(
                         "[^a-z0-9]",
@@ -1305,7 +1505,7 @@ public class CaptureService extends Service {
     }
 
 
-    private boolean similarCard1(
+    private boolean similarCardNames(
             String a,
             String b
     ) {
@@ -1318,13 +1518,13 @@ public class CaptureService extends Service {
 
 
         String aa =
-                normalizeCard1ForComparison(
+                normalizeCardForComparison(
                         a
                 );
 
 
         String bb =
-                normalizeCard1ForComparison(
+                normalizeCardForComparison(
                         b
                 );
 
@@ -1340,6 +1540,15 @@ public class CaptureService extends Service {
             return true;
         }
 
+
+        /*
+         * Esimerkiksi:
+         *
+         * UnstableSpellcaster
+         * UnstableSpellcaaster
+         *
+         * ovat riittävän lähellä toisiaan.
+         */
 
         if (aa.contains(bb) ||
                 bb.contains(aa)) {
@@ -1476,8 +1685,16 @@ public class CaptureService extends Service {
                     normalized.equals("soldier0") ||
                     normalized.equals("soldier")) {
 
-                if (!stableCard1.isEmpty()) {
-                    return stableCard1;
+                /*
+                 * Jos aiempi vakaa nimi oli Soldier of the Infinite,
+                 * pidetään se.
+                 */
+
+                if (card1Stability.stable
+                        .toLowerCase()
+                        .contains("soldier")) {
+
+                    return card1Stability.stable;
                 }
 
 
@@ -1532,12 +1749,23 @@ public class CaptureService extends Service {
             }
 
 
+            /*
+             * Poistetaan roskaa nimen alusta.
+             */
+
             line =
                     line.replaceAll(
                             "^[^A-Za-zÅÄÖåäö0-9]+",
                             ""
                     );
 
+
+            /*
+             * Poistetaan roskaa nimen lopusta.
+             *
+             * Tähän kuuluu erityisesti OCR:n välillä
+             * ilmestyvä piste.
+             */
 
             line =
                     line.replaceAll(
@@ -1581,6 +1809,10 @@ public class CaptureService extends Service {
         }
 
 
+        /*
+         * Soldier of the Infinite -OCR-korjaukset.
+         */
+
         bestLine =
                 bestLine.replaceAll(
                         "(?i)\\bsoldierof\\b",
@@ -1602,10 +1834,26 @@ public class CaptureService extends Service {
                 );
 
 
+        /*
+         * Poistetaan ylimääräiset välilyönnit.
+         */
+
         bestLine =
                 bestLine.replaceAll(
                         "\\s+",
                         " "
+                ).trim();
+
+
+        /*
+         * Poistetaan loppupisteet ja muut OCR-merkit vielä
+         * kerran ennen kuin nimi menee stabilointiin.
+         */
+
+        bestLine =
+                bestLine.replaceAll(
+                        "[\\s\\.,:;|]+$",
+                        ""
                 ).trim();
 
 
@@ -1708,6 +1956,7 @@ public class CaptureService extends Service {
         if (value.equalsIgnoreCase(
                 "Ei tunnistettu"
         )) {
+
             return false;
         }
 
@@ -2038,6 +2287,7 @@ public class CaptureService extends Service {
                         pickedCard
                 );
             }
+
         } else {
 
             Log.d(
