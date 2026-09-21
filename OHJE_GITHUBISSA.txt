@@ -1,0 +1,13 @@
+Tämä versio on tehty GitHubin puhelimella lataamista varten.
+
+1. Lataa kaikki tämän paketin tiedostot GitHub-repositoryn juureen.
+2. GitHubissa tee uusi tiedosto nimellä:
+   .github/workflows/build-apk.yml
+3. Kopioi GITHUB_WORKFLOW.yml-tiedoston sisältö tähän uuteen tiedostoon.
+4. Tallenna/Commit.
+5. Avaa Actions.
+6. Valitse Build Arena Helper APK.
+7. Paina Run workflow.
+8. Kun työ valmistuu, lataa ArenaHelper-debug-apk-artifact.
+
+Huom: tämä ensimmäinen APK-versio on rakennustesti ja näyttää overlay-ikkunan. Varsinainen korttien tunnistus ja Arena-suositukset lisätään seuraavassa vaiheessa.
