@@ -14,6 +14,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 public class MainActivity extends Activity {
+
     private static final int REQUEST_CAPTURE = 1001;
 
     @Override
@@ -29,6 +30,7 @@ public class MainActivity extends Activity {
         title.setText("Hearthstone Arena Helper");
         title.setTextSize(24);
         title.setTextColor(Color.BLACK);
+
         layout.addView(title, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -36,10 +38,13 @@ public class MainActivity extends Activity {
         Button overlay = new Button(this);
         overlay.setText("1. Salli näytön päällä oleva ikkuna");
         layout.addView(overlay);
+
         overlay.setOnClickListener(v -> {
             if (!Settings.canDrawOverlays(this)) {
-                Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:" + getPackageName()));
+                Intent i = new Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + getPackageName())
+                );
                 startActivity(i);
             }
         });
@@ -47,10 +52,14 @@ public class MainActivity extends Activity {
         Button start = new Button(this);
         start.setText("2. Käynnistä Arena Helper");
         layout.addView(start);
+
         start.setOnClickListener(v -> requestCapture());
 
         TextView info = new TextView(this);
-        info.setText("\nKun sovellus on käynnissä, pieni Arena Helper -ikkuna näkyy Hearthstonen päällä.");
+        info.setText(
+                "\nKun sovellus on käynnissä, " +
+                "Arena Helper -ikkuna näkyy Hearthstonen päällä."
+        );
         info.setTextSize(16);
         layout.addView(info);
 
@@ -59,18 +68,36 @@ public class MainActivity extends Activity {
 
     private void requestCapture() {
         MediaProjectionManager mgr =
-                (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
-        startActivityForResult(mgr.createScreenCaptureIntent(), REQUEST_CAPTURE);
+                (MediaProjectionManager)
+                        getSystemService(MEDIA_PROJECTION_SERVICE);
+
+        if (mgr != null) {
+            startActivityForResult(
+                    mgr.createScreenCaptureIntent(),
+                    REQUEST_CAPTURE
+            );
+        }
     }
 
     @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    protected void onActivityResult(
+            int requestCode,
+            int resultCode,
+            Intent data) {
+
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_CAPTURE && resultCode == RESULT_OK && data != null) {
-            Intent service = new Intent(this, CaptureService.class);
-            service.putExtra("resultCode", resultCode);
-            service.putExtra("data", data);
-            startForegroundService(service);
+
+        if (requestCode == REQUEST_CAPTURE
+                && resultCode == RESULT_OK
+                && data != null) {
+
+            // Välitetään MediaProjection-data suoraan CaptureServicelle
+            CaptureService.setProjectionData(resultCode, data);
+
+            Intent serviceIntent =
+                    new Intent(this, CaptureService.class);
+
+            startForegroundService(serviceIntent);
         }
     }
 }
