@@ -4,22 +4,25 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
-import android.graphics.Color;
+import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
 import android.media.Image;
 import android.media.ImageReader;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
-import android.provider.Settings;
-import android.util.DisplayMetrics;
-import android.view.Gravity;
-import android.view.WindowManager;
-import android.widget.TextView;
+import android.os.Looper;
+import android.util.Log;
+
+import androidx.annotation.Nullable;
+import androidx.core.app.NotificationCompat;
 
 import com.google.mlkit.vision.common.InputImage;
+import com.google.mlkit.vision.text.Text;
 import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
@@ -28,27 +31,20 @@ import java.nio.ByteBuffer;
 
 public class CaptureService extends Service {
 
-    private static final String CHANNEL_ID = "arena_helper";
+    private static final String TAG = "ArenaHelper";
+    private static final String CHANNEL_ID = "arena_helper_channel";
 
     private static int projectionResultCode;
     private static Intent projectionData;
 
-    private WindowManager windowManager;
-    private TextView overlay;
-
     private MediaProjection mediaProjection;
-    private android.hardware.display.VirtualDisplay virtualDisplay;
     private ImageReader imageReader;
-
-    private boolean captureStarted = false;
-    private boolean processingImage = false;
-
     private TextRecognizer recognizer;
 
-    public static void setProjectionData(
-            int resultCode,
-            Intent data) {
+    private Handler handler;
+    private boolean processing = false;
 
+    public static void setProjectionData(int resultCode, Intent data) {
         projectionResultCode = resultCode;
         projectionData = data;
     }
@@ -57,352 +53,170 @@ public class CaptureService extends Service {
     public void onCreate() {
         super.onCreate();
 
+        handler = new Handler(Looper.getMainLooper());
+
+        recognizer = TextRecognition.getClient(
+                TextRecognizerOptions.DEFAULT_OPTIONS
+        );
+
         createNotificationChannel();
 
-        Notification notification;
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
-            notification = new Notification.Builder(
-                    this,
-                    CHANNEL_ID
-            )
-                    .setContentTitle("Arena Helper")
-                    .setContentText("Korttien tunnistus aktiivinen")
-                    .setSmallIcon(
-                            android.R.drawable.ic_menu_info_details
-                    )
-                    .build();
-
-        } else {
-
-            notification = new Notification.Builder(this)
-                    .setContentTitle("Arena Helper")
-                    .setContentText("Korttien tunnistus aktiivinen")
-                    .setSmallIcon(
-                            android.R.drawable.ic_menu_info_details
-                    )
-                    .build();
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-
-            startForeground(
-                    1,
-                    notification,
-                    android.content.pm.ServiceInfo
-                            .FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            );
-
-        } else {
-
-            startForeground(
-                    1,
-                    notification
-            );
-        }
-
-        recognizer =
-                TextRecognition.getClient(
-                        TextRecognizerOptions.DEFAULT_OPTIONS
-                );
-
-        showOverlay(
-                "ARENA HELPER\n\n"
-                        + "KORTTIEN TUNNISTUS KÄYNNISTYY..."
-        );
-    }
-
-    private void createNotificationChannel() {
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
-            NotificationChannel channel =
-                    new NotificationChannel(
-                            CHANNEL_ID,
-                            "Arena Helper",
-                            NotificationManager.IMPORTANCE_LOW
-                    );
-
-            NotificationManager manager =
-                    getSystemService(
-                            NotificationManager.class
-                    );
-
-            if (manager != null) {
-                manager.createNotificationChannel(channel);
-            }
-        }
-    }
-
-    private void showOverlay(String text) {
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-                && !Settings.canDrawOverlays(this)) {
-            return;
-        }
-
-        windowManager =
-                (WindowManager)
-                        getSystemService(WINDOW_SERVICE);
-
-        if (windowManager == null) {
-            return;
-        }
-
-        overlay = new TextView(this);
-
-        overlay.setText(text);
-        overlay.setTextColor(Color.WHITE);
-        overlay.setTextSize(18);
-        overlay.setGravity(Gravity.CENTER);
-
-        overlay.setPadding(
-                40,
-                30,
-                40,
-                30
-        );
-
-        overlay.setBackgroundColor(
-                0xEE222222
-        );
-
-        int windowType;
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
-            windowType =
-                    WindowManager.LayoutParams
-                            .TYPE_APPLICATION_OVERLAY;
-
-        } else {
-
-            windowType =
-                    WindowManager.LayoutParams
-                            .TYPE_PHONE;
-        }
-
-        WindowManager.LayoutParams params =
-                new WindowManager.LayoutParams(
-                        WindowManager.LayoutParams.WRAP_CONTENT,
-                        WindowManager.LayoutParams.WRAP_CONTENT,
-                        windowType,
-                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                                | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-                        PixelFormat.TRANSLUCENT
-                );
-
-        params.gravity =
-                Gravity.TOP
-                        | Gravity.CENTER_HORIZONTAL;
-
-        params.y = 150;
-
-        try {
-
-            windowManager.addView(
-                    overlay,
-                    params
-            );
-
-        } catch (Exception e) {
-
-            e.printStackTrace();
-        }
-    }
-
-    private void updateOverlay(String text) {
-
-        if (overlay == null) {
-            return;
-        }
-
-        overlay.post(() ->
-                overlay.setText(text)
-        );
+        Log.d(TAG, "Arena Helper CaptureService started");
     }
 
     @Override
-    public int onStartCommand(
-            Intent intent,
-            int flags,
-            int startId) {
+    public int onStartCommand(Intent intent, int flags, int startId) {
 
-        if (!captureStarted) {
+        startForeground(
+                1001,
+                createNotification()
+        );
 
-            if (projectionData == null) {
-
-                updateOverlay(
-                        "ARENA HELPER\n\n"
-                                + "NÄYTÖN LUPA PUUTTUU"
-                );
-
-            } else {
-
-                startScreenCapture();
-            }
+        if (projectionData != null) {
+            startScreenCapture();
+        } else {
+            Log.e(TAG, "Projection data is missing");
         }
 
-        return START_NOT_STICKY;
+        return START_STICKY;
     }
 
     private void startScreenCapture() {
 
         try {
 
-            MediaProjectionManager manager =
+            MediaProjectionManager projectionManager =
                     (MediaProjectionManager)
-                            getSystemService(
-                                    MEDIA_PROJECTION_SERVICE
-                            );
+                            getSystemService(Context.MEDIA_PROJECTION_SERVICE);
 
-            if (manager == null) {
-
-                updateOverlay(
-                        "ARENA HELPER\n\n"
-                                + "MEDIA PROJECTION VIRHE"
-                );
-
+            if (projectionManager == null) {
+                Log.e(TAG, "MediaProjectionManager is null");
                 return;
             }
 
             mediaProjection =
-                    manager.getMediaProjection(
+                    projectionManager.getMediaProjection(
                             projectionResultCode,
                             projectionData
                     );
 
             if (mediaProjection == null) {
-
-                updateOverlay(
-                        "ARENA HELPER\n\n"
-                                + "KAAPPAUS EI KÄYNNISTYNYT"
-                );
-
+                Log.e(TAG, "MediaProjection is null");
                 return;
             }
 
-            mediaProjection.registerCallback(
-                    new MediaProjection.Callback() {
+            int width = getResources()
+                    .getDisplayMetrics()
+                    .widthPixels;
 
-                        @Override
-                        public void onStop() {
+            int height = getResources()
+                    .getDisplayMetrics()
+                    .heightPixels;
 
-                            captureStarted = false;
+            int density = getResources()
+                    .getDisplayMetrics()
+                    .densityDpi;
 
-                            updateOverlay(
-                                    "ARENA HELPER\n\n"
-                                            + "KUVAUS PYSÄYTETTY"
-                            );
-
-                            stopCaptureResources();
-                        }
-                    },
-                    null
+            imageReader = ImageReader.newInstance(
+                    width,
+                    height,
+                    PixelFormat.RGBA_8888,
+                    2
             );
 
-            DisplayMetrics metrics =
-                    getResources()
-                            .getDisplayMetrics();
-
-            int width =
-                    metrics.widthPixels;
-
-            int height =
-                    metrics.heightPixels;
-
-            int density =
-                    metrics.densityDpi;
-
-            imageReader =
-                    ImageReader.newInstance(
-                            width,
-                            height,
-                            PixelFormat.RGBA_8888,
-                            2
-                    );
+            mediaProjection.createVirtualDisplay(
+                    "ArenaHelperDisplay",
+                    width,
+                    height,
+                    density,
+                    0,
+                    imageReader.getSurface(),
+                    null,
+                    handler
+            );
 
             imageReader.setOnImageAvailableListener(
-                    reader -> {
-
-                        if (processingImage) {
-                            return;
-                        }
-
-                        Image image = null;
-
-                        try {
-
-                            image =
-                                    reader.acquireLatestImage();
-
-                            if (image == null) {
-                                return;
-                            }
-
-                            processingImage = true;
-
-                            recognizeText(image);
-
-                        } catch (Exception e) {
-
-                            e.printStackTrace();
-
-                            processingImage = false;
-
-                            if (image != null) {
-                                image.close();
-                            }
-                        }
-
-                    },
-                    null
+                    reader -> processLatestImage(reader),
+                    handler
             );
 
-            virtualDisplay =
-                    mediaProjection.createVirtualDisplay(
-                            "ArenaHelperCapture",
-                            width,
-                            height,
-                            density,
-                            android.hardware.display.DisplayManager
-                                    .VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                            imageReader.getSurface(),
-                            null,
-                            null
-                    );
-
-            captureStarted = true;
-
-            updateOverlay(
-                    "ARENA HELPER\n\n"
-                            + "KORTTEJA ETSITÄÄN..."
-            );
+            Log.d(TAG, "Screen capture started");
 
         } catch (Exception e) {
 
-            e.printStackTrace();
-
-            updateOverlay(
-                    "ARENA HELPER\n\n"
-                            + "KUVAUKSEN VIRHE"
+            Log.e(
+                    TAG,
+                    "Could not start screen capture",
+                    e
             );
         }
     }
 
-    private void recognizeText(Image image) {
+    private void processLatestImage(ImageReader reader) {
+
+        if (processing) {
+            Image oldImage = null;
+
+            try {
+                oldImage = reader.acquireLatestImage();
+            } catch (Exception ignored) {
+            }
+
+            if (oldImage != null) {
+                oldImage.close();
+            }
+
+            return;
+        }
+
+        Image image = null;
 
         try {
 
-            Image.Plane[] planes =
-                    image.getPlanes();
+            image = reader.acquireLatestImage();
+
+            if (image == null) {
+                return;
+            }
+
+            processing = true;
+
+            Bitmap bitmap = imageToBitmap(image);
+
+            image.close();
+            image = null;
+
+            if (bitmap == null) {
+                processing = false;
+                return;
+            }
+
+            runOCR(bitmap);
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Error processing screenshot",
+                    e
+            );
+
+            if (image != null) {
+                image.close();
+            }
+
+            processing = false;
+        }
+    }
+
+    private Bitmap imageToBitmap(Image image) {
+
+        try {
+
+            Image.Plane[] planes = image.getPlanes();
 
             if (planes.length == 0) {
-
-                image.close();
-                processingImage = false;
-                return;
+                return null;
             }
 
             ByteBuffer buffer =
@@ -415,25 +229,37 @@ public class CaptureService extends Service {
                     planes[0].getRowStride();
 
             int rowPadding =
-                    rowStride
-                            - pixelStride
-                            * image.getWidth();
+                    rowStride -
+                            pixelStride *
+                                    image.getWidth();
 
-            int bitmapWidth =
-                    image.getWidth()
-                            + rowPadding
-                            / pixelStride;
-
-            android.graphics.Bitmap bitmap =
-                    android.graphics.Bitmap.createBitmap(
-                            bitmapWidth,
-                            image.getHeight(),
-                            android.graphics.Bitmap.Config.ARGB_8888
-                    );
-
-            buffer.rewind();
+            Bitmap bitmap = Bitmap.createBitmap(
+                    image.getWidth() +
+                            rowPadding /
+                                    pixelStride,
+                    image.getHeight(),
+                    Bitmap.Config.ARGB_8888
+            );
 
             bitmap.copyPixelsFromBuffer(buffer);
+
+            return bitmap;
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Could not convert image to bitmap",
+                    e
+            );
+
+            return null;
+        }
+    }
+
+    private void runOCR(Bitmap bitmap) {
+
+        try {
 
             InputImage inputImage =
                     InputImage.fromBitmap(
@@ -443,84 +269,138 @@ public class CaptureService extends Service {
 
             recognizer.process(inputImage)
                     .addOnSuccessListener(
-                            result -> {
+                            text -> {
 
-                                String text =
-                                        result.getText();
+                                String result =
+                                        text.getText();
 
-                                if (text == null
-                                        || text.trim().isEmpty()) {
+                                if (result != null &&
+                                        !result.trim().isEmpty()) {
 
-                                    updateOverlay(
-                                            "ARENA HELPER\n\n"
-                                                    + "TEKSTIÄ EI LÖYTYNYT"
+                                    Log.d(
+                                            TAG,
+                                            "OCR RESULT:\n" +
+                                                    result
                                     );
 
-                                } else {
-
-                                    String cleanText =
-                                            text.trim();
-
-                                    if (cleanText.length() > 250) {
-
-                                        cleanText =
-                                                cleanText.substring(
-                                                        0,
-                                                        250
-                                                );
-                                    }
-
-                                    updateOverlay(
-                                            "ARENA HELPER\n\n"
-                                                    + cleanText
+                                    handleRecognizedText(
+                                            result
                                     );
                                 }
-                            }
-                    )
-                    .addOnFailureListener(
-                            error -> {
-
-                                updateOverlay(
-                                        "ARENA HELPER\n\n"
-                                                + "OCR-VIRHE"
-                                );
-                            }
-                    )
-                    .addOnCompleteListener(
-                            task -> {
 
                                 bitmap.recycle();
 
-                                image.close();
+                                processing = false;
+                            }
+                    )
+                    .addOnFailureListener(
+                            e -> {
 
-                                processingImage = false;
+                                Log.e(
+                                        TAG,
+                                        "OCR failed",
+                                        e
+                                );
+
+                                bitmap.recycle();
+
+                                processing = false;
                             }
                     );
 
         } catch (Exception e) {
 
-            e.printStackTrace();
+            Log.e(
+                    TAG,
+                    "Could not start OCR",
+                    e
+            );
 
-            try {
-                image.close();
-            } catch (Exception ignored) {
-            }
+            bitmap.recycle();
 
-            processingImage = false;
+            processing = false;
         }
     }
 
-    private void stopCaptureResources() {
+    private void handleRecognizedText(String text) {
 
-        if (virtualDisplay != null) {
+        /*
+         * Tässä kohdassa käsitellään Hearthstonesta
+         * tunnistettua tekstiä.
+         *
+         * Seuraavassa vaiheessa tähän voidaan lisätä
+         * korttien nimien tunnistus ja Arena-valinnan
+         * automaattinen arviointi.
+         */
 
-            try {
-                virtualDisplay.release();
-            } catch (Exception ignored) {
-            }
+        String cleanedText =
+                text.trim();
 
-            virtualDisplay = null;
+        if (!cleanedText.isEmpty()) {
+
+            Log.d(
+                    TAG,
+                    "Arena Helper recognized:\n" +
+                            cleanedText
+            );
         }
+    }
+
+    private void createNotificationChannel() {
+
+        if (Build.VERSION.SDK_INT >=
+                Build.VERSION_CODES.O) {
+
+            NotificationChannel channel =
+                    new NotificationChannel(
+                            CHANNEL_ID,
+                            "Arena Helper",
+                            NotificationManager.IMPORTANCE_LOW
+                    );
+
+            channel.setDescription(
+                    "Arena Helper screen capture"
+            );
+
+            NotificationManager manager =
+                    getSystemService(
+                            NotificationManager.class
+                    );
+
+            if (manager != null) {
+                manager.createNotificationChannel(
+                        channel
+                );
+            }
+        }
+    }
+
+    private Notification createNotification() {
+
+        return new NotificationCompat.Builder(
+                this,
+                CHANNEL_ID
+        )
+                .setContentTitle(
+                        "Arena Helper"
+                )
+                .setContentText(
+                        "Arena Helper on aktiivinen"
+                )
+                .setSmallIcon(
+                        android.R.drawable.ic_menu_view
+                )
+                .setOngoing(true)
+                .build();
+    }
+
+    @Override
+    public void onDestroy() {
+
+        Log.d(
+                TAG,
+                "Arena Helper CaptureService stopped"
+        );
 
         if (imageReader != null) {
 
@@ -532,33 +412,30 @@ public class CaptureService extends Service {
             imageReader = null;
         }
 
-        mediaProjection = null;
-    }
-
-    @Override
-    public void onDestroy() {
-
-        stopCaptureResources();
-
-        if (recognizer != null) {
-            recognizer.close();
-            recognizer = null;
-        }
-
-        if (windowManager != null
-                && overlay != null) {
+        if (mediaProjection != null) {
 
             try {
-                windowManager.removeView(overlay);
+                mediaProjection.stop();
             } catch (Exception ignored) {
             }
 
-            overlay = null;
+            mediaProjection = null;
+        }
+
+        if (recognizer != null) {
+
+            try {
+                recognizer.close();
+            } catch (Exception ignored) {
+            }
+
+            recognizer = null;
         }
 
         super.onDestroy();
     }
 
+    @Nullable
     @Override
     public IBinder onBind(Intent intent) {
         return null;
