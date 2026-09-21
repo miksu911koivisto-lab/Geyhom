@@ -4,14 +4,12 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
-import android.content.Context;
 import android.content.Intent;
-import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.Paint;
 import android.graphics.PixelFormat;
+import android.graphics.Rect;
+import android.hardware.display.DisplayManager;
+import android.hardware.display.VirtualDisplay;
 import android.media.Image;
 import android.media.ImageReader;
 import android.media.projection.MediaProjection;
@@ -20,7 +18,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import android.util.Log;
+import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.TextView;
@@ -29,105 +27,34 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
 import com.google.mlkit.vision.common.InputImage;
+import com.google.mlkit.vision.text.Text;
 import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
 import java.nio.ByteBuffer;
+import java.util.Locale;
 
 public class CaptureService extends Service {
 
-    private static final String TAG =
-            "ArenaHelper";
+    private static final String CHANNEL_ID = "arena_helper_channel";
 
-    private static final String CHANNEL_ID =
-            "arena_helper_channel";
-
-    private static int projectionResultCode;
-    private static Intent projectionData;
-
-    private MediaProjection mediaProjection;
-    private ImageReader imageReader;
-    private TextRecognizer recognizer;
-
-    private Handler handler;
-
-    private boolean processing = false;
+    private static final int OCR_INTERVAL = 1500;
+    private static final int CARD_CONFIRMATIONS = 2;
+    private static final int OFFER_CONFIRMATIONS = 2;
 
     private WindowManager windowManager;
-    private TextView overlayText;
+    private TextView overlayView;
 
-    private MediaProjection.Callback mediaProjectionCallback;
+    private MediaProjection mediaProjection;
+    private VirtualDisplay virtualDisplay;
+    private ImageReader imageReader;
 
-    private long lastOCRTime = 0;
+    private final Handler handler = new Handler(Looper.getMainLooper());
 
-    private static final long OCR_INTERVAL = 1500;
+    private TextRecognizer recognizer;
 
-
-    /*
-     * ============================================================
-     * KAIKKIEN KOLMEN KORTIN OCR-VAKAUTUS
-     * ============================================================
-     *
-     * Kortin nimen pitää esiintyä kahdessa peräkkäisessä OCR:ssa
-     * ennen kuin uusi nimi hyväksytään.
-     *
-     * Lisäksi ArenaAdvisor.correctOcr() yritetään suorittaa ennen
-     * vertailua. Näin esimerkiksi:
-     *
-     * Unstable Spellcaaster
-     *
-     * voidaan muuttaa oikeaksi nimeksi:
-     *
-     * Unstable Spellcaster
-     *
-     * ennen kuin nimi päätyy ruudulle.
-     *
-     * Lopun OCR-roskat kuten ".", ",", ":" jne. poistetaan.
-     * ============================================================
-     */
-
-    private static final int CARD_CONFIRMATIONS = 2;
-
-
-    private static class CardStability {
-
-        String stable = "";
-
-        String candidate = "";
-
-        int candidateCount = 0;
-    }
-
-
-    private final CardStability card1Stability =
-            new CardStability();
-
-    private final CardStability card2Stability =
-            new CardStability();
-
-    private final CardStability card3Stability =
-            new CardStability();
-
-
-    /*
-     * ============================================================
-     * ARENA-PICKIN SEURANTA
-     * ============================================================
-     *
-     * Säilytetään viimeisin varmasti tunnistettu kolmen kortin
-     * tarjous.
-     *
-     * Uuden tarjouksen tullessa verrataan sitä edelliseen.
-     *
-     * Jos edellisestä tarjouksesta puuttuu TÄSMÄLLEEN YKSI
-     * kortti ja kaksi muuta korttia ovat edelleen mukana,
-     * valinta voidaan päätellä turvallisesti.
-     *
-     * Jos päätelmä ei ole yksiselitteinen, mitään korttia ei
-     * tallenneta.
-     * ============================================================
-     */
+    private boolean processing = false;
 
     private String confirmedCard1 = "";
     private String confirmedCard2 = "";
@@ -136,896 +63,349 @@ public class CaptureService extends Service {
     private String pendingOffer1 = "";
     private String pendingOffer2 = "";
     private String pendingOffer3 = "";
-
     private int pendingOfferCount = 0;
-
-    private static final int OFFER_CONFIRMATIONS = 2;
-
-
-    /*
-     * Estetään saman valinnan tallentaminen monta kertaa.
-     */
 
     private String lastRecordedPick = "";
 
+    private static int projectionResultCode;
+    private static Intent projectionData;
 
-    public static void setProjectionData(
-            int resultCode,
-            Intent data
-    ) {
+    public static void setProjectionData(int resultCode, Intent data) {
         projectionResultCode = resultCode;
         projectionData = data;
     }
 
+    private static class CardStability {
+        String stable = "";
+        String candidate = "";
+        int candidateCount = 0;
+    }
+
+    private final CardStability card1Stability = new CardStability();
+    private final CardStability card2Stability = new CardStability();
+    private final CardStability card3Stability = new CardStability();
 
     @Override
     public void onCreate() {
-
         super.onCreate();
-
-        handler =
-                new Handler(
-                        Looper.getMainLooper()
-                );
-
-        recognizer =
-                TextRecognition.getClient(
-                        TextRecognizerOptions.DEFAULT_OPTIONS
-                );
 
         createNotificationChannel();
 
+        Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("Arena Helper")
+                .setContentText("Avustaja aktiivinen")
+                .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                .setOngoing(true)
+                .build();
+
+        startForeground(1, notification);
+
+        recognizer = TextRecognition.getClient(
+                TextRecognizerOptions.DEFAULT_OPTIONS
+        );
+
         createOverlay();
 
-        Log.d(
-                TAG,
-                "Arena Helper CaptureService started"
+        startCapture();
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "Arena Helper",
+                    NotificationManager.IMPORTANCE_LOW
+            );
+
+            NotificationManager manager =
+                    (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+
+            if (manager != null) {
+                manager.createNotificationChannel(channel);
+            }
+        }
+    }
+
+    private void createOverlay() {
+        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+
+        overlayView = new TextView(this);
+
+        overlayView.setText(
+                "ARENA HELPER\n\n" +
+                "Kortteja luetaan..."
+        );
+
+        overlayView.setTextSize(13);
+        overlayView.setTextColor(0xFFFFFFFF);
+        overlayView.setBackgroundColor(0xCC000000);
+        overlayView.setPadding(18, 18, 18, 18);
+
+        WindowManager.LayoutParams params;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            params = new WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                    PixelFormat.TRANSLUCENT
+            );
+        } else {
+            params = new WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.TYPE_PHONE,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                    PixelFormat.TRANSLUCENT
+            );
+        }
+
+        params.gravity = Gravity.TOP | Gravity.LEFT;
+        params.x = 20;
+        params.y = 100;
+
+        if (windowManager != null) {
+            windowManager.addView(overlayView, params);
+        }
+    }
+
+    private void startCapture() {
+
+        if (projectionData == null) {
+            return;
+        }
+
+        MediaProjectionManager manager =
+                (MediaProjectionManager) getSystemService(
+                        MEDIA_PROJECTION_SERVICE
+                );
+
+        if (manager == null) {
+            return;
+        }
+
+        mediaProjection =
+                manager.getMediaProjection(
+                        projectionResultCode,
+                        projectionData
+                );
+
+        if (mediaProjection == null) {
+            return;
+        }
+
+        DisplayMetrics metrics = getResources().getDisplayMetrics();
+
+        int width = metrics.widthPixels;
+        int height = metrics.heightPixels;
+        int density = metrics.densityDpi;
+
+        imageReader = ImageReader.newInstance(
+                width,
+                height,
+                PixelFormat.RGBA_8888,
+                2
+        );
+
+        virtualDisplay = mediaProjection.createVirtualDisplay(
+                "ArenaHelperCapture",
+                width,
+                height,
+                density,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                imageReader.getSurface(),
+                null,
+                handler
+        );
+
+        imageReader.setOnImageAvailableListener(
+                reader -> processLatestImage(reader),
+                handler
         );
     }
 
-
-    @Override
-    public int onStartCommand(
-            Intent intent,
-            int flags,
-            int startId
-    ) {
-
-        try {
-
-            Notification notification =
-                    createNotification();
-
-            if (Build.VERSION.SDK_INT >=
-                    Build.VERSION_CODES.Q) {
-
-                startForeground(
-                        1001,
-                        notification,
-                        ServiceInfo
-                                .FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-                );
-
-            } else {
-
-                startForeground(
-                        1001,
-                        notification
-                );
-            }
-
-        } catch (Exception e) {
-
-            Log.e(
-                    TAG,
-                    "Foreground service failed",
-                    e
-            );
-
-            updateOverlay(
-                    "Arena Helper\n\n" +
-                            "Foreground Service -virhe"
-            );
-
-            stopSelf();
-
-            return START_NOT_STICKY;
-        }
-
-
-        if (projectionData != null) {
-
-            startScreenCapture();
-
-        } else {
-
-            updateOverlay(
-                    "Arena Helper\n\n" +
-                            "Näytönjako puuttuu"
-            );
-        }
-
-
-        return START_NOT_STICKY;
-    }
-
-
-    /*
-     * ============================================================
-     * OVERLAY
-     * ============================================================
-     */
-
-    private void createOverlay() {
-
-        try {
-
-            windowManager =
-                    (WindowManager)
-                            getSystemService(
-                                    WINDOW_SERVICE
-                            );
-
-            if (windowManager == null) {
-                return;
-            }
-
-
-            overlayText =
-                    new TextView(this);
-
-
-            overlayText.setText(
-                    "Arena Helper\n\n" +
-                            "Näytönjako käynnissä"
-            );
-
-
-            overlayText.setTextColor(
-                    Color.WHITE
-            );
-
-
-            overlayText.setTextSize(
-                    14
-            );
-
-
-            overlayText.setGravity(
-                    Gravity.CENTER
-            );
-
-
-            overlayText.setPadding(
-                    25,
-                    15,
-                    25,
-                    15
-            );
-
-
-            overlayText.setBackgroundColor(
-                    Color.argb(
-                            220,
-                            0,
-                            0,
-                            0
-                    )
-            );
-
-
-            int overlayType;
-
-
-            if (Build.VERSION.SDK_INT >=
-                    Build.VERSION_CODES.O) {
-
-                overlayType =
-                        WindowManager.LayoutParams
-                                .TYPE_APPLICATION_OVERLAY;
-
-            } else {
-
-                overlayType =
-                        WindowManager.LayoutParams
-                                .TYPE_PHONE;
-            }
-
-
-            WindowManager.LayoutParams params =
-                    new WindowManager.LayoutParams(
-                            WindowManager.LayoutParams
-                                    .WRAP_CONTENT,
-                            WindowManager.LayoutParams
-                                    .WRAP_CONTENT,
-                            overlayType,
-                            WindowManager.LayoutParams
-                                    .FLAG_NOT_FOCUSABLE
-                                    |
-                                    WindowManager.LayoutParams
-                                            .FLAG_NOT_TOUCHABLE
-                                    |
-                                    WindowManager.LayoutParams
-                                            .FLAG_LAYOUT_NO_LIMITS,
-                            PixelFormat.TRANSLUCENT
-                    );
-
-
-            params.gravity =
-                    Gravity.TOP |
-                            Gravity.CENTER_HORIZONTAL;
-
-
-            params.y = 80;
-
-
-            windowManager.addView(
-                    overlayText,
-                    params
-            );
-
-
-        } catch (Exception e) {
-
-            Log.e(
-                    TAG,
-                    "Overlay error",
-                    e
-            );
-        }
-    }
-
-
-    private void updateOverlay(
-            String text
-    ) {
-
-        if (overlayText == null ||
-                handler == null) {
-
-            return;
-        }
-
-
-        handler.post(() -> {
-
-            if (overlayText != null) {
-
-                overlayText.setText(text);
-            }
-        });
-    }
-
-
-    /*
-     * ============================================================
-     * SCREEN CAPTURE
-     * ============================================================
-     */
-
-    private void startScreenCapture() {
-
-        try {
-
-            updateOverlay(
-                    "Arena Helper\n\n" +
-                            "Käynnistetään OCR..."
-            );
-
-
-            MediaProjectionManager projectionManager =
-                    (MediaProjectionManager)
-                            getSystemService(
-                                    Context.MEDIA_PROJECTION_SERVICE
-                            );
-
-
-            if (projectionManager == null) {
-
-                throw new IllegalStateException(
-                        "MediaProjectionManager puuttuu"
-                );
-            }
-
-
-            mediaProjection =
-                    projectionManager
-                            .getMediaProjection(
-                                    projectionResultCode,
-                                    projectionData
-                            );
-
-
-            if (mediaProjection == null) {
-
-                throw new IllegalStateException(
-                        "MediaProjection on null"
-                );
-            }
-
-
-            mediaProjectionCallback =
-                    new MediaProjection.Callback() {
-
-                        @Override
-                        public void onStop() {
-
-                            Log.d(
-                                    TAG,
-                                    "MediaProjection stopped"
-                            );
-
-
-                            updateOverlay(
-                                    "Arena Helper\n\n" +
-                                            "Näytönjako pysäytettiin"
-                            );
-                        }
-                    };
-
-
-            mediaProjection.registerCallback(
-                    mediaProjectionCallback,
-                    handler
-            );
-
-
-            int width =
-                    getResources()
-                            .getDisplayMetrics()
-                            .widthPixels;
-
-
-            int height =
-                    getResources()
-                            .getDisplayMetrics()
-                            .heightPixels;
-
-
-            int density =
-                    getResources()
-                            .getDisplayMetrics()
-                            .densityDpi;
-
-
-            Log.d(
-                    TAG,
-                    "SCREEN: " +
-                            width +
-                            "x" +
-                            height
-            );
-
-
-            imageReader =
-                    ImageReader.newInstance(
-                            width,
-                            height,
-                            PixelFormat.RGBA_8888,
-                            2
-                    );
-
-
-            mediaProjection.createVirtualDisplay(
-                    "ArenaHelperDisplay",
-                    width,
-                    height,
-                    density,
-                    0,
-                    imageReader.getSurface(),
-                    null,
-                    handler
-            );
-
-
-            imageReader.setOnImageAvailableListener(
-                    reader ->
-                            processLatestImage(reader),
-                    handler
-            );
-
-
-            updateOverlay(
-                    "Arena Helper\n\n" +
-                            "Korttien haku käynnissä..."
-            );
-
-
-        } catch (Exception e) {
-
-            Log.e(
-                    TAG,
-                    "Screen capture error",
-                    e
-            );
-
-
-            updateOverlay(
-                    "Arena Helper\n\n" +
-                            "Näytönjaon virhe\n\n" +
-                            e.getClass()
-                                    .getSimpleName()
-            );
-        }
-    }
-
-
-    /*
-     * ============================================================
-     * IMAGE PROCESSING
-     * ============================================================
-     */
-
-    private void processLatestImage(
-            ImageReader reader
-    ) {
-
-        long now =
-                System.currentTimeMillis();
-
-
-        if (now - lastOCRTime <
-                OCR_INTERVAL) {
-
-            closeLatestImage(reader);
-
-            return;
-        }
-
+    private void processLatestImage(ImageReader reader) {
 
         if (processing) {
-
-            closeLatestImage(reader);
-
-            return;
-        }
-
-
-        Image image = null;
-
-
-        try {
-
-            image =
-                    reader.acquireLatestImage();
-
-
-            if (image == null) {
-                return;
-            }
-
-
-            processing = true;
-
-            lastOCRTime = now;
-
-
-            Bitmap bitmap =
-                    imageToBitmap(image);
-
-
-            image.close();
-
-            image = null;
-
-
-            if (bitmap == null) {
-
-                processing = false;
-
-                return;
-            }
-
-
-            processThreeCards(bitmap);
-
-
-        } catch (Exception e) {
-
-            Log.e(
-                    TAG,
-                    "Screenshot processing error",
-                    e
-            );
-
+            Image image = reader.acquireLatestImage();
 
             if (image != null) {
                 image.close();
             }
 
-
-            processing = false;
+            return;
         }
-    }
 
+        Image image = reader.acquireLatestImage();
 
-    private void closeLatestImage(
-            ImageReader reader
-    ) {
+        if (image == null) {
+            return;
+        }
 
-        Image image = null;
-
+        processing = true;
 
         try {
+            Bitmap bitmap = imageToBitmap(image);
 
-            image =
-                    reader.acquireLatestImage();
-
-        } catch (Exception ignored) {
-        }
-
-
-        if (image != null) {
             image.close();
-        }
-    }
 
-
-    /*
-     * ============================================================
-     * CARD CROPS
-     * ============================================================
-     */
-
-    private void processThreeCards(
-            Bitmap source
-    ) {
-
-        int width =
-                source.getWidth();
-
-
-        int height =
-                source.getHeight();
-
-
-        Bitmap card1 = null;
-        Bitmap card2 = null;
-        Bitmap card3 = null;
-
-
-        try {
-
-            int nameTop =
-                    (int) (
-                            height * 0.45f
-                    );
-
-
-            int nameBottom =
-                    (int) (
-                            height * 0.55f
-                    );
-
-
-            int nameHeight =
-                    nameBottom -
-                            nameTop;
-
-
-            /*
-             * KORTTI 1
-             */
-
-            int card1Left =
-                    (int) (
-                            width * 0.065f
-                    );
-
-
-            int card1Right =
-                    (int) (
-                            width * 0.38f
-                    );
-
-
-            /*
-             * KORTTI 2
-             */
-
-            int card2Left =
-                    (int) (
-                            width * 0.355f
-                    );
-
-
-            int card2Right =
-                    (int) (
-                            width * 0.645f
-                    );
-
-
-            /*
-             * KORTTI 3
-             */
-
-            int card3Left =
-                    (int) (
-                            width * 0.60f
-                    );
-
-
-            int card3Right =
-                    (int) (
-                            width * 0.935f
-                    );
-
-
-            card1Left =
-                    Math.max(
-                            0,
-                            card1Left
-                    );
-
-
-            card2Left =
-                    Math.max(
-                            0,
-                            card2Left
-                    );
-
-
-            card3Left =
-                    Math.max(
-                            0,
-                            card3Left
-                    );
-
-
-            card1Right =
-                    Math.min(
-                            width,
-                            card1Right
-                    );
-
-
-            card2Right =
-                    Math.min(
-                            width,
-                            card2Right
-                    );
-
-
-            card3Right =
-                    Math.min(
-                            width,
-                            card3Right
-                    );
-
-
-            Log.d(
-                    TAG,
-                    "CARD 1 CROP: " +
-                            card1Left +
-                            "-" +
-                            card1Right
-            );
-
-
-            Log.d(
-                    TAG,
-                    "CARD 2 CROP: " +
-                            card2Left +
-                            "-" +
-                            card2Right
-            );
-
-
-            Log.d(
-                    TAG,
-                    "CARD 3 CROP: " +
-                            card3Left +
-                            "-" +
-                            card3Right
-            );
-
-
-            card1 =
-                    Bitmap.createBitmap(
-                            source,
-                            card1Left,
-                            nameTop,
-                            card1Right -
-                                    card1Left,
-                            nameHeight
-                    );
-
-
-            card2 =
-                    Bitmap.createBitmap(
-                            source,
-                            card2Left,
-                            nameTop,
-                            card2Right -
-                                    card2Left,
-                            nameHeight
-                    );
-
-
-            card3 =
-                    Bitmap.createBitmap(
-                            source,
-                            card3Left,
-                            nameTop,
-                            card3Right -
-                                    card3Left,
-                            nameHeight
-                    );
-
-
-            Bitmap prepared1 =
-                    enlargeForOCR(card1);
-
-
-            Bitmap prepared2 =
-                    enlargeForOCR(card2);
-
-
-            Bitmap prepared3 =
-                    enlargeForOCR(card3);
-
-
-            card1.recycle();
-            card2.recycle();
-            card3.recycle();
-
-
-            card1 = null;
-            card2 = null;
-            card3 = null;
-
-
-            if (!source.isRecycled()) {
-                source.recycle();
+            if (bitmap == null) {
+                processing = false;
+                return;
             }
 
-
-            runCardOCR(
-                    prepared1,
-                    prepared2,
-                    prepared3
-            );
-
+            runOCR(bitmap);
 
         } catch (Exception e) {
 
-            Log.e(
-                    TAG,
-                    "Card splitting failed",
-                    e
-            );
-
-
-            if (card1 != null &&
-                    !card1.isRecycled()) {
-
-                card1.recycle();
+            try {
+                image.close();
+            } catch (Exception ignored) {
             }
-
-
-            if (card2 != null &&
-                    !card2.isRecycled()) {
-
-                card2.recycle();
-            }
-
-
-            if (card3 != null &&
-                    !card3.isRecycled()) {
-
-                card3.recycle();
-            }
-
-
-            if (!source.isRecycled()) {
-                source.recycle();
-            }
-
 
             processing = false;
-
-
-            updateOverlay(
-                    "Arena Helper\n\n" +
-                            "Korttikuvan käsittelyvirhe"
-            );
         }
     }
 
+    private Bitmap imageToBitmap(Image image) {
 
-    /*
-     * ============================================================
-     * OCR IMAGE PREPARATION
-     * ============================================================
-     */
+        Image.Plane[] planes = image.getPlanes();
 
-    private Bitmap enlargeForOCR(
-            Bitmap source
-    ) {
+        if (planes.length == 0) {
+            return null;
+        }
 
-        int newWidth =
-                source.getWidth() * 2;
+        ByteBuffer buffer = planes[0].getBuffer();
 
+        int pixelStride = planes[0].getPixelStride();
+        int rowStride = planes[0].getRowStride();
 
-        int newHeight =
-                source.getHeight() * 2;
+        int width = image.getWidth();
+        int height = image.getHeight();
 
+        int rowPadding =
+                rowStride - pixelStride * width;
 
-        Bitmap enlarged =
-                Bitmap.createBitmap(
-                        newWidth,
-                        newHeight,
-                        Bitmap.Config.ARGB_8888
-                );
-
-
-        Canvas canvas =
-                new Canvas(enlarged);
-
-
-        Paint paint =
-                new Paint(
-                        Paint.ANTI_ALIAS_FLAG
-                );
-
-
-        paint.setFilterBitmap(true);
-
-
-        canvas.drawBitmap(
-                source,
-                null,
-                new android.graphics.Rect(
-                        0,
-                        0,
-                        newWidth,
-                        newHeight
-                ),
-                paint
+        Bitmap bitmap = Bitmap.createBitmap(
+                width + rowPadding / pixelStride,
+                height,
+                Bitmap.Config.ARGB_8888
         );
 
+        buffer.rewind();
+
+        bitmap.copyPixelsFromBuffer(buffer);
+
+        if (bitmap.getWidth() != width) {
+
+            Bitmap cropped = Bitmap.createBitmap(
+                    bitmap,
+                    0,
+                    0,
+                    width,
+                    height
+            );
+
+            bitmap.recycle();
+
+            return cropped;
+        }
+
+        return bitmap;
+    }
+
+    private void runOCR(Bitmap source) {
+
+        DisplayMetrics metrics = getResources().getDisplayMetrics();
+
+        int width = source.getWidth();
+        int height = source.getHeight();
+
+        int nameTop = (int) (height * 0.45f);
+        int nameBottom = (int) (height * 0.55f);
+
+        Bitmap card1 = cropCard(
+                source,
+                (int) (width * 0.065f),
+                (int) (width * 0.38f),
+                nameTop,
+                nameBottom
+        );
+
+        Bitmap card2 = cropCard(
+                source,
+                (int) (width * 0.355f),
+                (int) (width * 0.645f),
+                nameTop,
+                nameBottom
+        );
+
+        Bitmap card3 = cropCard(
+                source,
+                (int) (width * 0.60f),
+                (int) (width * 0.935f),
+                nameTop,
+                nameBottom
+        );
+
+        source.recycle();
+
+        final String[] results = new String[3];
+
+        recognizeNormalCard(card1, 0, results);
+        recognizeNormalCard(card2, 1, results);
+        recognizeNormalCard(card3, 2, results);
+    }
+
+    private Bitmap cropCard(
+            Bitmap source,
+            int left,
+            int right,
+            int top,
+            int bottom
+    ) {
+
+        left = Math.max(0, left);
+        top = Math.max(0, top);
+
+        right = Math.min(source.getWidth(), right);
+        bottom = Math.min(source.getHeight(), bottom);
+
+        if (right <= left || bottom <= top) {
+            return null;
+        }
+
+        Bitmap cropped = Bitmap.createBitmap(
+                source,
+                left,
+                top,
+                right - left,
+                bottom - top
+        );
+
+        return enlargeForOCR(cropped);
+    }
+
+    private Bitmap enlargeForOCR(Bitmap bitmap) {
+
+        if (bitmap == null) {
+            return null;
+        }
+
+        Bitmap enlarged = Bitmap.createScaledBitmap(
+                bitmap,
+                bitmap.getWidth() * 2,
+                bitmap.getHeight() * 2,
+                true
+        );
+
+        bitmap.recycle();
 
         return enlarged;
     }
-
-
-    /*
-     * ============================================================
-     * OCR
-     * ============================================================
-     */
-
-    private void runCardOCR(
-            Bitmap card1,
-            Bitmap card2,
-            Bitmap card3
-    ) {
-
-        final String[] results =
-                new String[3];
-
-
-        recognizeNormalCard(
-                card1,
-                0,
-                results
-        );
-
-
-        recognizeNormalCard(
-                card2,
-                1,
-                results
-        );
-
-
-        recognizeNormalCard(
-                card3,
-                2,
-                results
-        );
-    }
-
 
     private void recognizeNormalCard(
             Bitmap bitmap,
@@ -1033,322 +413,166 @@ public class CaptureService extends Service {
             String[] results
     ) {
 
-        try {
-
-            InputImage inputImage =
-                    InputImage.fromBitmap(
-                            bitmap,
-                            0
-                    );
-
-
-            recognizer
-                    .process(inputImage)
-                    .addOnSuccessListener(
-                            text -> {
-
-                                String raw =
-                                        text.getText();
-
-
-                                if (raw == null) {
-                                    raw = "";
-                                }
-
-
-                                Log.d(
-                                        TAG,
-                                        "RAW OCR CARD " +
-                                                (index + 1) +
-                                                ": " +
-                                                raw
-                                );
-
-
-                                String cleaned =
-                                        cleanCardName(
-                                                raw
-                                        );
-
-
-                                /*
-                                 * Kaikki kolme korttia menevät
-                                 * saman vakautuslogiikan läpi.
-                                 */
-
-                                results[index] =
-                                        stabilizeCard(
-                                                cleaned,
-                                                index
-                                        );
-
-
-                                Log.d(
-                                        TAG,
-                                        "CLEAN/STABLE OCR CARD " +
-                                                (index + 1) +
-                                                ": " +
-                                                results[index]
-                                );
-
-
-                                if (!bitmap.isRecycled()) {
-                                    bitmap.recycle();
-                                }
-
-
-                                checkOCRFinished(
-                                        results
-                                );
-                            }
-                    )
-                    .addOnFailureListener(
-                            e -> {
-
-                                Log.e(
-                                        TAG,
-                                        "OCR failed CARD " +
-                                                (index + 1),
-                                        e
-                                );
-
-
-                                results[index] =
-                                        getStableCard(
-                                                index
-                                        );
-
-
-                                if (!bitmap.isRecycled()) {
-                                    bitmap.recycle();
-                                }
-
-
-                                checkOCRFinished(
-                                        results
-                                );
-                            }
-                    );
-
-
-        } catch (Exception e) {
-
-            Log.e(
-                    TAG,
-                    "OCR start failed CARD " +
-                            (index + 1),
-                    e
-            );
-
-
-            results[index] =
-                    getStableCard(
-                            index
-                    );
-
-
-            if (!bitmap.isRecycled()) {
-                bitmap.recycle();
-            }
-
-
-            checkOCRFinished(
-                    results
-            );
+        if (bitmap == null) {
+            results[index] = getStableCard(index);
+            checkOCRFinished(results);
+            return;
         }
+
+        InputImage image =
+                InputImage.fromBitmap(bitmap, 0);
+
+        recognizer.process(image)
+                .addOnSuccessListener(text -> {
+
+                    String cleaned =
+                            cleanCardName(text);
+
+                    results[index] =
+                            stabilizeCard(cleaned, index);
+
+                    bitmap.recycle();
+
+                    checkOCRFinished(results);
+                })
+                .addOnFailureListener(e -> {
+
+                    results[index] =
+                            getStableCard(index);
+
+                    bitmap.recycle();
+
+                    checkOCRFinished(results);
+                });
     }
 
+    private void checkOCRFinished(String[] results) {
 
-    /*
-     * ============================================================
-     * KAIKKIEN KOLMEN KORTIN VAKAUTUS
-     * ============================================================
-     */
+        if (results[0] == null ||
+                results[1] == null ||
+                results[2] == null) {
+            return;
+        }
+
+        updateCards(
+                results[0],
+                results[1],
+                results[2]
+        );
+
+        processing = false;
+    }
+
+    private String getStableCard(int index) {
+
+        if (index == 0) {
+            return card1Stability.stable;
+        }
+
+        if (index == 1) {
+            return card2Stability.stable;
+        }
+
+        return card3Stability.stable;
+    }
 
     private String stabilizeCard(
             String detected,
             int index
     ) {
 
-        String normalized =
-                normalizeDetectedCardName(
-                        detected
-                );
-
-
-        if (normalized.isEmpty()) {
+        if (detected == null ||
+                detected.trim().isEmpty()) {
 
             return getStableCard(index);
         }
 
+        String normalized =
+                normalizeDetectedCardName(detected);
 
-        CardStability state =
-                getCardStability(index);
-
-
-        Log.d(
-                TAG,
-                "CARD " +
-                        (index + 1) +
-                        " STABILIZER INPUT: " +
-                        detected
-        );
-
-
-        Log.d(
-                TAG,
-                "CARD " +
-                        (index + 1) +
-                        " STABILIZER NORMALIZED: " +
-                        normalized
-        );
-
-
-        /*
-         * Jos uusi OCR on käytännössä sama kuin nykyinen
-         * vakaa nimi, pidetään nykyinen nimi.
-         *
-         * Tämä estää turhat muutokset esimerkiksi silloin,
-         * kun OCR lisää pisteen tai yhden ylimääräisen kirjaimen.
-         */
-
-        if (!state.stable.isEmpty() &&
-                similarCardNames(
-                        state.stable,
-                        normalized
-                )) {
-
-            /*
-             * Jos ArenaAdvisorin korjaus tuotti paremman
-             * version, käytetään sitä vakaana nimenä.
-             */
-
-            state.stable =
-                    normalized;
-
-            state.candidate =
-                    normalized;
-
-            state.candidateCount =
-                    CARD_CONFIRMATIONS;
-
-            return state.stable;
+        if (normalized.isEmpty()) {
+            return getStableCard(index);
         }
 
+        CardStability stability;
 
-        /*
-         * Sama ehdokas uudelleen.
-         */
+        if (index == 0) {
+            stability = card1Stability;
+        } else if (index == 1) {
+            stability = card2Stability;
+        } else {
+            stability = card3Stability;
+        }
 
-        if (!state.candidate.isEmpty() &&
-                similarCardNames(
-                        state.candidate,
+        if (stability.stable.isEmpty()) {
+
+            if (stability.candidate.isEmpty() ||
+                    !similarNames(
+                            stability.candidate,
+                            normalized
+                    )) {
+
+                stability.candidate = normalized;
+                stability.candidateCount = 1;
+
+            } else {
+
+                stability.candidateCount++;
+            }
+
+            if (stability.candidateCount >=
+                    CARD_CONFIRMATIONS) {
+
+                stability.stable =
+                        stability.candidate;
+
+                stability.candidate = "";
+                stability.candidateCount = 0;
+            }
+
+            return stability.stable.isEmpty()
+                    ? normalized
+                    : stability.stable;
+        }
+
+        if (similarNames(
+                stability.stable,
+                normalized
+        )) {
+
+            stability.stable = normalized;
+            stability.candidate = "";
+            stability.candidateCount = 0;
+
+            return stability.stable;
+        }
+
+        if (stability.candidate.isEmpty() ||
+                !similarNames(
+                        stability.candidate,
                         normalized
                 )) {
 
-            state.candidateCount++;
+            stability.candidate = normalized;
+            stability.candidateCount = 1;
 
         } else {
 
-            /*
-             * Kokonaan uusi ehdokas.
-             */
-
-            state.candidate =
-                    normalized;
-
-            state.candidateCount = 1;
+            stability.candidateCount++;
         }
 
-
-        Log.d(
-                TAG,
-                "CARD " +
-                        (index + 1) +
-                        " CANDIDATE: " +
-                        state.candidate +
-                        " COUNT=" +
-                        state.candidateCount
-        );
-
-
-        /*
-         * Vasta toinen peräkkäinen havainto hyväksytään.
-         */
-
-        if (state.candidateCount >=
+        if (stability.candidateCount >=
                 CARD_CONFIRMATIONS) {
 
-            state.stable =
-                    state.candidate;
+            stability.stable =
+                    stability.candidate;
 
-
-            Log.d(
-                    TAG,
-                    "CARD " +
-                            (index + 1) +
-                            " NEW STABLE: " +
-                            state.stable
-            );
+            stability.candidate = "";
+            stability.candidateCount = 0;
         }
 
-
-        /*
-         * Jos meillä on jo vakaa nimi, näytetään sitä
-         * uuden ehdokkaan sijaan.
-         */
-
-        if (!state.stable.isEmpty()) {
-
-            return state.stable;
-        }
-
-
-        /*
-         * Ensimmäinen havainto:
-         * palautetaan se väliaikaisesti, jotta overlay ei
-         * jää tyhjäksi ennen toista OCR-kierrosta.
-         */
-
-        return normalized;
+        return stability.stable;
     }
-
-
-    private CardStability getCardStability(
-            int index
-    ) {
-
-        if (index == 0) {
-            return card1Stability;
-        }
-
-
-        if (index == 1) {
-            return card2Stability;
-        }
-
-
-        return card3Stability;
-    }
-
-
-    private String getStableCard(
-            int index
-    ) {
-
-        return getCardStability(index).stable;
-    }
-
-
-    /*
-     * ============================================================
-     * OCR-NIMEN NORMALISOINTI
-     * ============================================================
-     *
-     * Tässä vaiheessa tehdään kaikki sellaiset korjaukset,
-     * jotka eivät muuta oikeaa kortin nimeä.
-     * ============================================================
-     */
 
     private String normalizeDetectedCardName(
             String text
@@ -1358,300 +582,142 @@ public class CaptureService extends Service {
             return "";
         }
 
+        text = text.trim();
 
-        text =
-                text.trim();
+        // Korjaa HTML-entiteetit, joita kortin nimi
+        // voi joskus saada OCR:n / online-datan kautta.
+        text = text.replace("&#039;", "'")
+                .replace("&#39;", "'")
+                .replace("&apos;", "'")
+                .replace("&amp;", "&")
+                .replace("&quot;", "\"");
 
+        text = text.replaceAll(
+                "[\\s\\.,:;|]+$",
+                ""
+        );
 
-        if (text.isEmpty()) {
-            return "";
-        }
+        text = text.replaceAll(
+                "\\s+",
+                " "
+        ).trim();
 
-
-        /*
-         * Poistetaan OCR:n lisäämä välilyönti/piste/merkki
-         * nimen lopusta.
-         */
-
-        text =
-                text.replaceAll(
-                        "[\\s\\.,:;|]+$",
-                        ""
-                );
-
-
-        text =
-                text.replaceAll(
-                        "\\s{2,}",
-                        " "
-                );
-
-
-        text =
-                text.trim();
-
-
-        /*
-         * Soldier of the Infinite -erikoiskorjaus.
-         */
-
-        String soldierFix =
-                fixSoldierOfInfinite(
-                        text
-                );
-
-
-        if (!soldierFix.isEmpty()) {
-
-            text =
-                    soldierFix;
-        }
-
-
-        /*
-         * ArenaAdvisor saa tehdä lopullisen tunnetun
-         * korttinimen OCR-korjauksen.
-         *
-         * Jos se ei muuta nimeä, käytetään alkuperäistä.
-         */
+        text = fixSoldierOfInfinite(text);
 
         try {
-
             String corrected =
-                    ArenaAdvisor.correctOcr(
-                            text
-                    );
-
+                    ArenaAdvisor.correctOcr(text);
 
             if (corrected != null &&
-                    !corrected.trim().isEmpty() &&
-                    !corrected.equalsIgnoreCase(
-                            "Ei tunnistettu"
-                    )) {
+                    !corrected.trim().isEmpty()) {
 
-                text =
-                        corrected.trim();
+                text = corrected.trim();
             }
 
-        } catch (Exception e) {
-
-            Log.d(
-                    TAG,
-                    "OCR correction unavailable",
-                    e
-            );
+        } catch (Exception ignored) {
         }
 
+        // Korjaa HTML-entiteetit vielä uudelleen,
+        // jos correctOcr palautti sellaisen.
+        text = text.replace("&#039;", "'")
+                .replace("&#39;", "'")
+                .replace("&apos;", "'")
+                .replace("&amp;", "&")
+                .replace("&quot;", "\"");
 
-        /*
-         * Poistetaan korjauksen jälkeenkin mahdollinen
-         * loppupiste tai muu OCR-roska.
-         */
+        text = text.replaceAll(
+                "[\\s\\.,:;|]+$",
+                ""
+        );
 
-        text =
-                text.replaceAll(
-                        "[\\s\\.,:;|]+$",
-                        ""
-                );
-
-
-        text =
-                text.replaceAll(
-                        "\\s{2,}",
-                        " "
-                );
-
-
-        text =
-                text.trim();
-
-
-        return text;
+        return text.trim();
     }
 
-
-    /*
-     * ============================================================
-     * OCR-NIMIEN VERTAILU
-     * ============================================================
-     */
-
-    private String normalizeCardForComparison(
-            String text
-    ) {
+    private String cleanCardName(Text text) {
 
         if (text == null) {
             return "";
         }
 
+        String raw = text.getText();
 
-        text =
-                text.toLowerCase();
-
-
-        /*
-         * Pisteet, pilkut, välilyönnit ja muut OCR-merkit
-         * eivät vaikuta siihen, ovatko nimet samoja.
-         */
-
-        text =
-                text.replaceAll(
-                        "[^a-z0-9]",
-                        ""
-                );
-
-
-        return text;
-    }
-
-
-    private boolean similarCardNames(
-            String a,
-            String b
-    ) {
-
-        if (a == null ||
-                b == null) {
-
-            return false;
+        if (raw == null) {
+            return "";
         }
 
+        String[] lines =
+                raw.split("\\r?\\n");
 
-        String aa =
-                normalizeCardForComparison(
-                        a
-                );
+        String best = "";
 
+        for (String line : lines) {
 
-        String bb =
-                normalizeCardForComparison(
-                        b
-                );
-
-
-        if (aa.isEmpty() ||
-                bb.isEmpty()) {
-
-            return false;
-        }
-
-
-        if (aa.equals(bb)) {
-            return true;
-        }
-
-
-        /*
-         * Esimerkiksi:
-         *
-         * UnstableSpellcaster
-         * UnstableSpellcaaster
-         *
-         * ovat riittävän lähellä toisiaan.
-         */
-
-        if (aa.contains(bb) ||
-                bb.contains(aa)) {
-
-            return true;
-        }
-
-
-        int distance =
-                levenshteinDistance(
-                        aa,
-                        bb
-                );
-
-
-        int maxLength =
-                Math.max(
-                        aa.length(),
-                        bb.length()
-                );
-
-
-        return maxLength > 0 &&
-                distance <=
-                        Math.max(
-                                2,
-                                maxLength / 5
-                        );
-    }
-
-
-    private int levenshteinDistance(
-            String a,
-            String b
-    ) {
-
-        int[] previous =
-                new int[b.length() + 1];
-
-
-        int[] current =
-                new int[b.length() + 1];
-
-
-        for (int j = 0;
-             j <= b.length();
-             j++) {
-
-            previous[j] = j;
-        }
-
-
-        for (int i = 1;
-             i <= a.length();
-             i++) {
-
-            current[0] = i;
-
-
-            for (int j = 1;
-                 j <= b.length();
-                 j++) {
-
-                int cost =
-                        a.charAt(i - 1) ==
-                                b.charAt(j - 1)
-                                ? 0
-                                : 1;
-
-
-                current[j] =
-                        Math.min(
-                                Math.min(
-                                        current[j - 1] + 1,
-                                        previous[j] + 1
-                                ),
-                                previous[j - 1] + cost
-                        );
+            if (line == null) {
+                continue;
             }
 
+            line = line.trim();
 
-            int[] temp =
-                    previous;
+            int letters = 0;
 
+            for (int i = 0; i < line.length(); i++) {
 
-            previous =
-                    current;
+                if (Character.isLetter(
+                        line.charAt(i)
+                )) {
+                    letters++;
+                }
+            }
 
-
-            current =
-                    temp;
+            if (letters >= 2) {
+                best = line;
+                break;
+            }
         }
 
+        if (best.isEmpty()) {
+            best = raw.trim();
+        }
 
-        return previous[b.length()];
+        best = best
+                .replaceAll(
+                        "^[^A-Za-zÀ-ÿ0-9]+",
+                        ""
+                )
+                .replaceAll(
+                        "[^A-Za-zÀ-ÿ0-9'&\\-\\.\\s]+$",
+                        ""
+                )
+                .trim();
+
+        best = fixSoldierOfInfinite(best);
+
+        best = best.replaceAll(
+                "\\s+",
+                " "
+        ).trim();
+
+        best = best.replaceAll(
+                "[\\s\\.,:;|]+$",
+                ""
+        );
+
+        // HTML-entiteetit
+        best = best.replace("&#039;", "'")
+                .replace("&#39;", "'")
+                .replace("&apos;", "'")
+                .replace("&amp;", "&")
+                .replace("&quot;", "\"");
+
+        if (!best.isEmpty()) {
+
+            best = Character.toUpperCase(
+                    best.charAt(0)
+            ) + best.substring(1);
+        }
+
+        return best;
     }
-
-
-    /*
-     * ============================================================
-     * SOLDIER OF THE INFINITE
-     * ============================================================
-     */
 
     private String fixSoldierOfInfinite(
             String text
@@ -1661,1177 +727,414 @@ public class CaptureService extends Service {
             return "";
         }
 
-
         String normalized =
-                text.toLowerCase();
-
-
-        normalized =
-                normalized.replaceAll(
-                        "[^a-z0-9]",
-                        ""
-                );
-
-
-        if (normalized.startsWith("soldier")) {
-
-            if (normalized.contains("infinite")) {
-
-                return "Soldier of the Infinite";
-            }
-
-
-            if (normalized.equals("soldiero") ||
-                    normalized.equals("soldier0") ||
-                    normalized.equals("soldier")) {
-
-                /*
-                 * Jos aiempi vakaa nimi oli Soldier of the Infinite,
-                 * pidetään se.
-                 */
-
-                if (card1Stability.stable
-                        .toLowerCase()
-                        .contains("soldier")) {
-
-                    return card1Stability.stable;
-                }
-
-
-                return "";
-            }
-        }
-
-
-        return "";
-    }
-
-
-    /*
-     * ============================================================
-     * OCR-TULOKSEN PUHDISTUS
-     * ============================================================
-     */
-
-    private String cleanCardName(
-            String text
-    ) {
-
-        if (text == null) {
-            return "";
-        }
-
-
-        text =
-                text.trim();
-
-
-        if (text.isEmpty()) {
-            return "";
-        }
-
-
-        String[] lines =
-                text.split("\\r?\\n");
-
-
-        String bestLine = "";
-
-
-        for (String line : lines) {
-
-            line =
-                    line.trim();
-
-
-            if (line.length() < 2) {
-                continue;
-            }
-
-
-            /*
-             * Poistetaan roskaa nimen alusta.
-             */
-
-            line =
-                    line.replaceAll(
-                            "^[^A-Za-zÅÄÖåäö0-9]+",
-                            ""
-                    );
-
-
-            /*
-             * Poistetaan roskaa nimen lopusta.
-             *
-             * Tähän kuuluu erityisesti OCR:n välillä
-             * ilmestyvä piste.
-             */
-
-            line =
-                    line.replaceAll(
-                            "[^A-Za-zÅÄÖåäö0-9'\\- ]+$",
-                            ""
-                    );
-
-
-            line =
-                    line.trim();
-
-
-            int letters = 0;
-
-
-            for (int i = 0;
-                 i < line.length();
-                 i++) {
-
-                if (Character.isLetter(
-                        line.charAt(i)
-                )) {
-
-                    letters++;
-                }
-            }
-
-
-            if (letters >= 2) {
-
-                bestLine =
-                        line;
-
-                break;
-            }
-        }
-
-
-        if (bestLine.isEmpty()) {
-            return "";
-        }
-
-
-        /*
-         * Soldier of the Infinite -OCR-korjaukset.
-         */
-
-        bestLine =
-                bestLine.replaceAll(
-                        "(?i)\\bsoldierof\\b",
-                        "Soldier of"
-                );
-
-
-        bestLine =
-                bestLine.replaceAll(
-                        "(?i)\\bsoldier\\s*2\\s*of\\b",
-                        "Soldier of"
-                );
-
-
-        bestLine =
-                bestLine.replaceAll(
-                        "(?i)\\bsoldier\\s*2\\s*0f\\b",
-                        "Soldier of"
-                );
-
-
-        /*
-         * Poistetaan ylimääräiset välilyönnit.
-         */
-
-        bestLine =
-                bestLine.replaceAll(
-                        "\\s+",
-                        " "
-                ).trim();
-
-
-        /*
-         * Poistetaan loppupisteet ja muut OCR-merkit vielä
-         * kerran ennen kuin nimi menee stabilointiin.
-         */
-
-        bestLine =
-                bestLine.replaceAll(
-                        "[\\s\\.,:;|]+$",
-                        ""
-                ).trim();
-
-
-        bestLine =
-                capitalizeFirstLetter(
-                        bestLine
-                );
-
-
-        return bestLine;
-    }
-
-
-    private String capitalizeFirstLetter(
-            String text
-    ) {
-
-        if (text == null ||
-                text.isEmpty()) {
-
-            return text;
-        }
-
-
-        char[] chars =
-                text.toCharArray();
-
-
-        for (int i = 0;
-             i < chars.length;
-             i++) {
-
-            if (Character.isLetter(
-                    chars[i]
-            )) {
-
-                chars[i] =
-                        Character.toUpperCase(
-                                chars[i]
+                text.toLowerCase(Locale.US)
+                        .replaceAll(
+                                "[^a-z0-9]",
+                                ""
                         );
 
-                break;
+        if (normalized.contains("soldierofinfinite") ||
+                normalized.contains("so1dierofinfinite") ||
+                normalized.contains("sotdierofinfinite") ||
+                normalized.contains("soldierofihfinite") ||
+                normalized.contains("soldierofihfini")) {
+
+            return "Soldier of the Infinite";
+        }
+
+        String stable =
+                card1Stability.stable;
+
+        if (stable != null &&
+                !stable.isEmpty()) {
+
+            String stableNormalized =
+                    stable.toLowerCase(Locale.US)
+                            .replaceAll(
+                                    "[^a-z0-9]",
+                                    ""
+                            );
+
+            if (stableNormalized.contains(
+                    "soldierofinfinite"
+            )) {
+                return "Soldier of the Infinite";
             }
         }
 
-
-        return new String(chars);
+        return text;
     }
 
-
-    /*
-     * ============================================================
-     * OCR FINISHED
-     * ============================================================
-     */
-
-    private void checkOCRFinished(
-            String[] results
-    ) {
-
-        if (results[0] == null ||
-                results[1] == null ||
-                results[2] == null) {
-
-            return;
-        }
-
-
-        showThreeCards(results);
-
-
-        processing = false;
-    }
-
-
-    /*
-     * ============================================================
-     * KORTTIEN VALIDOINNIT
-     * ============================================================
-     */
-
-    private boolean validCardName(
-            String card
-    ) {
-
-        if (card == null) {
-            return false;
-        }
-
-
-        String value =
-                card.trim();
-
-
-        if (value.isEmpty()) {
-            return false;
-        }
-
-
-        if (value.equalsIgnoreCase(
-                "Ei tunnistettu"
-        )) {
-
-            return false;
-        }
-
-
-        return true;
-    }
-
-
-    private String normalizeOfferCard(
-            String card
-    ) {
-
-        if (card == null) {
-            return "";
-        }
-
-
-        return card
-                .trim()
-                .toLowerCase()
-                .replaceAll(
-                        "[^a-z0-9]",
-                        ""
-                );
-    }
-
-
-    private boolean sameOfferCard(
+    private boolean similarNames(
             String a,
             String b
     ) {
 
-        String aa =
-                normalizeOfferCard(a);
-
-
-        String bb =
-                normalizeOfferCard(b);
-
-
-        if (aa.isEmpty() ||
-                bb.isEmpty()) {
-
+        if (a == null || b == null) {
             return false;
         }
 
+        String aa =
+                a.toLowerCase(Locale.US)
+                        .replaceAll(
+                                "[^a-z0-9]",
+                                ""
+                        );
 
-        return aa.equals(bb) ||
-                aa.contains(bb) ||
-                bb.contains(aa);
+        String bb =
+                b.toLowerCase(Locale.US)
+                        .replaceAll(
+                                "[^a-z0-9]",
+                                ""
+                        );
+
+        if (aa.equals(bb)) {
+            return true;
+        }
+
+        if (aa.contains(bb) ||
+                bb.contains(aa)) {
+            return true;
+        }
+
+        int distance =
+                levenshtein(aa, bb);
+
+        int maxLength =
+                Math.max(
+                        aa.length(),
+                        bb.length()
+                );
+
+        return distance <=
+                Math.max(
+                        2,
+                        maxLength / 5
+                );
     }
 
-
-    private boolean sameOffer(
-            String a1,
-            String a2,
-            String a3,
-            String b1,
-            String b2,
-            String b3
+    private int levenshtein(
+            String a,
+            String b
     ) {
 
-        return sameOfferCard(a1, b1) &&
-                sameOfferCard(a2, b2) &&
-                sameOfferCard(a3, b3);
+        int[][] dp =
+                new int[a.length() + 1]
+                        [b.length() + 1];
+
+        for (int i = 0; i <= a.length(); i++) {
+            dp[i][0] = i;
+        }
+
+        for (int j = 0; j <= b.length(); j++) {
+            dp[0][j] = j;
+        }
+
+        for (int i = 1; i <= a.length(); i++) {
+
+            for (int j = 1; j <= b.length(); j++) {
+
+                int cost =
+                        a.charAt(i - 1) ==
+                                b.charAt(j - 1)
+                                ? 0
+                                : 1;
+
+                dp[i][j] =
+                        Math.min(
+                                Math.min(
+                                        dp[i - 1][j] + 1,
+                                        dp[i][j - 1] + 1
+                                ),
+                                dp[i - 1][j - 1] + cost
+                        );
+            }
+        }
+
+        return dp[a.length()][b.length()];
     }
 
-
-    /*
-     * ============================================================
-     * PICKIN PÄÄTTELY
-     * ============================================================
-     */
-
-    private void updateArenaPickTracking(
+    private void updateCards(
             String card1,
             String card2,
             String card3
     ) {
 
-        if (!validCardName(card1) ||
-                !validCardName(card2) ||
-                !validCardName(card3)) {
-
-            return;
+        if (card1 == null) {
+            card1 = "";
         }
 
+        if (card2 == null) {
+            card2 = "";
+        }
 
-        /*
-         * Ensimmäinen tarjous.
-         */
+        if (card3 == null) {
+            card3 = "";
+        }
 
-        if (confirmedCard1.isEmpty() ||
-                confirmedCard2.isEmpty() ||
-                confirmedCard3.isEmpty()) {
+        if (!card1.isEmpty() &&
+                !card2.isEmpty() &&
+                !card3.isEmpty()) {
 
-            setPendingOffer(
+            handleOffer(
                     card1,
                     card2,
                     card3
             );
+        }
 
+        updateOverlay(
+                card1,
+                card2,
+                card3
+        );
+    }
 
-            if (pendingOfferCount >=
-                    OFFER_CONFIRMATIONS) {
+    private void handleOffer(
+            String card1,
+            String card2,
+            String card3
+    ) {
 
-                confirmCurrentOffer();
-            }
+        if (pendingOffer1.isEmpty()) {
 
+            pendingOffer1 = card1;
+            pendingOffer2 = card2;
+            pendingOffer3 = card3;
+            pendingOfferCount = 1;
 
             return;
         }
 
+        boolean sameOffer =
+                similarNames(
+                        pendingOffer1,
+                        card1
+                )
+                        &&
+                        similarNames(
+                                pendingOffer2,
+                                card2
+                        )
+                        &&
+                        similarNames(
+                                pendingOffer3,
+                                card3
+                        );
 
-        /*
-         * Jos sama tarjous jatkuu,
-         * ei tehdä mitään.
-         */
-
-        if (sameOffer(
-                confirmedCard1,
-                confirmedCard2,
-                confirmedCard3,
-                card1,
-                card2,
-                card3
-        )) {
-
-            pendingOfferCount = 0;
-
-            pendingOffer1 = "";
-            pendingOffer2 = "";
-            pendingOffer3 = "";
-
-            return;
-        }
-
-
-        /*
-         * Uusi tarjous havaittu.
-         *
-         * Varmistetaan se ensin kahdella peräkkäisellä
-         * samanlaisella OCR-tuloksella.
-         */
-
-        if (sameOffer(
-                pendingOffer1,
-                pendingOffer2,
-                pendingOffer3,
-                card1,
-                card2,
-                card3
-        )) {
+        if (sameOffer) {
 
             pendingOfferCount++;
 
         } else {
 
-            setPendingOffer(
-                    card1,
-                    card2,
-                    card3
-            );
+            pendingOffer1 = card1;
+            pendingOffer2 = card2;
+            pendingOffer3 = card3;
+            pendingOfferCount = 1;
         }
 
-
-        if (pendingOfferCount >=
+        if (pendingOfferCount <
                 OFFER_CONFIRMATIONS) {
-
-            processConfirmedOfferChange();
+            return;
         }
+
+        String new1 = card1;
+        String new2 = card2;
+        String new3 = card3;
+
+        if (!confirmedCard1.isEmpty() &&
+                !confirmedCard2.isEmpty() &&
+                !confirmedCard3.isEmpty()) {
+
+            String missing =
+                    findMissingPickedCard(
+                            confirmedCard1,
+                            confirmedCard2,
+                            confirmedCard3,
+                            new1,
+                            new2,
+                            new3
+                    );
+
+            if (missing != null &&
+                    !missing.isEmpty() &&
+                    !missing.equals(lastRecordedPick)) {
+
+                ArenaAdvisor.recordPickedCard(
+                        missing
+                );
+
+                lastRecordedPick = missing;
+            }
+        }
+
+        confirmedCard1 = new1;
+        confirmedCard2 = new2;
+        confirmedCard3 = new3;
     }
 
+    private String findMissingPickedCard(
+            String old1,
+            String old2,
+            String old3,
+            String new1,
+            String new2,
+            String new3
+    ) {
 
-    private void setPendingOffer(
+        boolean old1Exists =
+                similarNames(old1, new1) ||
+                        similarNames(old1, new2) ||
+                        similarNames(old1, new3);
+
+        boolean old2Exists =
+                similarNames(old2, new1) ||
+                        similarNames(old2, new2) ||
+                        similarNames(old2, new3);
+
+        boolean old3Exists =
+                similarNames(old3, new1) ||
+                        similarNames(old3, new2) ||
+                        similarNames(old3, new3);
+
+        int missingCount = 0;
+        String missing = "";
+
+        if (!old1Exists) {
+            missingCount++;
+            missing = old1;
+        }
+
+        if (!old2Exists) {
+            missingCount++;
+            missing = old2;
+        }
+
+        if (!old3Exists) {
+            missingCount++;
+            missing = old3;
+        }
+
+        if (missingCount == 1) {
+            return missing;
+        }
+
+        return "";
+    }
+
+    private void updateOverlay(
             String card1,
             String card2,
             String card3
     ) {
 
-        pendingOffer1 = card1;
-        pendingOffer2 = card2;
-        pendingOffer3 = card3;
-
-        pendingOfferCount = 1;
-    }
-
-
-    private void confirmCurrentOffer() {
-
-        confirmedCard1 =
-                pendingOffer1;
-
-        confirmedCard2 =
-                pendingOffer2;
-
-        confirmedCard3 =
-                pendingOffer3;
-
-        pendingOffer1 = "";
-        pendingOffer2 = "";
-        pendingOffer3 = "";
-
-        pendingOfferCount = 0;
-
-
-        Log.d(
-                TAG,
-                "ARENA OFFER CONFIRMED: " +
-                        confirmedCard1 +
-                        " | " +
-                        confirmedCard2 +
-                        " | " +
-                        confirmedCard3
-        );
-    }
-
-
-    private void processConfirmedOfferChange() {
-
-        String new1 =
-                pendingOffer1;
-
-        String new2 =
-                pendingOffer2;
-
-        String new3 =
-                pendingOffer3;
-
-
-        /*
-         * Selvitetään kuinka monta vanhaa korttia löytyy
-         * uudesta tarjouksesta.
-         */
-
-        boolean old1Found =
-                sameOfferCard(
-                        confirmedCard1,
-                        new1
-                ) ||
-                        sameOfferCard(
-                                confirmedCard1,
-                                new2
-                        ) ||
-                        sameOfferCard(
-                                confirmedCard1,
-                                new3
-                        );
-
-
-        boolean old2Found =
-                sameOfferCard(
-                        confirmedCard2,
-                        new1
-                ) ||
-                        sameOfferCard(
-                                confirmedCard2,
-                                new2
-                        ) ||
-                        sameOfferCard(
-                                confirmedCard2,
-                                new3
-                        );
-
-
-        boolean old3Found =
-                sameOfferCard(
-                        confirmedCard3,
-                        new1
-                ) ||
-                        sameOfferCard(
-                                confirmedCard3,
-                                new2
-                        ) ||
-                        sameOfferCard(
-                                confirmedCard3,
-                                new3
-                        );
-
-
-        int oldCardsFound = 0;
-
-        if (old1Found) {
-            oldCardsFound++;
+        if (overlayView == null) {
+            return;
         }
 
-        if (old2Found) {
-            oldCardsFound++;
-        }
+        final String score1 =
+                ArenaAdvisor.getCardScore(card1);
 
-        if (old3Found) {
-            oldCardsFound++;
-        }
+        final String score2 =
+                ArenaAdvisor.getCardScore(card2);
 
+        final String score3 =
+                ArenaAdvisor.getCardScore(card3);
 
-        /*
-         * TÄRKEÄ TURVASÄÄNTÖ:
-         *
-         * Jos uusi tarjous sisältää kaksi vanhaa korttia,
-         * kolmas vanha kortti on yksiselitteisesti valittu.
-         */
-
-        if (oldCardsFound == 2) {
-
-            String pickedCard = "";
-
-
-            if (!old1Found) {
-
-                pickedCard =
-                        confirmedCard1;
-
-            } else if (!old2Found) {
-
-                pickedCard =
-                        confirmedCard2;
-
-            } else if (!old3Found) {
-
-                pickedCard =
-                        confirmedCard3;
-            }
-
-
-            if (validCardName(pickedCard)) {
-
-                recordPickedCard(
-                        pickedCard
+        final String recommendation =
+                ArenaAdvisor.recommend(
+                        card1,
+                        card2,
+                        card3
                 );
-            }
-
-        } else {
-
-            Log.d(
-                    TAG,
-                    "ARENA PICK NOT RECORDED: " +
-                            "selection was not unambiguous. " +
-                            "OLD_MATCHES=" +
-                            oldCardsFound
-            );
-        }
-
-
-        /*
-         * Uusi tarjous muuttuu nyt aktiiviseksi.
-         */
-
-        confirmedCard1 = new1;
-        confirmedCard2 = new2;
-        confirmedCard3 = new3;
-
-        pendingOffer1 = "";
-        pendingOffer2 = "";
-        pendingOffer3 = "";
-
-        pendingOfferCount = 0;
-    }
-
-
-    private void recordPickedCard(
-            String pickedCard
-    ) {
-
-        if (!validCardName(pickedCard)) {
-            return;
-        }
-
-
-        /*
-         * Sama kortti voidaan muuten saada tallennettua
-         * useamman kerran saman transition aikana.
-         */
-
-        if (sameOfferCard(
-                lastRecordedPick,
-                pickedCard
-        )) {
-
-            return;
-        }
-
-
-        lastRecordedPick =
-                pickedCard;
-
-
-        try {
-
-            ArenaAdvisor.recordPickedCard(
-                    pickedCard
-            );
-
-
-            Log.d(
-                    TAG,
-                    "ARENA PICK RECORDED: " +
-                            pickedCard
-            );
-
-
-        } catch (Exception e) {
-
-            Log.e(
-                    TAG,
-                    "Could not record picked card",
-                    e
-            );
-        }
-    }
-
-
-    /*
-     * ============================================================
-     * KORTIT + ARENA ADVISOR
-     * ============================================================
-     */
-
-    private void showThreeCards(
-            String[] results
-    ) {
-
-        String card1 =
-                results[0] == null ||
-                        results[0].isEmpty()
-                        ? "Ei tunnistettu"
-                        : results[0];
-
-
-        String card2 =
-                results[1] == null ||
-                        results[1].isEmpty()
-                        ? "Ei tunnistettu"
-                        : results[1];
-
-
-        String card3 =
-                results[2] == null ||
-                        results[2].isEmpty()
-                        ? "Ei tunnistettu"
-                        : results[2];
-
-
-        /*
-         * Päivitetään pick-seuranta ennen pisteytystä.
-         */
-
-        try {
-
-            updateArenaPickTracking(
-                    card1,
-                    card2,
-                    card3
-            );
-
-        } catch (Exception e) {
-
-            Log.e(
-                    TAG,
-                    "Arena pick tracking error",
-                    e
-            );
-        }
-
-
-        /*
-         * Näytetään kortit ensin.
-         *
-         * Pisteiden laskeminen on omassa try/catchissa,
-         * joten jos ArenaAdvisorissa tulee virhe,
-         * OCR ei jää "Korttien haku käynnissä..." -tilaan.
-         */
-
-        String score1 = "0.0";
-        String score2 = "0.0";
-        String score3 = "0.0";
-
-
-        try {
-
-            score1 =
-                    ArenaAdvisor.getCardScore(
-                            card1
-                    );
-
-        } catch (Exception e) {
-
-            Log.e(
-                    TAG,
-                    "Score error CARD 1",
-                    e
-            );
-        }
-
-
-        try {
-
-            score2 =
-                    ArenaAdvisor.getCardScore(
-                            card2
-                    );
-
-        } catch (Exception e) {
-
-            Log.e(
-                    TAG,
-                    "Score error CARD 2",
-                    e
-            );
-        }
-
-
-        try {
-
-            score3 =
-                    ArenaAdvisor.getCardScore(
-                            card3
-                    );
-
-        } catch (Exception e) {
-
-            Log.e(
-                    TAG,
-                    "Score error CARD 3",
-                    e
-            );
-        }
-
-
-        /*
-         * Suositus.
-         */
-
-        String recommendation;
-
-
-        try {
-
-            recommendation =
-                    ArenaAdvisor.recommend(
-                            card1,
-                            card2,
-                            card3
-                    );
-
-        } catch (Exception e) {
-
-            Log.e(
-                    TAG,
-                    "ArenaAdvisor error",
-                    e
-            );
-
-
-            recommendation =
-                    "Suositusta ei voitu laskea";
-        }
-
-
-        if (recommendation == null ||
-                recommendation.trim().isEmpty()) {
-
-            recommendation =
-                    "Ei suositusta";
-        }
-
-
-        /*
-         * Näyttö.
-         */
 
         String display =
-                "KORTTI 1: " +
-                        card1 +
-                        "\nARVO: " +
-                        score1 +
-                        "/10" +
+                "KORTTI 1\n" +
+                card1 +
+                "\nARVO: " +
+                score1 +
+                "\n\n" +
 
-                        "\n\n" +
+                "KORTTI 2\n" +
+                card2 +
+                "\nARVO: " +
+                score2 +
+                "\n\n" +
 
-                        "KORTTI 2: " +
-                        card2 +
-                        "\nARVO: " +
-                        score2 +
-                        "/10" +
+                "KORTTI 3\n" +
+                card3 +
+                "\nARVO: " +
+                score3 +
+                "\n\n" +
 
-                        "\n\n" +
+                "SUOSITUS\n" +
+                recommendation;
 
-                        "KORTTI 3: " +
-                        card3 +
-                        "\nARVO: " +
-                        score3 +
-                        "/10" +
-
-                        "\n\n" +
-
-                        "--------------------" +
-
-                        "\n\n" +
-
-                        "SUOSITUS:\n" +
-                        recommendation;
-
-
-        updateOverlay(display);
-
-
-        Log.d(
-                TAG,
-                "CARD 1: " +
-                        card1 +
-                        " SCORE=" +
-                        score1
-        );
-
-
-        Log.d(
-                TAG,
-                "CARD 2: " +
-                        card2 +
-                        " SCORE=" +
-                        score2
-        );
-
-
-        Log.d(
-                TAG,
-                "CARD 3: " +
-                        card3 +
-                        " SCORE=" +
-                        score3
-        );
-
-
-        Log.d(
-                TAG,
-                "ARENA ADVISOR: " +
-                        recommendation
-        );
+        overlayView.setText(display);
     }
-
-
-    /*
-     * ============================================================
-     * IMAGE -> BITMAP
-     * ============================================================
-     */
-
-    private Bitmap imageToBitmap(
-            Image image
-    ) {
-
-        try {
-
-            Image.Plane[] planes =
-                    image.getPlanes();
-
-
-            if (planes.length == 0) {
-                return null;
-            }
-
-
-            ByteBuffer buffer =
-                    planes[0].getBuffer();
-
-
-            int pixelStride =
-                    planes[0].getPixelStride();
-
-
-            int rowStride =
-                    planes[0].getRowStride();
-
-
-            int rowPadding =
-                    rowStride -
-                            pixelStride *
-                                    image.getWidth();
-
-
-            int bitmapWidth =
-                    image.getWidth() +
-                            rowPadding /
-                                    pixelStride;
-
-
-            Bitmap bitmap =
-                    Bitmap.createBitmap(
-                            bitmapWidth,
-                            image.getHeight(),
-                            Bitmap.Config.ARGB_8888
-                    );
-
-
-            buffer.rewind();
-
-
-            bitmap.copyPixelsFromBuffer(
-                    buffer
-            );
-
-
-            return bitmap;
-
-
-        } catch (Exception e) {
-
-            Log.e(
-                    TAG,
-                    "Bitmap conversion failed",
-                    e
-            );
-
-
-            return null;
-        }
-    }
-
-
-    /*
-     * ============================================================
-     * NOTIFICATION
-     * ============================================================
-     */
-
-    private void createNotificationChannel() {
-
-        if (Build.VERSION.SDK_INT >=
-                Build.VERSION_CODES.O) {
-
-            NotificationChannel channel =
-                    new NotificationChannel(
-                            CHANNEL_ID,
-                            "Arena Helper",
-                            NotificationManager
-                                    .IMPORTANCE_LOW
-                    );
-
-
-            channel.setDescription(
-                    "Arena Helper screen capture"
-            );
-
-
-            NotificationManager manager =
-                    getSystemService(
-                            NotificationManager.class
-                    );
-
-
-            if (manager != null) {
-
-                manager.createNotificationChannel(
-                        channel
-                );
-            }
-        }
-    }
-
-
-    private Notification createNotification() {
-
-        return new NotificationCompat.Builder(
-                this,
-                CHANNEL_ID
-        )
-                .setContentTitle(
-                        "Arena Helper"
-                )
-                .setContentText(
-                        "Näytönjako käynnissä"
-                )
-                .setSmallIcon(
-                        android.R.drawable.ic_menu_view
-                )
-                .setOngoing(true)
-                .build();
-    }
-
-
-    /*
-     * ============================================================
-     * DESTROY
-     * ============================================================
-     */
 
     @Override
     public void onDestroy() {
 
-        if (mediaProjection != null &&
-                mediaProjectionCallback != null) {
-
-            try {
-
-                mediaProjection.unregisterCallback(
-                        mediaProjectionCallback
-                );
-
-            } catch (Exception ignored) {
-            }
-
-
-            mediaProjectionCallback = null;
-        }
-
-
-        if (overlayText != null &&
-                windowManager != null) {
-
-            try {
-
-                windowManager.removeView(
-                        overlayText
-                );
-
-            } catch (Exception ignored) {
-            }
-
-
-            overlayText = null;
-        }
-
+        processing = false;
 
         if (imageReader != null) {
-
             try {
-
                 imageReader.close();
-
             } catch (Exception ignored) {
             }
-
 
             imageReader = null;
         }
 
-
-        if (mediaProjection != null) {
-
+        if (virtualDisplay != null) {
             try {
-
-                mediaProjection.stop();
-
+                virtualDisplay.release();
             } catch (Exception ignored) {
             }
 
+            virtualDisplay = null;
+        }
+
+        if (mediaProjection != null) {
+            try {
+                mediaProjection.stop();
+            } catch (Exception ignored) {
+            }
 
             mediaProjection = null;
         }
 
-
         if (recognizer != null) {
-
             try {
-
                 recognizer.close();
-
             } catch (Exception ignored) {
             }
-
 
             recognizer = null;
         }
 
+        if (overlayView != null &&
+                windowManager != null) {
+
+            try {
+                windowManager.removeView(
+                        overlayView
+                );
+            } catch (Exception ignored) {
+            }
+
+            overlayView = null;
+        }
 
         super.onDestroy();
     }
 
-
     @Nullable
     @Override
-    public IBinder onBind(
-            Intent intent
-    ) {
-
+    public IBinder onBind(Intent intent) {
         return null;
     }
 }
