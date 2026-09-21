@@ -135,7 +135,7 @@ public class CaptureService extends Service {
                 -1
         );
 
-        Intent data = intent.getParcelableExtra("data");
+        Intent data = intent.getParcelableExtra("data" , Intent.class);
 
         if (resultCode == -1 || data == null) {
             updateOverlay("Arena Helper\nNäytön kaappaus ei onnistunut");
