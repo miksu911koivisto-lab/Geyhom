@@ -647,8 +647,7 @@ public class CaptureService extends Service {
 
         text = text.trim();
 
-        // Ainoa muutos: korjaa HTML-entiteetin heittomerkiksi.
-        text = text.replace("&#039;", "'");
+        text = decodeHtmlEntities(text);
 
         text = text.replaceAll(
                 "[\\s\\.,:;|]+$",
@@ -676,8 +675,7 @@ public class CaptureService extends Service {
         } catch (Exception ignored) {
         }
 
-        // Sama korjaus myös correctOcr:n jälkeen.
-        text = text.replace("&#039;", "'");
+        text = decodeHtmlEntities(text);
 
         text = text.replaceAll(
                 "[\\s\\.,:;|]+$",
@@ -702,6 +700,10 @@ public class CaptureService extends Service {
             return "";
         }
 
+        // Muutetaan HTML-entiteetit heti,
+        // ennen kuin muuta tekstiä puhdistetaan.
+        raw = decodeHtmlEntities(raw);
+
         String[] lines =
                 raw.split("\\r?\\n");
 
@@ -713,7 +715,7 @@ public class CaptureService extends Service {
                 continue;
             }
 
-            line = line.trim();
+            line = decodeHtmlEntities(line.trim());
 
             int letters = 0;
 
@@ -738,6 +740,8 @@ public class CaptureService extends Service {
             best = raw.trim();
         }
 
+        best = decodeHtmlEntities(best);
+
         best = best
                 .replaceAll(
                         "^[^A-Za-zÀ-ÿ0-9]+",
@@ -761,8 +765,7 @@ public class CaptureService extends Service {
                 ""
         );
 
-        // Ainoa muutos tässä metodissa.
-        best = best.replace("&#039;", "'");
+        best = decodeHtmlEntities(best);
 
         if (!best.isEmpty()) {
 
@@ -774,6 +777,20 @@ public class CaptureService extends Service {
         }
 
         return best;
+    }
+
+    private String decodeHtmlEntities(String text) {
+
+        if (text == null) {
+            return "";
+        }
+
+        return text
+                .replace("&#039;", "'")
+                .replace("&#39;", "'")
+                .replace("&apos;", "'")
+                .replace("&quot;", "\"")
+                .replace("&amp;", "&");
     }
 
     private String fixSoldierOfInfinite(
