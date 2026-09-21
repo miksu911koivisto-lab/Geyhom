@@ -1,527 +1,1028 @@
 package com.blessedmike.arenahelper;
 
 import java.util.HashMap;
-import java.util.Locale;
 import java.util.Map;
+import java.util.Locale;
 
 public class ArenaAdvisor {
-
-    private static final Map<String, CardData> CARDS = new HashMap<>();
-
-    static {
-
-        // ============================================================
-        // CURRENT HEARTHARENA VALUES
-        // HearthArena scale -> our 0-10 scale
-        // Conversion: HearthArena value / 14.0
-        // ============================================================
-
-        // Across the Timeways / current Arena pool
-        addCard("Soldier of the Infinite", 57.8);
-        addCard("Whelp of the Infinite", 103.0);
-        addCard("Violet Punisher", 103.0);
-        addCard("Infested Breath", 101.0);
-
-        // Restoration of Azeroth / Mage
-        addCard("Bursting Leyline", 58.0);
-        addCard("Mystic Runesaber", 77.0);
-        addCard("Ley Walker", 89.0);
-        addCard("Crystallized Leyline", 76.0);
-        addCard("Surge Needle", 79.0);
-        addCard("Leyline Nexus", 63.0);
-
-        // Escape from the Violet Hold
-        addCard("Cold Snap", 75.0);
-        addCard("Code Violet", 72.0);
-        addCard("Contraband Wands", 65.0);
-        addCard("Jailhouse Manastorm", 130.0);
-
-        // Neutral / other current cards
-        addCard("Tunneling Geomancer", 76.0);
-        addCard("Shadowed Informant", 100.0);
-        addCard("Carrier Whelp", 90.0);
-        addCard("Hopeful Dryad", 81.0);
-        addCard("Raptor Herald", 86.0);
-
-        // Death Knight
-        addCard("Emergency Surgery", 80.0);
-        addCard("Drink Blood", 73.0);
-        addCard("Disguised Doctor", 57.0);
-        addCard("Corpse Cannon", 96.0);
-
-        // Demon Hunter
-        addCard("Void Soul", 72.0);
-        addCard("Void Blast", 80.0);
-        addCard("Vicious Voidscale", 86.0);
-
-        // Druid
-        addCard("Infest the Scullery", 59.0);
-        addCard("Widow's Bite", 75.0);
-
-        // Hunter
-        addCard("Guard Dog", 88.0);
-        addCard("Dig for Freedom", 90.0);
-        addCard("Underbelly Network", 95.0);
-
-        // Paladin
-        addCard("Vigilant Sentry", 24.0);
-        addCard("Truth Seeker", 77.0);
-        addCard("Judgment", 87.0);
-        addCard("Holy Bola!", 56.0);
-        addCard("Dalaran Champion", 54.0);
-        addCard("Commander Beatrix", 55.0);
-
-        // Priest
-        addCard("Karov the Broken", 103.0);
-        addCard("Undeath Sentence", 50.0);
-
-        // Rogue
-        addCard("Jade Guardians", 81.0);
-        addCard("Inspector Murloc Holmes", 70.0);
-
-        // Warrior
-        addCard("Warptooth", 90.0);
-
-        // ============================================================
-        // OTHER CURRENTLY VERIFIED HIGH-VALUE CARDS
-        // ============================================================
-
-        addCard("Experimental Animation", 115.0);
-        addCard("Obsessive Technician", 115.0);
-
-        addCard("Zilliax Deluxe 3000", 80.0);
-        addCard("Watfin", 85.0);
-
-        // ============================================================
-        // OCR ALIASES
-        // ============================================================
-
-        addAlias("soldieroftheinfinite", "Soldier of the Infinite");
-        addAlias("soldieroftheinfinite", "Soldier of the Infinite");
-        addAlias("soldierolf theinfinite", "Soldier of the Infinite");
-        addAlias("soldierolf the infinite", "Soldier of the Infinite");
-        addAlias("soldierolf the infinit", "Soldier of the Infinite");
-        addAlias("sotdierofinfinite", "Soldier of the Infinite");
-        addAlias("sotdierof theinfinite", "Soldier of the Infinite");
-        addAlias("so1dieroftheinfinite", "Soldier of the Infinite");
-        addAlias("so1dieroftheinfinite", "Soldier of the Infinite");
-        addAlias("soldieroftheinfinit", "Soldier of the Infinite");
-        addAlias("soldier of the infinite", "Soldier of the Infinite");
-
-        addAlias("burstingleyline", "Bursting Leyline");
-        addAlias("bursting leyline", "Bursting Leyline");
-        addAlias("burstingleylinee", "Bursting Leyline");
-
-        addAlias("contrabandwands", "Contraband Wands");
-        addAlias("contraband wand", "Contraband Wands");
-        addAlias("contrabandwands", "Contraband Wands");
-
-        addAlias("crystallizedleyline", "Crystallized Leyline");
-        addAlias("crystallisedleyline", "Crystallized Leyline");
-
-        addAlias("surgen eedle", "Surge Needle");
-        addAlias("surgeneedle", "Surge Needle");
-
-        addAlias("leyline nexus", "Leyline Nexus");
-        addAlias("leylinenexus", "Leyline Nexus");
-
-        addAlias("mysticrunesaber", "Mystic Runesaber");
-        addAlias("mystic runesaber", "Mystic Runesaber");
-
-        addAlias("leywalker", "Ley Walker");
-        addAlias("ley walker", "Ley Walker");
-
-        addAlias("tunnelinggeomancer", "Tunneling Geomancer");
-        addAlias("tunneling geomancer", "Tunneling Geomancer");
-
-        addAlias("shadowedinformant", "Shadowed Informant");
-        addAlias("shadowed informant", "Shadowed Informant");
-
-        addAlias("carrierwhelp", "Carrier Whelp");
-        addAlias("carrier whelp", "Carrier Whelp");
-
-        addAlias("hopefuldryad", "Hopeful Dryad");
-        addAlias("hopeful dryad", "Hopeful Dryad");
-
-        addAlias("raptorherald", "Raptor Herald");
-        addAlias("raptor herald", "Raptor Herald");
-
-        addAlias("experimentalanimation", "Experimental Animation");
-        addAlias("experimental animation", "Experimental Animation");
-
-        addAlias("obsessivetechnician", "Obsessive Technician");
-        addAlias("obsessive technician", "Obsessive Technician");
-
-        addAlias("violetpunisher", "Violet Punisher");
-        addAlias("violet punisher", "Violet Punisher");
-
-        addAlias("whelp of the infinite", "Whelp of the Infinite");
-        addAlias("whelpinfinite", "Whelp of the Infinite");
-        addAlias("whelp of infinite", "Whelp of the Infinite");
-
-        addAlias("infestedbreath", "Infested Breath");
-        addAlias("infested breath", "Infested Breath");
-
-        addAlias("emergencysurgery", "Emergency Surgery");
-        addAlias("emergency surgery", "Emergency Surgery");
-
-        addAlias("drinkblood", "Drink Blood");
-        addAlias("drink blood", "Drink Blood");
-
-        addAlias("disguiseddoctor", "Disguised Doctor");
-        addAlias("disguised doctor", "Disguised Doctor");
-
-        addAlias("corpsecannon", "Corpse Cannon");
-        addAlias("corpse cannon", "Corpse Cannon");
-
-        addAlias("voidsoul", "Void Soul");
-        addAlias("void soul", "Void Soul");
-
-        addAlias("voidblast", "Void Blast");
-        addAlias("void blast", "Void Blast");
-
-        addAlias("viciousvoidscale", "Vicious Voidscale");
-        addAlias("vicious voidscale", "Vicious Voidscale");
-
-        addAlias("widowsbite", "Widow's Bite");
-        addAlias("widows bite", "Widow's Bite");
-        addAlias("widow's bite", "Widow's Bite");
-
-        addAlias("infestthescullery", "Infest the Scullery");
-        addAlias("infest the scullery", "Infest the Scullery");
-
-        addAlias("underbellynetwork", "Underbelly Network");
-        addAlias("underbelly network", "Underbelly Network");
-
-        addAlias("guarddog", "Guard Dog");
-        addAlias("guard dog", "Guard Dog");
-
-        addAlias("digforfreedom", "Dig for Freedom");
-        addAlias("dig for freedom", "Dig for Freedom");
-
-        addAlias("vigilantsentry", "Vigilant Sentry");
-        addAlias("vigilant sentry", "Vigilant Sentry");
-
-        addAlias("truthseeker", "Truth Seeker");
-        addAlias("truth seeker", "Truth Seeker");
-
-        addAlias("holybola", "Holy Bola!");
-        addAlias("holy bola", "Holy Bola!");
-
-        addAlias("dalaranchampion", "Dalaran Champion");
-        addAlias("dalaran champion", "Dalaran Champion");
-
-        addAlias("commanderbeatrix", "Commander Beatrix");
-        addAlias("commander beatrix", "Commander Beatrix");
-
-        addAlias("undeathsentence", "Undeath Sentence");
-        addAlias("undeath sentence", "Undeath Sentence");
-
-        addAlias("karovthebroken", "Karov the Broken");
-        addAlias("karov the broken", "Karov the Broken");
-
-        addAlias("jadeguardians", "Jade Guardians");
-        addAlias("jade guardians", "Jade Guardians");
-
-        addAlias("inspectormurloc holmes", "Inspector Murloc Holmes");
-        addAlias("inspectormurloc holmes", "Inspector Murloc Holmes");
-        addAlias("inspectormurloc", "Inspector Murloc Holmes");
-
-        addAlias("warptooth", "Warptooth");
-        addAlias("warptooth", "Warptooth");
-
-        addAlias("jailhousemanastorm", "Jailhouse Manastorm");
-        addAlias("jailhouse manastorm", "Jailhouse Manastorm");
-
-        addAlias("zilliaxdeluxe3000", "Zilliax Deluxe 3000");
-        addAlias("zilliax deluxe 3000", "Zilliax Deluxe 3000");
-
-        addAlias("watfin", "Watfin");
-    }
-
-    // ================================================================
-    // OCR CORRECTION
-    // ================================================================
-
-    public static String correctOcr(String input) {
-
-        if (input == null) {
-            return "";
-        }
-
-        String normalized = normalize(input);
-
-        if (normalized.isEmpty()) {
-            return "";
-        }
-
-        // Exact alias
-        CardData aliasCard = CARDS.get(normalized);
-
-        if (aliasCard != null) {
-            return aliasCard.name;
-        }
-
-        // Soldier of the Infinite - OCR is especially unreliable here
-        if (normalized.contains("soldier")
-                && normalized.contains("infinite")) {
-            return "Soldier of the Infinite";
-        }
-
-        if (normalized.contains("sotdier")
-                || normalized.contains("so1dier")) {
-            return "Soldier of the Infinite";
-        }
-
-        if (normalized.contains("soldierolf")
-                && normalized.contains("infinit")) {
-            return "Soldier of the Infinite";
-        }
-
-        // Whelp of the Infinite
-        if (normalized.contains("whelp")
-                && normalized.contains("infinite")) {
-            return "Whelp of the Infinite";
-        }
-
-        // Burstingleyline
-        if (normalized.contains("bursting")
-                && normalized.contains("leyline")) {
-            return "Bursting Leyline";
-        }
-
-        // Contraband Wands
-        if (normalized.contains("contraband")
-                && normalized.contains("wand")) {
-            return "Contraband Wands";
-        }
-
-        // Crystallized Leyline
-        if (normalized.contains("crystallized")
-                && normalized.contains("leyline")) {
-            return "Crystallized Leyline";
-        }
-
-        // Surge Needle
-        if (normalized.contains("surge")
-                && normalized.contains("needle")) {
-            return "Surge Needle";
-        }
-
-        // Ley Walker
-        if (normalized.contains("ley")
-                && normalized.contains("walker")) {
-            return "Ley Walker";
-        }
-
-        // Mystic Runesaber
-        if (normalized.contains("mystic")
-                && normalized.contains("runesaber")) {
-            return "Mystic Runesaber";
-        }
-
-        return cleanCardName(input);
-    }
-
-    // ================================================================
-    // SCORE
-    // ================================================================
-
-    public static double getCardScore(String cardName) {
-
-        if (cardName == null || cardName.trim().isEmpty()) {
-            return 0.0;
-        }
-
-        String corrected = correctOcr(cardName);
-        String normalized = normalize(corrected);
-
-        CardData card = CARDS.get(normalized);
-
-        if (card == null) {
-            return 0.0;
-        }
-
-        return card.baseScore;
-    }
-
-    // ================================================================
-    // RECOMMENDATION
-    // ================================================================
-
-    public static int recommend(
-            String card1,
-            String card2,
-            String card3) {
-
-        double score1 = getCardScore(card1);
-        double score2 = getCardScore(card2);
-        double score3 = getCardScore(card3);
-
-        if (score1 >= score2 && score1 >= score3) {
-            return 1;
-        }
-
-        if (score2 >= score1 && score2 >= score3) {
-            return 2;
-        }
-
-        return 3;
-    }
-
-    // ================================================================
-    // REASON
-    // ================================================================
-
-    public static String getReason(String cardName) {
-
-        if (cardName == null || cardName.trim().isEmpty()) {
-            return "Korttia ei tunnistettu";
-        }
-
-        String corrected = correctOcr(cardName);
-        double score = getCardScore(corrected);
-
-        if (score <= 0.0) {
-            return "Korttia ei tunnistettu";
-        }
-
-        return "Arena-arvo " + formatScore(score) + "/10";
-    }
-
-    // ================================================================
-    // VALID CARD
-    // ================================================================
-
-    public static boolean isValidCard(String cardName) {
-
-        if (cardName == null || cardName.trim().isEmpty()) {
-            return false;
-        }
-
-        String corrected = correctOcr(cardName);
-        return CARDS.containsKey(normalize(corrected));
-    }
-
-    // ================================================================
-    // CLEAN OCR
-    // ================================================================
-
-    private static String cleanCardName(String text) {
-
-        if (text == null) {
-            return "";
-        }
-
-        String[] lines = text.split("\\r?\\n");
-
-        for (String line : lines) {
-
-            String cleaned = line
-                    .replaceAll("[^A-Za-z0-9'! ]", " ")
-                    .replaceAll("\\s+", " ")
-                    .trim();
-
-            int letters = 0;
-
-            for (int i = 0; i < cleaned.length(); i++) {
-                if (Character.isLetter(cleaned.charAt(i))) {
-                    letters++;
-                }
-            }
-
-            if (letters >= 2) {
-                return cleaned;
-            }
-        }
-
-        return text
-                .replaceAll("[^A-Za-z0-9'! ]", " ")
-                .replaceAll("\\s+", " ")
-                .trim();
-    }
-
-    // ================================================================
-    // NORMALIZE
-    // ================================================================
-
-    private static String normalize(String text) {
-
-        if (text == null) {
-            return "";
-        }
-
-        return text
-                .toLowerCase(Locale.US)
-                .replaceAll("[^a-z0-9]", "");
-    }
-
-    // ================================================================
-    // FORMAT
-    // ================================================================
-
-    public static String formatScore(double score) {
-
-        return String.format(Locale.US, "%.1f", score);
-    }
-
-    // ================================================================
-    // CARD DATA
-    // ================================================================
 
     private static class CardData {
 
         String name;
         double baseScore;
+        int mana;
+        int attack;
+        int health;
 
-        CardData(String name, double hearthArenaScore) {
+        boolean minion;
+        boolean spell;
+        boolean weapon;
 
+        boolean removal;
+        boolean aoe;
+        boolean draw;
+        boolean discover;
+        boolean taunt;
+        boolean divineShield;
+        boolean battlecry;
+        boolean deathrattle;
+
+        CardData(
+                String name,
+                double baseScore,
+                int mana,
+                int attack,
+                int health
+        ) {
             this.name = name;
+            this.baseScore = baseScore;
+            this.mana = mana;
+            this.attack = attack;
+            this.health = health;
 
-            // HearthArena uses roughly a 0-140 scale.
-            // Our application uses 0-10.
-            this.baseScore = roundToOneDecimal(
-                    hearthArenaScore / 14.0
-            );
-
-            if (this.baseScore < 0.0) {
-                this.baseScore = 0.0;
-            }
-
-            if (this.baseScore > 10.0) {
-                this.baseScore = 10.0;
-            }
+            this.minion = true;
+            this.spell = false;
+            this.weapon = false;
         }
     }
 
-    // ================================================================
-    // ADD CARD
-    // ================================================================
+    private static final Map<String, CardData> CARDS =
+            new HashMap<>();
 
-    private static void addCard(
-            String name,
-            double hearthArenaScore) {
+    static {
 
-        CARDS.put(
-                normalize(name),
-                new CardData(
-                        name,
-                        hearthArenaScore
-                )
+        /*
+         * =====================================================
+         * TEST / CLASSIC CARDS
+         * =====================================================
+         */
+
+        addCard("Frostbolt", 7.5, 2, 0, 0);
+        makeSpell("Frostbolt");
+        CARDS.get(normalize("Frostbolt")).removal = true;
+
+        addCard("Fireball", 8.0, 4, 0, 0);
+        makeSpell("Fireball");
+        CARDS.get(normalize("Fireball")).removal = true;
+
+        addCard("Water Elemental", 8.0, 4, 3, 6);
+
+        addCard("Chillwind Yeti", 6.0, 4, 4, 5);
+
+        addCard("Boulderfist Ogre", 5.0, 6, 6, 7);
+
+        addCard("River Crocolisk", 4.0, 2, 2, 3);
+
+        addCard("Bloodfen Raptor", 4.0, 2, 3, 2);
+
+        addCard("Arcane Intellect", 6.5, 3, 0, 0);
+        makeSpell("Arcane Intellect");
+        CARDS.get(normalize("Arcane Intellect")).draw = true;
+
+        addCard("Polymorph", 7.0, 4, 0, 0);
+        makeSpell("Polymorph");
+        CARDS.get(normalize("Polymorph")).removal = true;
+
+        addCard("Flamestrike", 8.0, 7, 0, 0);
+        makeSpell("Flamestrike");
+        CARDS.get(normalize("Flamestrike")).removal = true;
+        CARDS.get(normalize("Flamestrike")).aoe = true;
+
+        addCard("Consecration", 7.5, 4, 0, 0);
+        makeSpell("Consecration");
+        CARDS.get(normalize("Consecration")).removal = true;
+        CARDS.get(normalize("Consecration")).aoe = true;
+
+        addCard("Truesilver Champion", 8.5, 4, 4, 2);
+        makeWeapon("Truesilver Champion");
+        CARDS.get(normalize("Truesilver Champion")).removal = true;
+
+        addCard("Fiery War Axe", 8.0, 2, 3, 2);
+        makeWeapon("Fiery War Axe");
+        CARDS.get(normalize("Fiery War Axe")).removal = true;
+
+        addCard("Shadow Word: Pain", 6.5, 2, 0, 0);
+        makeSpell("Shadow Word: Pain");
+        CARDS.get(normalize("Shadow Word: Pain")).removal = true;
+
+        addCard("Holy Nova", 7.0, 5, 0, 0);
+        makeSpell("Holy Nova");
+        CARDS.get(normalize("Holy Nova")).removal = true;
+        CARDS.get(normalize("Holy Nova")).aoe = true;
+
+        addCard("Backstab", 7.0, 0, 0, 0);
+        makeSpell("Backstab");
+        CARDS.get(normalize("Backstab")).removal = true;
+
+        addCard("Eviscerate", 8.0, 2, 0, 0);
+        makeSpell("Eviscerate");
+        CARDS.get(normalize("Eviscerate")).removal = true;
+
+        addCard("Swipe", 8.0, 4, 0, 0);
+        makeSpell("Swipe");
+        CARDS.get(normalize("Swipe")).removal = true;
+        CARDS.get(normalize("Swipe")).aoe = true;
+
+        addCard("Kill Command", 7.0, 3, 0, 0);
+        makeSpell("Kill Command");
+        CARDS.get(normalize("Kill Command")).removal = true;
+
+        addCard("Animal Companion", 8.0, 3, 0, 0);
+        makeSpell("Animal Companion");
+
+        addCard("Hex", 7.5, 4, 0, 0);
+        makeSpell("Hex");
+        CARDS.get(normalize("Hex")).removal = true;
+
+        addCard("Lightning Bolt", 6.5, 1, 0, 0);
+        makeSpell("Lightning Bolt");
+        CARDS.get(normalize("Lightning Bolt")).removal = true;
+
+        addCard("Hellfire", 7.0, 4, 0, 0);
+        makeSpell("Hellfire");
+        CARDS.get(normalize("Hellfire")).removal = true;
+        CARDS.get(normalize("Hellfire")).aoe = true;
+
+
+        /*
+         * =====================================================
+         * CURRENT ARENA CARDS
+         *
+         * Values converted to our 0-10 scale.
+         * No additional feature bonuses are added to the score.
+         * =====================================================
+         */
+
+        // Soldier of the Infinite
+        // Current Arena value ~58 / 140 = 4.1 / 10
+        addCard(
+                "Soldier of the Infinite",
+                4.1,
+                3,
+                3,
+                4
+        );
+
+        CARDS.get(
+                normalize("Soldier of the Infinite")
+        ).taunt = true;
+
+
+        // Bursting Leyline
+        addCard(
+                "Bursting Leyline",
+                4.1,
+                4,
+                0,
+                0
+        );
+
+        makeSpell("Bursting Leyline");
+        CARDS.get(
+                normalize("Bursting Leyline")
+        ).removal = true;
+
+
+        // Contraband Wands
+        addCard(
+                "Contraband Wands",
+                4.6,
+                2,
+                0,
+                0
+        );
+
+        makeSpell("Contraband Wands");
+
+
+        // Crystallized Leyline
+        addCard(
+                "Crystallized Leyline",
+                5.4,
+                0,
+                0,
+                0
+        );
+
+        makeSpell("Crystallized Leyline");
+
+
+        // Surge Needle
+        addCard(
+                "Surge Needle",
+                5.6,
+                0,
+                0,
+                0
+        );
+
+        makeSpell("Surge Needle");
+
+
+        // Leyline Nexus
+        addCard(
+                "Leyline Nexus",
+                4.5,
+                0,
+                0,
+                0
+        );
+
+        makeSpell("Leyline Nexus");
+
+
+        // Mystic Runesaber
+        addCard(
+                "Mystic Runesaber",
+                5.5,
+                4,
+                3,
+                4
+        );
+
+
+        // Ley Walker
+        addCard(
+                "Ley Walker",
+                6.4,
+                0,
+                0,
+                0
+        );
+
+
+        // Cold Snap
+        addCard(
+                "Cold Snap",
+                5.4,
+                0,
+                0,
+                0
+        );
+
+        makeSpell("Cold Snap");
+
+
+        // Code Violet
+        addCard(
+                "Code Violet",
+                5.1,
+                0,
+                0,
+                0
+        );
+
+        makeSpell("Code Violet");
+
+
+        // Tunneling Geomancer
+        addCard(
+                "Tunneling Geomancer",
+                5.4,
+                3,
+                3,
+                3
+        );
+
+
+        // Watfin
+        addCard(
+                "Watfin",
+                6.1,
+                0,
+                0,
+                0
+        );
+
+
+        // Zilliax Deluxe 3000
+        addCard(
+                "Zilliax Deluxe 3000",
+                5.7,
+                0,
+                0,
+                0
+        );
+
+
+        // Shadowed Informant
+        addCard(
+                "Shadowed Informant",
+                6.7,
+                0,
+                0,
+                0
+        );
+
+
+        // Hopeful Dryad
+        addCard(
+                "Hopeful Dryad",
+                5.8,
+                3,
+                3,
+                3
+        );
+
+
+        // Raptor Herald
+        addCard(
+                "Raptor Herald",
+                6.4,
+                3,
+                3,
+                3
+        );
+
+
+        // Carrier Whelp
+        addCard(
+                "Carrier Whelp",
+                6.4,
+                0,
+                0,
+                0
+        );
+
+
+        // Experimental Animation
+        addCard(
+                "Experimental Animation",
+                8.2,
+                0,
+                0,
+                0
+        );
+
+
+        // Obsessive Technician
+        addCard(
+                "Obsessive Technician",
+                8.2,
+                0,
+                0,
+                0
+        );
+
+
+        // Violet Punisher
+        addCard(
+                "Violet Punisher",
+                7.4,
+                0,
+                0,
+                0
+        );
+
+
+        // Whelp of the Infinite
+        addCard(
+                "Whelp of the Infinite",
+                7.4,
+                0,
+                0,
+                0
+        );
+
+
+        // Infested Breath
+        addCard(
+                "Infested Breath",
+                7.2,
+                0,
+                0,
+                0
+        );
+
+
+        // Emergency Surgery
+        addCard(
+                "Emergency Surgery",
+                5.7,
+                0,
+                0,
+                0
+        );
+
+
+        // Drink Blood
+        addCard(
+                "Drink Blood",
+                5.2,
+                0,
+                0,
+                0
+        );
+
+
+        // Disguised Doctor
+        addCard(
+                "Disguised Doctor",
+                4.1,
+                0,
+                0,
+                0
+        );
+
+
+        // Corpse Cannon
+        addCard(
+                "Corpse Cannon",
+                6.9,
+                0,
+                0,
+                0
+        );
+
+
+        // Void Soul
+        addCard(
+                "Void Soul",
+                5.1,
+                0,
+                0,
+                0
+        );
+
+
+        // Void Blast
+        addCard(
+                "Void Blast",
+                5.7,
+                0,
+                0,
+                0
+        );
+
+
+        // Vicious Voidscale
+        addCard(
+                "Vicious Voidscale",
+                6.1,
+                0,
+                0,
+                0
+        );
+
+
+        // Widow's Bite
+        addCard(
+                "Widow's Bite",
+                5.4,
+                0,
+                0,
+                0
+        );
+
+
+        // Infest the Scullery
+        addCard(
+                "Infest the Scullery",
+                4.2,
+                0,
+                0,
+                0
+        );
+
+
+        // Underbelly Network
+        addCard(
+                "Underbelly Network",
+                6.8,
+                0,
+                0,
+                0
+        );
+
+
+        // Guard Dog
+        addCard(
+                "Guard Dog",
+                6.3,
+                0,
+                0,
+                0
+        );
+
+
+        // Dig for Freedom
+        addCard(
+                "Dig for Freedom",
+                6.4,
+                0,
+                0,
+                0
+        );
+
+
+        // Vigilant Sentry
+        addCard(
+                "Vigilant Sentry",
+                1.7,
+                0,
+                0,
+                0
+        );
+
+
+        // Truth Seeker
+        addCard(
+                "Truth Seeker",
+                5.5,
+                0,
+                0,
+                0
+        );
+
+
+        // Judgment
+        addCard(
+                "Judgment",
+                6.2,
+                0,
+                0,
+                0
+        );
+
+
+        // Holy Bola!
+        addCard(
+                "Holy Bola!",
+                4.0,
+                0,
+                0,
+                0
+        );
+
+
+        // Dalaran Champion
+        addCard(
+                "Dalaran Champion",
+                3.9,
+                0,
+                0,
+                0
+        );
+
+
+        // Commander Beatrix
+        addCard(
+                "Commander Beatrix",
+                3.9,
+                0,
+                0,
+                0
+        );
+
+
+        // Undeath Sentence
+        addCard(
+                "Undeath Sentence",
+                3.6,
+                0,
+                0,
+                0
+        );
+
+
+        // Karov the Broken
+        addCard(
+                "Karov the Broken",
+                7.4,
+                0,
+                0,
+                0
+        );
+
+
+        // Jade Guardians
+        addCard(
+                "Jade Guardians",
+                5.8,
+                0,
+                0,
+                0
+        );
+
+
+        // Inspector Murloc Holmes
+        addCard(
+                "Inspector Murloc Holmes",
+                5.0,
+                0,
+                0,
+                0
+        );
+
+
+        // Jailhouse Manastorm
+        addCard(
+                "Jailhouse Manastorm",
+                9.3,
+                0,
+                0,
+                0
+        );
+
+
+        // Warptooth
+        addCard(
+                "Warptooth",
+                6.4,
+                0,
+                0,
+                0
+        );
+
+
+        /*
+         * =====================================================
+         * OCR ALIASES
+         * =====================================================
+         */
+
+        addAlias(
+                "soldierolf theinfinite",
+                "Soldier of the Infinite"
+        );
+
+        addAlias(
+                "soldierolf the infinite",
+                "Soldier of the Infinite"
+        );
+
+        addAlias(
+                "soldierolf the infinit",
+                "Soldier of the Infinite"
+        );
+
+        addAlias(
+                "sotdier of infinite",
+                "Soldier of the Infinite"
+        );
+
+        addAlias(
+                "so1dier of the infinite",
+                "Soldier of the Infinite"
+        );
+
+        addAlias(
+                "soldieroftheinfinit",
+                "Soldier of the Infinite"
+        );
+
+        addAlias(
+                "soldier of the infinite",
+                "Soldier of the Infinite"
+        );
+
+
+        addAlias(
+                "burstingleyline",
+                "Bursting Leyline"
+        );
+
+        addAlias(
+                "bursting leyline",
+                "Bursting Leyline"
+        );
+
+
+        addAlias(
+                "contrabandwands",
+                "Contraband Wands"
+        );
+
+        addAlias(
+                "contraband wand",
+                "Contraband Wands"
+        );
+
+
+        addAlias(
+                "crystallizedleyline",
+                "Crystallized Leyline"
+        );
+
+        addAlias(
+                "crystalizedleyline",
+                "Crystallized Leyline"
+        );
+
+
+        addAlias(
+                "surgeneedle",
+                "Surge Needle"
+        );
+
+
+        addAlias(
+                "leylinenexus",
+                "Leyline Nexus"
+        );
+
+
+        addAlias(
+                "mysticrunesaber",
+                "Mystic Runesaber"
+        );
+
+
+        addAlias(
+                "leywalker",
+                "Ley Walker"
+        );
+
+
+        addAlias(
+                "coldsnap",
+                "Cold Snap"
+        );
+
+
+        addAlias(
+                "codeviolet",
+                "Code Violet"
+        );
+
+
+        addAlias(
+                "tunnelinggeomancer",
+                "Tunneling Geomancer"
+        );
+
+
+        addAlias(
+                "shadowedinformant",
+                "Shadowed Informant"
+        );
+
+
+        addAlias(
+                "carrierwhelp",
+                "Carrier Whelp"
+        );
+
+
+        addAlias(
+                "hopefuldryad",
+                "Hopeful Dryad"
+        );
+
+
+        addAlias(
+                "raptorherald",
+                "Raptor Herald"
+        );
+
+
+        addAlias(
+                "experimentalanimation",
+                "Experimental Animation"
+        );
+
+
+        addAlias(
+                "obsessivetechnician",
+                "Obsessive Technician"
+        );
+
+
+        addAlias(
+                "violetpunisher",
+                "Violet Punisher"
+        );
+
+
+        addAlias(
+                "whelpinfinite",
+                "Whelp of the Infinite"
+        );
+
+
+        addAlias(
+                "infestedbreath",
+                "Infested Breath"
+        );
+
+
+        addAlias(
+                "emergencysurgery",
+                "Emergency Surgery"
+        );
+
+
+        addAlias(
+                "drinkblood",
+                "Drink Blood"
+        );
+
+
+        addAlias(
+                "disguiseddoctor",
+                "Disguised Doctor"
+        );
+
+
+        addAlias(
+                "corpsecannon",
+                "Corpse Cannon"
+        );
+
+
+        addAlias(
+                "voidsoul",
+                "Void Soul"
+        );
+
+
+        addAlias(
+                "voidblast",
+                "Void Blast"
+        );
+
+
+        addAlias(
+                "viciousvoidscale",
+                "Vicious Voidscale"
+        );
+
+
+        addAlias(
+                "widowsbite",
+                "Widow's Bite"
+        );
+
+
+        addAlias(
+                "infestthescullery",
+                "Infest the Scullery"
+        );
+
+
+        addAlias(
+                "underbellynetwork",
+                "Underbelly Network"
+        );
+
+
+        addAlias(
+                "guarddog",
+                "Guard Dog"
+        );
+
+
+        addAlias(
+                "digforfreedom",
+                "Dig for Freedom"
+        );
+
+
+        addAlias(
+                "vigilantsentry",
+                "Vigilant Sentry"
+        );
+
+
+        addAlias(
+                "truthseeker",
+                "Truth Seeker"
+        );
+
+
+        addAlias(
+                "holybola",
+                "Holy Bola!"
+        );
+
+
+        addAlias(
+                "dalaranchampion",
+                "Dalaran Champion"
+        );
+
+
+        addAlias(
+                "commanderbeatrix",
+                "Commander Beatrix"
+        );
+
+
+        addAlias(
+                "undeathsentence",
+                "Undeath Sentence"
+        );
+
+
+        addAlias(
+                "karovthebroken",
+                "Karov the Broken"
+        );
+
+
+        addAlias(
+                "jadeguardians",
+                "Jade Guardians"
+        );
+
+
+        addAlias(
+                "inspectormurloc",
+                "Inspector Murloc Holmes"
+        );
+
+
+        addAlias(
+                "jailhousemanastorm",
+                "Jailhouse Manastorm"
+        );
+
+
+        addAlias(
+                "warptooth",
+                "Warptooth"
         );
     }
 
-    // ================================================================
-    // ADD OCR ALIAS
-    // ================================================================
+
+    /*
+     * =========================================================
+     * CARD HELPERS
+     * =========================================================
+     */
+
+    private static void addCard(
+            String name,
+            double score,
+            int mana,
+            int attack,
+            int health
+    ) {
+
+        CardData card =
+                new CardData(
+                        name,
+                        score,
+                        mana,
+                        attack,
+                        health
+                );
+
+        CARDS.put(
+                normalize(name),
+                card
+        );
+    }
+
+
+    private static void makeSpell(
+            String name
+    ) {
+
+        CardData card =
+                CARDS.get(
+                        normalize(name)
+                );
+
+        if (card == null) {
+            return;
+        }
+
+        card.spell = true;
+        card.minion = false;
+    }
+
+
+    private static void makeWeapon(
+            String name
+    ) {
+
+        CardData card =
+                CARDS.get(
+                        normalize(name)
+                );
+
+        if (card == null) {
+            return;
+        }
+
+        card.weapon = true;
+        card.minion = false;
+    }
+
 
     private static void addAlias(
             String alias,
-            String realName) {
+            String realName
+    ) {
 
-        CardData card = CARDS.get(normalize(realName));
+        CardData card =
+                CARDS.get(
+                        normalize(realName)
+                );
 
         if (card != null) {
+
             CARDS.put(
                     normalize(alias),
                     card
@@ -529,12 +1030,591 @@ public class ArenaAdvisor {
         }
     }
 
-    // ================================================================
-    // ROUND
-    // ================================================================
 
-    private static double roundToOneDecimal(double value) {
+    /*
+     * =========================================================
+     * OCR
+     * =========================================================
+     */
 
-        return Math.round(value * 10.0) / 10.0;
+    private static String correctOcr(
+            String cardName
+    ) {
+
+        if (cardName == null) {
+            return "";
+        }
+
+        String original =
+                cardName.trim();
+
+        if (original.isEmpty()) {
+            return "";
+        }
+
+        String normalized =
+                normalize(original);
+
+
+        /*
+         * SOLDIER OF THE INFINITE
+         *
+         * OCR has previously produced:
+         *
+         * Soldierolf the Infinite
+         * Soldierolf the infinit
+         * Sotdier of Infinite
+         * So1dier of the Infinite
+         * etc.
+         */
+
+        if (
+                normalized.contains("soldierolf")
+                        && normalized.contains("infinite")
+        ) {
+            return "Soldier of the Infinite";
+        }
+
+        if (
+                normalized.contains("sotdier")
+                        && normalized.contains("infinite")
+        ) {
+            return "Soldier of the Infinite";
+        }
+
+        if (
+                normalized.contains("so1dier")
+                        && normalized.contains("infinite")
+        ) {
+            return "Soldier of the Infinite";
+        }
+
+        if (
+                normalized.contains("soldier")
+                        && normalized.contains("infinite")
+        ) {
+            return "Soldier of the Infinite";
+        }
+
+
+        /*
+         * WHELP OF THE INFINITE
+         */
+
+        if (
+                normalized.contains("whelp")
+                        && normalized.contains("infinite")
+        ) {
+            return "Whelp of the Infinite";
+        }
+
+
+        /*
+         * BURSTING LEYLINE
+         */
+
+        if (
+                normalized.contains("bursting")
+                        && normalized.contains("leyline")
+        ) {
+            return "Bursting Leyline";
+        }
+
+
+        /*
+         * CONTRABAND WANDS
+         */
+
+        if (
+                normalized.contains("contraband")
+                        && normalized.contains("wand")
+        ) {
+            return "Contraband Wands";
+        }
+
+
+        /*
+         * CRYSTALLIZED LEYLINE
+         */
+
+        if (
+                normalized.contains("crystallized")
+                        && normalized.contains("leyline")
+        ) {
+            return "Crystallized Leyline";
+        }
+
+        if (
+                normalized.contains("crystalized")
+                        && normalized.contains("leyline")
+        ) {
+            return "Crystallized Leyline";
+        }
+
+
+        /*
+         * SURGE NEEDLE
+         */
+
+        if (
+                normalized.contains("surge")
+                        && normalized.contains("needle")
+        ) {
+            return "Surge Needle";
+        }
+
+
+        /*
+         * LEYLINE NEXUS
+         */
+
+        if (
+                normalized.contains("leyline")
+                        && normalized.contains("nexus")
+        ) {
+            return "Leyline Nexus";
+        }
+
+
+        /*
+         * MYSTIC RUNESABER
+         */
+
+        if (
+                normalized.contains("mystic")
+                        && normalized.contains("runesaber")
+        ) {
+            return "Mystic Runesaber";
+        }
+
+
+        /*
+         * LEY WALKER
+         */
+
+        if (
+                normalized.contains("ley")
+                        && normalized.contains("walker")
+        ) {
+            return "Ley Walker";
+        }
+
+
+        /*
+         * TUNNELING GEOMANCER
+         */
+
+        if (
+                normalized.contains("tunneling")
+                        && normalized.contains("geomancer")
+        ) {
+            return "Tunneling Geomancer";
+        }
+
+
+        /*
+         * SHADOWED INFORMANT
+         */
+
+        if (
+                normalized.contains("shadowed")
+                        && normalized.contains("informant")
+        ) {
+            return "Shadowed Informant";
+        }
+
+
+        /*
+         * CARRIER WHELP
+         */
+
+        if (
+                normalized.contains("carrier")
+                        && normalized.contains("whelp")
+        ) {
+            return "Carrier Whelp";
+        }
+
+
+        /*
+         * HOPEFUL DRYAD
+         */
+
+        if (
+                normalized.contains("hopeful")
+                        && normalized.contains("dryad")
+        ) {
+            return "Hopeful Dryad";
+        }
+
+
+        /*
+         * RAPTOR HERALD
+         */
+
+        if (
+                normalized.contains("raptor")
+                        && normalized.contains("herald")
+        ) {
+            return "Raptor Herald";
+        }
+
+
+        return original;
+    }
+
+
+    /*
+     * =========================================================
+     * VALID CARD
+     * =========================================================
+     */
+
+    private static boolean isValidCard(
+            String cardName
+    ) {
+
+        if (cardName == null) {
+            return false;
+        }
+
+        String value =
+                cardName.trim();
+
+        if (value.isEmpty()) {
+            return false;
+        }
+
+        if (
+                value.equalsIgnoreCase(
+                        "Ei tunnistettu"
+                )
+        ) {
+            return false;
+        }
+
+        return true;
+    }
+
+
+    /*
+     * =========================================================
+     * NORMALIZE
+     * =========================================================
+     */
+
+    private static String normalize(
+            String value
+    ) {
+
+        if (value == null) {
+            return "";
+        }
+
+        return value
+                .toLowerCase(Locale.US)
+                .replaceAll(
+                        "[^a-z0-9]",
+                        ""
+                );
+    }
+
+
+    /*
+     * =========================================================
+     * SCORE
+     *
+     * IMPORTANT:
+     * The base Arena value IS the final score.
+     *
+     * No artificial +0.2 removal
+     * No artificial +0.3 AOE
+     * No artificial +0.1 Taunt
+     *
+     * This prevents the displayed score from drifting
+     * away from the actual Arena value.
+     * =========================================================
+     */
+
+    private static double score(
+            String cardName
+    ) {
+
+        if (!isValidCard(cardName)) {
+            return 0.0;
+        }
+
+        String corrected =
+                correctOcr(cardName);
+
+        CardData card =
+                CARDS.get(
+                        normalize(corrected)
+                );
+
+        if (card == null) {
+            return 0.0;
+        }
+
+        return Math.min(
+                10.0,
+                Math.max(
+                        0.0,
+                        card.baseScore
+                )
+        );
+    }
+
+
+    /*
+     * =========================================================
+     * GET CARD SCORE
+     *
+     * String version
+     *
+     * Returns DOUBLE because CaptureService uses
+     * the score numerically.
+     * =========================================================
+     */
+
+    public static double getCardScore(
+            String cardName
+    ) {
+
+        return score(cardName);
+    }
+
+
+    /*
+     * =========================================================
+     * GET CARD SCORE
+     *
+     * DOUBLE COMPATIBILITY VERSION
+     *
+     * Kept so existing CaptureService calls that already
+     * contain a numerical value continue to compile.
+     * =========================================================
+     */
+
+    public static double getCardScore(
+            double value
+    ) {
+
+        return Math.min(
+                10.0,
+                Math.max(
+                        0.0,
+                        value
+                )
+        );
+    }
+
+
+    /*
+     * =========================================================
+     * RECOMMEND
+     *
+     * STRING VERSION
+     * =========================================================
+     */
+
+    public static String recommend(
+            String card1,
+            String card2,
+            String card3
+    ) {
+
+        double score1 =
+                getCardScore(card1);
+
+        double score2 =
+                getCardScore(card2);
+
+        double score3 =
+                getCardScore(card3);
+
+        return recommendText(
+                score1,
+                score2,
+                score3,
+                card1,
+                card2,
+                card3
+        );
+    }
+
+
+    /*
+     * =========================================================
+     * RECOMMEND
+     *
+     * INT COMPATIBILITY VERSION
+     *
+     * This is important for the existing CaptureService.
+     * =========================================================
+     */
+
+    public static int recommend(
+            int score1,
+            int score2,
+            int score3
+    ) {
+
+        if (
+                score1 >= score2
+                        && score1 >= score3
+        ) {
+            return 1;
+        }
+
+        if (
+                score2 >= score1
+                        && score2 >= score3
+        ) {
+            return 2;
+        }
+
+        return 3;
+    }
+
+
+    /*
+     * =========================================================
+     * RECOMMEND DOUBLE VERSION
+     * =========================================================
+     */
+
+    public static int recommend(
+            double score1,
+            double score2,
+            double score3
+    ) {
+
+        if (
+                score1 >= score2
+                        && score1 >= score3
+        ) {
+            return 1;
+        }
+
+        if (
+                score2 >= score1
+                        && score2 >= score3
+        ) {
+            return 2;
+        }
+
+        return 3;
+    }
+
+
+    /*
+     * =========================================================
+     * RECOMMEND TEXT
+     * =========================================================
+     */
+
+    private static String recommendText(
+            double score1,
+            double score2,
+            double score3,
+            String card1,
+            String card2,
+            String card3
+    ) {
+
+        int best =
+                recommend(
+                        score1,
+                        score2,
+                        score3
+                );
+
+        String selected;
+
+        double selectedScore;
+
+        if (best == 1) {
+
+            selected =
+                    correctOcr(card1);
+
+            selectedScore =
+                    score1;
+
+        } else if (best == 2) {
+
+            selected =
+                    correctOcr(card2);
+
+            selectedScore =
+                    score2;
+
+        } else {
+
+            selected =
+                    correctOcr(card3);
+
+            selectedScore =
+                    score3;
+        }
+
+        return "KORTTI "
+                + best
+                + ": "
+                + selected
+                + "\nPisteet: "
+                + formatScore(selectedScore)
+                + "/10";
+    }
+
+
+    /*
+     * =========================================================
+     * REASON
+     * =========================================================
+     */
+
+    public static String getReason(
+            String cardName
+    ) {
+
+        if (!isValidCard(cardName)) {
+            return "Korttia ei tunnistettu";
+        }
+
+        String corrected =
+                correctOcr(cardName);
+
+        CardData card =
+                CARDS.get(
+                        normalize(corrected)
+                );
+
+        if (card == null) {
+            return "Korttia ei tunnistettu";
+        }
+
+        return "Arena-arvo "
+                + formatScore(card.baseScore)
+                + "/10";
+    }
+
+
+    /*
+     * =========================================================
+     * FORMAT SCORE
+     * =========================================================
+     */
+
+    private static String formatScore(
+            double score
+    ) {
+
+        return String.format(
+                Locale.US,
+                "%.1f",
+                score
+        );
     }
 }
