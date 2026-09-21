@@ -20,9 +20,9 @@ import android.view.WindowManager;
 import android.widget.TextView;
 
 import com.google.mlkit.vision.common.InputImage;
-import com.google.mlkit.vision.text.Text;
 import com.google.mlkit.vision.text.TextRecognition;
-import com.google.mlkit.vision.text.TextRecognizerOptions;
+import com.google.mlkit.vision.text.TextRecognizer;
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
 import java.nio.ByteBuffer;
 
@@ -43,7 +43,7 @@ public class CaptureService extends Service {
     private boolean captureStarted = false;
     private boolean processingImage = false;
 
-    private com.google.mlkit.vision.text.TextRecognizer recognizer;
+    private TextRecognizer recognizer;
 
     public static void setProjectionData(
             int resultCode,
@@ -549,9 +549,7 @@ public class CaptureService extends Service {
                 && overlay != null) {
 
             try {
-                windowManager.removeView(
-                        overlay
-                );
+                windowManager.removeView(overlay);
             } catch (Exception ignored) {
             }
 
