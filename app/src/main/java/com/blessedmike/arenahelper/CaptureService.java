@@ -55,8 +55,7 @@ public class CaptureService extends Service {
 
     private long lastOCRTime = 0;
 
-    // OCR tehdään noin kerran sekunnissa.
-    private static final long OCR_INTERVAL = 1000;
+    private static final long OCR_INTERVAL = 1200;
 
     public static void setProjectionData(
             int resultCode,
@@ -70,24 +69,16 @@ public class CaptureService extends Service {
     public void onCreate() {
         super.onCreate();
 
-        handler =
-                new Handler(
-                        Looper.getMainLooper()
-                );
+        handler = new Handler(Looper.getMainLooper());
 
-        recognizer =
-                TextRecognition.getClient(
-                        TextRecognizerOptions.DEFAULT_OPTIONS
-                );
+        recognizer = TextRecognition.getClient(
+                TextRecognizerOptions.DEFAULT_OPTIONS
+        );
 
         createNotificationChannel();
-
         createOverlay();
 
-        Log.d(
-                TAG,
-                "Arena Helper CaptureService started"
-        );
+        Log.d(TAG, "Arena Helper CaptureService started");
     }
 
     @Override
@@ -99,17 +90,14 @@ public class CaptureService extends Service {
 
         try {
 
-            Notification notification =
-                    createNotification();
+            Notification notification = createNotification();
 
-            if (Build.VERSION.SDK_INT >=
-                    Build.VERSION_CODES.Q) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
 
                 startForeground(
                         1001,
                         notification,
-                        ServiceInfo
-                                .FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
                 );
 
             } else {
@@ -122,15 +110,10 @@ public class CaptureService extends Service {
 
         } catch (Exception e) {
 
-            Log.e(
-                    TAG,
-                    "Foreground service failed",
-                    e
-            );
+            Log.e(TAG, "Foreground service failed", e);
 
             updateOverlay(
-                    "Arena Helper\n\n" +
-                            "Foreground Service -virhe"
+                    "Arena Helper\n\nForeground Service -virhe"
             );
 
             stopSelf();
@@ -145,8 +128,7 @@ public class CaptureService extends Service {
         } else {
 
             updateOverlay(
-                    "Arena Helper\n\n" +
-                            "Näytönjako puuttuu"
+                    "Arena Helper\n\nNäytönjako puuttuu"
             );
         }
 
@@ -158,32 +140,21 @@ public class CaptureService extends Service {
         try {
 
             windowManager =
-                    (WindowManager)
-                            getSystemService(
-                                    WINDOW_SERVICE
-                            );
+                    (WindowManager) getSystemService(WINDOW_SERVICE);
 
             if (windowManager == null) {
                 return;
             }
 
-            overlayText =
-                    new TextView(this);
+            overlayText = new TextView(this);
 
             overlayText.setText(
-                    "Arena Helper\n\n" +
-                            "Näytönjako käynnissä"
+                    "Arena Helper\n\nNäytönjako käynnissä"
             );
 
-            overlayText.setTextColor(
-                    Color.WHITE
-            );
-
+            overlayText.setTextColor(Color.WHITE);
             overlayText.setTextSize(14);
-
-            overlayText.setGravity(
-                    Gravity.CENTER
-            );
+            overlayText.setGravity(Gravity.CENTER);
 
             overlayText.setPadding(
                     25,
@@ -193,30 +164,20 @@ public class CaptureService extends Service {
             );
 
             overlayText.setBackgroundColor(
-                    Color.argb(
-                            220,
-                            0,
-                            0,
-                            0
-                    )
+                    Color.argb(220, 0, 0, 0)
             );
 
             int overlayType;
 
-            if (Build.VERSION.SDK_INT >=
-                    Build.VERSION_CODES.O) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
 
                 overlayType =
-                        WindowManager
-                                .LayoutParams
-                                .TYPE_APPLICATION_OVERLAY;
+                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
 
             } else {
 
                 overlayType =
-                        WindowManager
-                                .LayoutParams
-                                .TYPE_PHONE;
+                        WindowManager.LayoutParams.TYPE_PHONE;
             }
 
             WindowManager.LayoutParams params =
@@ -231,8 +192,7 @@ public class CaptureService extends Service {
                     );
 
             params.gravity =
-                    Gravity.TOP |
-                            Gravity.CENTER_HORIZONTAL;
+                    Gravity.TOP | Gravity.CENTER_HORIZONTAL;
 
             params.y = 80;
 
@@ -243,29 +203,22 @@ public class CaptureService extends Service {
 
         } catch (Exception e) {
 
-            Log.e(
-                    TAG,
-                    "Overlay error",
-                    e
-            );
+            Log.e(TAG, "Overlay error", e);
         }
     }
 
-    private void updateOverlay(
-            String text
-    ) {
+    private void updateOverlay(String text) {
 
-        if (overlayText == null ||
-                handler == null) {
+        if (overlayText == null || handler == null) {
             return;
         }
 
         handler.post(() -> {
 
             if (overlayText != null) {
-
                 overlayText.setText(text);
             }
+
         });
     }
 
@@ -274,8 +227,7 @@ public class CaptureService extends Service {
         try {
 
             updateOverlay(
-                    "Arena Helper\n\n" +
-                            "Käynnistetään OCR..."
+                    "Arena Helper\n\nKäynnistetään OCR..."
             );
 
             MediaProjectionManager projectionManager =
@@ -285,7 +237,6 @@ public class CaptureService extends Service {
                             );
 
             if (projectionManager == null) {
-
                 throw new IllegalStateException(
                         "MediaProjectionManager puuttuu"
                 );
@@ -298,7 +249,6 @@ public class CaptureService extends Service {
                     );
 
             if (mediaProjection == null) {
-
                 throw new IllegalStateException(
                         "MediaProjection on null"
                 );
@@ -342,14 +292,6 @@ public class CaptureService extends Service {
                             .getDisplayMetrics()
                             .densityDpi;
 
-            Log.d(
-                    TAG,
-                    "Capture resolution: " +
-                            width +
-                            "x" +
-                            height
-            );
-
             imageReader =
                     ImageReader.newInstance(
                             width,
@@ -370,15 +312,14 @@ public class CaptureService extends Service {
             );
 
             imageReader.setOnImageAvailableListener(
-                    reader ->
-                            processLatestImage(reader),
+                    reader -> processLatestImage(reader),
                     handler
             );
 
             updateOverlay(
                     "Arena Helper\n\n" +
                             "Näytönjako käynnissä\n" +
-                            "Etsitään Arena-kortteja..."
+                            "Etsitään 3 Arena-korttia..."
             );
 
         } catch (Exception e) {
@@ -392,29 +333,21 @@ public class CaptureService extends Service {
             updateOverlay(
                     "Arena Helper\n\n" +
                             "Näytönjaon virhe\n\n" +
-                            e.getClass()
-                                    .getSimpleName()
+                            e.getClass().getSimpleName()
             );
         }
     }
 
-    private void processLatestImage(
-            ImageReader reader
-    ) {
+    private void processLatestImage(ImageReader reader) {
 
-        long now =
-                System.currentTimeMillis();
+        long now = System.currentTimeMillis();
 
-        if (now - lastOCRTime <
-                OCR_INTERVAL) {
+        if (now - lastOCRTime < OCR_INTERVAL) {
 
             Image oldImage = null;
 
             try {
-
-                oldImage =
-                        reader.acquireLatestImage();
-
+                oldImage = reader.acquireLatestImage();
             } catch (Exception ignored) {
             }
 
@@ -430,10 +363,7 @@ public class CaptureService extends Service {
             Image oldImage = null;
 
             try {
-
-                oldImage =
-                        reader.acquireLatestImage();
-
+                oldImage = reader.acquireLatestImage();
             } catch (Exception ignored) {
             }
 
@@ -448,8 +378,7 @@ public class CaptureService extends Service {
 
         try {
 
-            image =
-                    reader.acquireLatestImage();
+            image = reader.acquireLatestImage();
 
             if (image == null) {
                 return;
@@ -458,8 +387,7 @@ public class CaptureService extends Service {
             processing = true;
             lastOCRTime = now;
 
-            Bitmap bitmap =
-                    imageToBitmap(image);
+            Bitmap bitmap = imageToBitmap(image);
 
             image.close();
             image = null;
@@ -470,21 +398,13 @@ public class CaptureService extends Service {
                 return;
             }
 
-            /*
-             * Tässä vaiheessa emme syötä OCR:lle
-             * koko Hearthstone-näyttöä.
-             *
-             * Ensin rajataan alue,
-             * jossa Arena-kortit sijaitsevat.
-             */
-            Bitmap arenaBitmap =
-                    cropArenaCards(bitmap);
+            Bitmap arenaBitmap = cropArenaCards(bitmap);
 
             if (arenaBitmap != bitmap) {
                 bitmap.recycle();
             }
 
-            runOCR(arenaBitmap);
+            processThreeCards(arenaBitmap);
 
         } catch (Exception e) {
 
@@ -502,46 +422,20 @@ public class CaptureService extends Service {
         }
     }
 
-    /*
-     * Näyttö on 2640 x 1200 vaakasuunnassa.
-     *
-     * Kolme Arena-korttia ovat suunnilleen
-     * keskellä näyttöä vierekkäin.
-     *
-     * Rajaus jätetään tarkoituksella hieman
-     * väljäksi ensimmäisessä versiossa.
-     */
-    private Bitmap cropArenaCards(
-            Bitmap source
-    ) {
+    private Bitmap cropArenaCards(Bitmap source) {
 
-        int width =
-                source.getWidth();
+        int width = source.getWidth();
+        int height = source.getHeight();
 
-        int height =
-                source.getHeight();
+        int left = (int) (width * 0.10f);
+        int top = (int) (height * 0.12f);
+        int right = (int) (width * 0.90f);
+        int bottom = (int) (height * 0.92f);
 
-        int left =
-                (int) (width * 0.10f);
+        int cropWidth = right - left;
+        int cropHeight = bottom - top;
 
-        int top =
-                (int) (height * 0.12f);
-
-        int right =
-                (int) (width * 0.90f);
-
-        int bottom =
-                (int) (height * 0.92f);
-
-        int cropWidth =
-                right - left;
-
-        int cropHeight =
-                bottom - top;
-
-        if (cropWidth <= 0 ||
-                cropHeight <= 0) {
-
+        if (cropWidth <= 0 || cropHeight <= 0) {
             return source;
         }
 
@@ -567,9 +461,309 @@ public class CaptureService extends Service {
         }
     }
 
-    private Bitmap imageToBitmap(
-            Image image
+    private void processThreeCards(Bitmap arenaBitmap) {
+
+        int width = arenaBitmap.getWidth();
+        int height = arenaBitmap.getHeight();
+
+        int cardWidth = width / 3;
+
+        Bitmap card1 = null;
+        Bitmap card2 = null;
+        Bitmap card3 = null;
+
+        try {
+
+            card1 = Bitmap.createBitmap(
+                    arenaBitmap,
+                    0,
+                    0,
+                    cardWidth,
+                    height
+            );
+
+            card2 = Bitmap.createBitmap(
+                    arenaBitmap,
+                    cardWidth,
+                    0,
+                    cardWidth,
+                    height
+            );
+
+            card3 = Bitmap.createBitmap(
+                    arenaBitmap,
+                    cardWidth * 2,
+                    0,
+                    width - cardWidth * 2,
+                    height
+            );
+
+            runCardOCR(
+                    card1,
+                    card2,
+                    card3
+            );
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Card splitting failed",
+                    e
+            );
+
+            if (card1 != null) card1.recycle();
+            if (card2 != null) card2.recycle();
+            if (card3 != null) card3.recycle();
+
+            arenaBitmap.recycle();
+
+            processing = false;
+        }
+    }
+
+    private void runCardOCR(
+            Bitmap card1,
+            Bitmap card2,
+            Bitmap card3
     ) {
+
+        final String[] results =
+                new String[3];
+
+        final int[] completed =
+                new int[]{0};
+
+        recognizeCard(
+                card1,
+                0,
+                results,
+                completed,
+                card2,
+                card3
+        );
+    }
+
+    private void recognizeCard(
+            Bitmap bitmap,
+            int index,
+            String[] results,
+            int[] completed,
+            Bitmap card2,
+            Bitmap card3
+    ) {
+
+        try {
+
+            InputImage inputImage =
+                    InputImage.fromBitmap(
+                            bitmap,
+                            0
+                    );
+
+            recognizer.process(inputImage)
+
+                    .addOnSuccessListener(text -> {
+
+                        String result = text.getText();
+
+                        if (result == null) {
+                            result = "";
+                        }
+
+                        result = cleanOCRText(result);
+
+                        results[index] = result;
+
+                        bitmap.recycle();
+
+                        completed[0]++;
+
+                        if (index == 0) {
+
+                            recognizeCard(
+                                    card2,
+                                    1,
+                                    results,
+                                    completed,
+                                    null,
+                                    card3
+                            );
+
+                        } else if (index == 1) {
+
+                            recognizeCard(
+                                    card3,
+                                    2,
+                                    results,
+                                    completed,
+                                    null,
+                                    null
+                            );
+
+                        } else {
+
+                            showThreeCards(
+                                    results
+                            );
+
+                            processing = false;
+                        }
+
+                    })
+
+                    .addOnFailureListener(e -> {
+
+                        Log.e(
+                                TAG,
+                                "Card OCR failed",
+                                e
+                        );
+
+                        results[index] = "";
+
+                        bitmap.recycle();
+
+                        completed[0]++;
+
+                        if (index == 0) {
+
+                            recognizeCard(
+                                    card2,
+                                    1,
+                                    results,
+                                    completed,
+                                    null,
+                                    card3
+                            );
+
+                        } else if (index == 1) {
+
+                            recognizeCard(
+                                    card3,
+                                    2,
+                                    results,
+                                    completed,
+                                    null,
+                                    null
+                            );
+
+                        } else {
+
+                            showThreeCards(results);
+
+                            processing = false;
+                        }
+
+                    });
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "OCR start failed",
+                    e
+            );
+
+            results[index] = "";
+
+            bitmap.recycle();
+
+            processing = false;
+        }
+    }
+
+    private String cleanOCRText(String text) {
+
+        if (text == null) {
+            return "";
+        }
+
+        String[] lines =
+                text.split("\\r?\\n");
+
+        StringBuilder result =
+                new StringBuilder();
+
+        for (String line : lines) {
+
+            line = line.trim();
+
+            if (line.length() < 3) {
+                continue;
+            }
+
+            int letters = 0;
+
+            for (int i = 0; i < line.length(); i++) {
+
+                char c = line.charAt(i);
+
+                if (Character.isLetter(c)) {
+                    letters++;
+                }
+            }
+
+            if (letters < 2) {
+                continue;
+            }
+
+            if (result.length() > 0) {
+                result.append("\n");
+            }
+
+            result.append(line);
+        }
+
+        return result.toString().trim();
+    }
+
+    private void showThreeCards(String[] results) {
+
+        String card1 =
+                results[0] == null || results[0].isEmpty()
+                        ? "Ei tunnistettu"
+                        : results[0];
+
+        String card2 =
+                results[1] == null || results[1].isEmpty()
+                        ? "Ei tunnistettu"
+                        : results[1];
+
+        String card3 =
+                results[2] == null || results[2].isEmpty()
+                        ? "Ei tunnistettu"
+                        : results[2];
+
+        String display =
+                "Arena Helper\n\n" +
+                        "KORTTI 1:\n" +
+                        card1 +
+                        "\n\n" +
+                        "KORTTI 2:\n" +
+                        card2 +
+                        "\n\n" +
+                        "KORTTI 3:\n" +
+                        card3;
+
+        if (display.length() > 1800) {
+
+            display =
+                    display.substring(0, 1800) +
+                            "...";
+        }
+
+        updateOverlay(display);
+
+        Log.d(
+                TAG,
+                "CARD 1:\n" + card1 +
+                        "\nCARD 2:\n" + card2 +
+                        "\nCARD 3:\n" + card3
+        );
+    }
+
+    private Bitmap imageToBitmap(Image image) {
 
         try {
 
@@ -626,171 +820,6 @@ public class CaptureService extends Service {
         }
     }
 
-    private void runOCR(
-            Bitmap bitmap
-    ) {
-
-        try {
-
-            InputImage inputImage =
-                    InputImage.fromBitmap(
-                            bitmap,
-                            0
-                    );
-
-            recognizer.process(
-                    inputImage
-            )
-
-            .addOnSuccessListener(
-                    text -> {
-
-                        String result =
-                                text.getText();
-
-                        if (result == null) {
-                            result = "";
-                        }
-
-                        result =
-                                cleanOCRText(
-                                        result
-                                );
-
-                        if (!result.isEmpty()) {
-
-                            handleRecognizedText(
-                                    result
-                            );
-
-                        } else {
-
-                            updateOverlay(
-                                    "Arena Helper\n\n" +
-                                            "Arena-kortteja etsitään..."
-                            );
-                        }
-
-                        bitmap.recycle();
-
-                        processing = false;
-                    }
-            )
-
-            .addOnFailureListener(
-                    e -> {
-
-                        Log.e(
-                                TAG,
-                                "OCR failed",
-                                e
-                        );
-
-                        updateOverlay(
-                                "Arena Helper\n\n" +
-                                        "OCR-virhe"
-                        );
-
-                        bitmap.recycle();
-
-                        processing = false;
-                    }
-            );
-
-        } catch (Exception e) {
-
-            Log.e(
-                    TAG,
-                    "OCR start failed",
-                    e
-            );
-
-            bitmap.recycle();
-
-            processing = false;
-        }
-    }
-
-    private String cleanOCRText(
-            String text
-    ) {
-
-        if (text == null) {
-            return "";
-        }
-
-        String[] lines =
-                text.split("\\r?\\n");
-
-        StringBuilder result =
-                new StringBuilder();
-
-        for (String line : lines) {
-
-            line =
-                    line.trim();
-
-            if (line.length() < 3) {
-                continue;
-            }
-
-            int letters = 0;
-
-            for (int i = 0;
-                    i < line.length();
-                    i++) {
-
-                char c =
-                        line.charAt(i);
-
-                if (Character.isLetter(c)) {
-                    letters++;
-                }
-            }
-
-            if (letters < 2) {
-                continue;
-            }
-
-            if (result.length() > 0) {
-                result.append("\n");
-            }
-
-            result.append(line);
-        }
-
-        return result.toString().trim();
-    }
-
-    private void handleRecognizedText(
-            String text
-    ) {
-
-        String displayText =
-                text.trim();
-
-        if (displayText.length() > 400) {
-
-            displayText =
-                    displayText.substring(
-                            0,
-                            400
-                    ) + "...";
-        }
-
-        updateOverlay(
-                "Arena Helper\n\n" +
-                        "Arena-korteista tunnistettu:\n\n" +
-                        displayText
-        );
-
-        Log.d(
-                TAG,
-                "Arena OCR:\n" +
-                        text
-        );
-    }
-
     private void createNotificationChannel() {
 
         if (Build.VERSION.SDK_INT >=
@@ -800,8 +829,7 @@ public class CaptureService extends Service {
                     new NotificationChannel(
                             CHANNEL_ID,
                             "Arena Helper",
-                            NotificationManager
-                                    .IMPORTANCE_LOW
+                            NotificationManager.IMPORTANCE_LOW
                     );
 
             channel.setDescription(
@@ -814,10 +842,7 @@ public class CaptureService extends Service {
                     );
 
             if (manager != null) {
-
-                manager.createNotificationChannel(
-                        channel
-                );
+                manager.createNotificationChannel(channel);
             }
         }
     }
@@ -828,15 +853,9 @@ public class CaptureService extends Service {
                 this,
                 CHANNEL_ID
         )
-                .setContentTitle(
-                        "Arena Helper"
-                )
-                .setContentText(
-                        "Näytönjako käynnissä"
-                )
-                .setSmallIcon(
-                        android.R.drawable.ic_menu_view
-                )
+                .setContentTitle("Arena Helper")
+                .setContentText("Näytönjako käynnissä")
+                .setSmallIcon(android.R.drawable.ic_menu_view)
                 .setOngoing(true)
                 .build();
     }
@@ -848,11 +867,9 @@ public class CaptureService extends Service {
                 mediaProjectionCallback != null) {
 
             try {
-
                 mediaProjection.unregisterCallback(
                         mediaProjectionCallback
                 );
-
             } catch (Exception ignored) {
             }
 
@@ -863,11 +880,9 @@ public class CaptureService extends Service {
                 windowManager != null) {
 
             try {
-
                 windowManager.removeView(
                         overlayText
                 );
-
             } catch (Exception ignored) {
             }
 
@@ -909,9 +924,7 @@ public class CaptureService extends Service {
 
     @Nullable
     @Override
-    public IBinder onBind(
-            Intent intent
-    ) {
+    public IBinder onBind(Intent intent) {
         return null;
     }
 }
