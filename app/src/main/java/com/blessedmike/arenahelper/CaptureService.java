@@ -296,6 +296,12 @@ public class CaptureService extends Service {
                             .getDisplayMetrics()
                             .densityDpi;
 
+            Log.d(
+                    TAG,
+                    "Capture resolution: " +
+                            width + "x" + height
+            );
+
             imageReader =
                     ImageReader.newInstance(
                             width,
@@ -437,15 +443,10 @@ public class CaptureService extends Service {
         try {
 
             /*
-             * KORTTIEN NIMET OVAT RUUDUN KESKIVAIHEILLA.
+             * PYSTYSUUNTA PIDETÄÄN TÄSSÄ,
+             * koska tämä kohta oli jo lähes oikein.
              *
-             * 1200 px korkeudella:
-             *
-             * 45 % = 540 px
-             * 55 % = 660 px
-             *
-             * Tämä alue on aiemmassa testissä
-             * osunut jo lähes täydellisesti.
+             * 45 % - 55 % näytön korkeudesta.
              */
 
             int nameTop =
@@ -458,46 +459,42 @@ public class CaptureService extends Service {
                     nameBottom - nameTop;
 
             /*
-             * LEVENNETYT X-ALUEET.
+             * Vaakasuunnan rajaukset palautettu
+             * lähemmäksi aiempaa toimivaa versiota.
              *
-             * Aiemmin:
+             * Kortit ovat kolmessa osassa.
              *
-             * 6.5 - 34.5
-             * 35.5 - 64.5
-             * 65.5 - 93.5
+             * Kortti 1:
+             * 6 % - 35 %
              *
-             * Nyt:
+             * Kortti 2:
+             * 34 % - 66 %
              *
-             * 3 - 36
-             * 32 - 68
-             * 64 - 97
+             * Kortti 3:
+             * 65 % - 94 %
              *
-             * Näin kortin nimen alku/loppu ei
-             * pitäisi enää leikkautua pois.
+             * Pieni päällekkäisyys auttaa, jos
+             * nimen ensimmäinen tai viimeinen kirjain
+             * osuu rajalle.
              */
 
             int card1Left =
-                    (int) (width * 0.03f);
+                    (int) (width * 0.06f);
 
             int card1Right =
-                    (int) (width * 0.36f);
+                    (int) (width * 0.35f);
 
             int card2Left =
-                    (int) (width * 0.32f);
+                    (int) (width * 0.34f);
 
             int card2Right =
-                    (int) (width * 0.68f);
+                    (int) (width * 0.66f);
 
             int card3Left =
-                    (int) (width * 0.64f);
+                    (int) (width * 0.65f);
 
             int card3Right =
-                    (int) (width * 0.97f);
-
-            /*
-             * Varmistetaan, etteivät rajat mene
-             * näytön ulkopuolelle.
-             */
+                    (int) (width * 0.94f);
 
             card1Left =
                     Math.max(0, card1Left);
@@ -541,18 +538,14 @@ public class CaptureService extends Service {
                     nameHeight
             );
 
-            /*
-             * Suurennetaan jokainen OCR-kuva 2x.
-             */
-
             Bitmap enlarged1 =
-                    enlargeForOCR(card1);
+                    prepareForOCR(card1);
 
             Bitmap enlarged2 =
-                    enlargeForOCR(card2);
+                    prepareForOCR(card2);
 
             Bitmap enlarged3 =
-                    enlargeForOCR(card3);
+                    prepareForOCR(card3);
 
             card1.recycle();
             card2.recycle();
@@ -597,13 +590,18 @@ public class CaptureService extends Service {
         }
     }
 
-    private Bitmap enlargeForOCR(Bitmap source) {
+    private Bitmap prepareForOCR(Bitmap source) {
+
+        /*
+         * 3x suurennus antaa ML Kitille enemmän
+         * pikseleitä kirjainten tunnistamiseen.
+         */
 
         int newWidth =
-                source.getWidth() * 2;
+                source.getWidth() * 3;
 
         int newHeight =
-                source.getHeight() * 2;
+                source.getHeight() * 3;
 
         Bitmap enlarged =
                 Bitmap.createBitmap(
@@ -616,7 +614,10 @@ public class CaptureService extends Service {
                 new Canvas(enlarged);
 
         Paint paint =
-                new Paint(Paint.ANTI_ALIAS_FLAG);
+                new Paint(
+                        Paint.ANTI_ALIAS_FLAG |
+                                Paint.FILTER_BITMAP_FLAG
+                );
 
         paint.setFilterBitmap(true);
 
@@ -679,6 +680,14 @@ public class CaptureService extends Service {
                         if (result == null) {
                             result = "";
                         }
+
+                        Log.d(
+                                TAG,
+                                "RAW OCR CARD " +
+                                        (index + 1) +
+                                        ": " +
+                                        result
+                        );
 
                         result =
                                 cleanCardName(result);
@@ -806,8 +815,8 @@ public class CaptureService extends Service {
             }
 
             /*
-             * Poistetaan OCR:n yleisesti lisäämiä
-             * ylimääräisiä merkkejä alusta.
+             * Poistetaan OCR:n lisäämiä merkkejä
+             * nimen alusta.
              */
 
             line = line.replaceAll(
@@ -816,8 +825,7 @@ public class CaptureService extends Service {
             );
 
             /*
-             * Poistetaan ylimääräiset merkit lopusta,
-             * mutta sallitaan heittomerkki ja väliviiva.
+             * Poistetaan ylimääräiset merkit lopusta.
              */
 
             line = line.replaceAll(
