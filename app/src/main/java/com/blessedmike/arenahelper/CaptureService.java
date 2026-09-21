@@ -52,23 +52,20 @@ public class CaptureService extends Service {
         Notification notification;
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
             notification = new Notification.Builder(
                     this,
                     CHANNEL_ID
             )
                     .setContentTitle("Arena Helper")
-                    .setContentText("Arena Helper on aktiivinen")
+                    .setContentText("Näytön kaappaus aktiivinen")
                     .setSmallIcon(
                             android.R.drawable.ic_menu_info_details
                     )
                     .build();
-
         } else {
-
             notification = new Notification.Builder(this)
                     .setContentTitle("Arena Helper")
-                    .setContentText("Arena Helper on aktiivinen")
+                    .setContentText("Näytön kaappaus aktiivinen")
                     .setSmallIcon(
                             android.R.drawable.ic_menu_info_details
                     )
@@ -76,16 +73,13 @@ public class CaptureService extends Service {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-
             startForeground(
                     1,
                     notification,
                     android.content.pm.ServiceInfo
                             .FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             );
-
         } else {
-
             startForeground(
                     1,
                     notification
@@ -148,20 +142,15 @@ public class CaptureService extends Service {
                 30
         );
 
-        overlay.setBackgroundColor(
-                0xEE222222
-        );
+        overlay.setBackgroundColor(0xEE222222);
 
         int windowType;
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
             windowType =
                     WindowManager.LayoutParams
                             .TYPE_APPLICATION_OVERLAY;
-
         } else {
-
             windowType =
                     WindowManager.LayoutParams
                             .TYPE_PHONE;
@@ -184,14 +173,11 @@ public class CaptureService extends Service {
         params.y = 150;
 
         try {
-
             windowManager.addView(
                     overlay,
                     params
             );
-
         } catch (Exception e) {
-
             e.printStackTrace();
         }
     }
@@ -242,12 +228,10 @@ public class CaptureService extends Service {
                             );
 
             if (manager == null) {
-
                 updateOverlay(
                         "ARENA HELPER\n\n"
-                                + "MEDIA PROJECTION EI LÖYDY"
+                                + "MEDIA PROJECTION VIRHE"
                 );
-
                 return;
             }
 
@@ -258,12 +242,10 @@ public class CaptureService extends Service {
                     );
 
             if (mediaProjection == null) {
-
                 updateOverlay(
                         "ARENA HELPER\n\n"
-                                + "NÄYTÖN KAAPPAUS EI KÄYNNISTYNYT"
+                                + "KAAPPAUS EI KÄYNNISTYNYT"
                 );
-
                 return;
             }
 
@@ -319,9 +301,18 @@ public class CaptureService extends Service {
 
                             if (image != null) {
 
+                                /*
+                                 * TÄSSÄ KOHDASSA SAAMME
+                                 * HEARTHSTONEN RUUTUKUVAN.
+                                 *
+                                 * Seuraavassa vaiheessa
+                                 * käsittelemme tämän kuvan
+                                 * ja tunnistamme kortit.
+                                 */
+
                                 updateOverlay(
                                         "ARENA HELPER\n\n"
-                                                + "KUVAUS AKTIIVINEN ✓"
+                                                + "KUVA SAATU ✓"
                                 );
                             }
 
@@ -335,7 +326,6 @@ public class CaptureService extends Service {
                                 image.close();
                             }
                         }
-
                     },
                     null
             );
@@ -393,16 +383,6 @@ public class CaptureService extends Service {
             imageReader = null;
         }
 
-        if (mediaProjection != null) {
-
-            try {
-                mediaProjection.unregisterCallback(
-                        new MediaProjection.Callback() {}
-                );
-            } catch (Exception ignored) {
-            }
-        }
-
         mediaProjection = null;
     }
 
@@ -415,11 +395,7 @@ public class CaptureService extends Service {
                 && overlay != null) {
 
             try {
-
-                windowManager.removeView(
-                        overlay
-                );
-
+                windowManager.removeView(overlay);
             } catch (Exception ignored) {
             }
 
