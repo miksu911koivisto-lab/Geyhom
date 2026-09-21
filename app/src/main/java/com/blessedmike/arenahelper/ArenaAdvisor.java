@@ -49,22 +49,17 @@ public class ArenaAdvisor {
     private static final Map<String, CardData> CARDS =
             new HashMap<>();
 
-
-    /*
-     * =========================================================
-     * KORTIT
-     * =========================================================
-     */
-
     static {
 
         /*
+         * =====================================================
          * VANHAT / TESTIKORTIT
+         * =====================================================
          */
 
         addCard(
                 "Soldier of the Infinite",
-                4.36, 3, 3, 4
+                8.2, 3, 3, 4
         );
         CARDS.get(normalize(
                 "Soldier of the Infinite"
@@ -395,13 +390,9 @@ public class ArenaAdvisor {
          * =====================================================
          */
 
-        /*
-         * Mage
-         */
-
         addCard(
                 "Bursting Leyline",
-                4.46, 4, 0, 0
+                6.5, 4, 0, 0
         );
         CARDS.get(normalize(
                 "Bursting Leyline"
@@ -416,7 +407,7 @@ public class ArenaAdvisor {
 
         addCard(
                 "Contraband Wands",
-                5.0, 2, 0, 0
+                6.0, 2, 0, 0
         );
         CARDS.get(normalize(
                 "Contraband Wands"
@@ -498,10 +489,6 @@ public class ArenaAdvisor {
         )).minion = false;
 
 
-        /*
-         * Neutral
-         */
-
         addCard(
                 "Tunneling Geomancer",
                 5.85, 3, 3, 3
@@ -543,10 +530,6 @@ public class ArenaAdvisor {
                 6.92, 0, 0, 0
         );
 
-
-        /*
-         * Death Knight
-         */
 
         addCard(
                 "Experimental Animation",
@@ -602,10 +585,6 @@ public class ArenaAdvisor {
         );
 
 
-        /*
-         * Demon Hunter
-         */
-
         addCard(
                 "Void Soul",
                 5.54, 0, 0, 0
@@ -624,10 +603,6 @@ public class ArenaAdvisor {
         );
 
 
-        /*
-         * Druid
-         */
-
         addCard(
                 "Widow's Bite",
                 5.77, 0, 0, 0
@@ -639,10 +614,6 @@ public class ArenaAdvisor {
                 4.54, 0, 0, 0
         );
 
-
-        /*
-         * Hunter
-         */
 
         addCard(
                 "Underbelly Network",
@@ -661,10 +632,6 @@ public class ArenaAdvisor {
                 6.92, 0, 0, 0
         );
 
-
-        /*
-         * Paladin
-         */
 
         addCard(
                 "Vigilant Sentry",
@@ -702,10 +669,6 @@ public class ArenaAdvisor {
         );
 
 
-        /*
-         * Priest
-         */
-
         addCard(
                 "Undeath Sentence",
                 3.85, 0, 0, 0
@@ -717,10 +680,6 @@ public class ArenaAdvisor {
                 7.92, 0, 0, 0
         );
 
-
-        /*
-         * Rogue
-         */
 
         addCard(
                 "Jade Guardians",
@@ -734,19 +693,11 @@ public class ArenaAdvisor {
         );
 
 
-        /*
-         * Mage
-         */
-
         addCard(
                 "Jailhouse Manastorm",
                 10.0, 0, 0, 0
         );
 
-
-        /*
-         * Warrior
-         */
 
         addCard(
                 "Warptooth",
@@ -807,15 +758,12 @@ public class ArenaAdvisor {
             return "";
         }
 
-
         String original =
                 cardName.trim();
-
 
         if (original.isEmpty()) {
             return "";
         }
-
 
         String normalized =
                 normalize(original);
@@ -831,8 +779,7 @@ public class ArenaAdvisor {
                 || normalized.contains("soldiero")
                 || normalized.contains("soldier2of")
                 || normalized.contains("soldieroftheinfinite")
-                || normalized.contains("soldierofinfinite")
-                || normalized.contains("soldieroftheinfinite")) {
+                || normalized.contains("soldierofinfinite")) {
 
             return "Soldier of the Infinite";
         }
@@ -867,8 +814,7 @@ public class ArenaAdvisor {
          */
 
         if (normalized.equals("contrabandwands")
-                || normalized.contains("contrabandwand")
-                || normalized.contains("contrabandwands")) {
+                || normalized.contains("contrabandwand")) {
 
             return "Contraband Wands";
         }
@@ -921,8 +867,7 @@ public class ArenaAdvisor {
          * Tunneling Geomancer
          */
 
-        if (normalized.contains("tunnelinggeomancer")
-                || normalized.contains("tunnelinggeomancer")) {
+        if (normalized.contains("tunnelinggeomancer")) {
 
             return "Tunneling Geomancer";
         }
@@ -1002,7 +947,6 @@ public class ArenaAdvisor {
                 card2,
                 card3
         };
-
 
         double bestScore = -1;
 
@@ -1247,11 +1191,7 @@ public class ArenaAdvisor {
 
 
         /*
-         * Tuntematon kortti.
-         *
-         * 5.0 säilyy edelleen vararatkaisuna,
-         * mutta tunnetut uudet kortit eivät enää
-         * päädy tähän.
+         * Tuntematon kortti
          */
 
         if (card == null) {
@@ -1263,10 +1203,6 @@ public class ArenaAdvisor {
         double score =
                 card.baseScore;
 
-
-        /*
-         * Ominaisuusbonukset.
-         */
 
         if (card.removal) {
 
