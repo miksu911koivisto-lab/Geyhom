@@ -14,20 +14,20 @@ import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.TextView;
 
-private static int projectionResultCode;
-private static Intent projectionData;
-
-public static void setProjectionData(int resultCode, Intent data) {
-    projectionResultCode = resultCode;
-    projectionData = data;
-}
-
 public class CaptureService extends Service {
 
     private static final String CHANNEL = "arena_helper";
 
+    private static int projectionResultCode;
+    private static Intent projectionData;
+
     private WindowManager wm;
     private TextView overlay;
+
+    public static void setProjectionData(int resultCode, Intent data) {
+        projectionResultCode = resultCode;
+        projectionData = data;
+    }
 
     @Override
     public void onCreate() {
@@ -55,13 +55,17 @@ public class CaptureService extends Service {
                             .FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             );
         } else {
-            startForeground(10, builder.build());
+            startForeground(
+                    10,
+                    builder.build()
+            );
         }
 
         showOverlay();
     }
 
     private void createNotificationChannel() {
+
         if (Build.VERSION.SDK_INT >= 26) {
 
             NotificationChannel channel =
@@ -82,13 +86,14 @@ public class CaptureService extends Service {
 
     private void showOverlay() {
 
-        if (Build.VERSION.SDK_INT >= 23 &&
-                !Settings.canDrawOverlays(this)) {
+        if (Build.VERSION.SDK_INT >= 23
+                && !Settings.canDrawOverlays(this)) {
 
             return;
         }
 
-        wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+        wm = (WindowManager)
+                getSystemService(WINDOW_SERVICE);
 
         if (wm == null) {
             return;
@@ -96,18 +101,33 @@ public class CaptureService extends Service {
 
         overlay = new TextView(this);
 
-        overlay.setText("Arena Helper\n✓ AVUSTAJA AKTIIVINEN");
+        overlay.setText(
+                "Arena Helper\n✓ AVUSTAJA AKTIIVINEN"
+        );
+
         overlay.setTextColor(Color.WHITE);
         overlay.setTextSize(16);
-        overlay.setPadding(30, 20, 30, 20);
-        overlay.setBackgroundColor(0xDD222222);
+        overlay.setPadding(
+                30,
+                20,
+                30,
+                20
+        );
+
+        overlay.setBackgroundColor(
+                0xDD222222
+        );
 
         int type;
 
         if (Build.VERSION.SDK_INT >= 26) {
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
+            type =
+                    WindowManager.LayoutParams
+                            .TYPE_APPLICATION_OVERLAY;
         } else {
-            type = WindowManager.LayoutParams.TYPE_PHONE;
+            type =
+                    WindowManager.LayoutParams
+                            .TYPE_PHONE;
         }
 
         WindowManager.LayoutParams params =
@@ -120,13 +140,17 @@ public class CaptureService extends Service {
                 );
 
         params.gravity =
-                Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+                Gravity.TOP
+                        | Gravity.CENTER_HORIZONTAL;
 
         params.y = 150;
 
         try {
 
-            wm.addView(overlay, params);
+            wm.addView(
+                    overlay,
+                    params
+            );
 
         } catch (Exception e) {
 
