@@ -505,6 +505,10 @@ public class CaptureService extends Service {
 
         try {
 
+            /*
+             * SAMA TOIMIVA PYSTYRAJAUS.
+             */
+
             int nameTop =
                     (int) (
                             height * 0.45f
@@ -519,6 +523,10 @@ public class CaptureService extends Service {
                     nameBottom -
                             nameTop;
 
+            /*
+             * KORTTI 1
+             */
+
             int card1Left =
                     (int) (
                             width * 0.065f
@@ -529,6 +537,10 @@ public class CaptureService extends Service {
                             width * 0.38f
                     );
 
+            /*
+             * KORTTI 2
+             */
+
             int card2Left =
                     (int) (
                             width * 0.355f
@@ -538,6 +550,10 @@ public class CaptureService extends Service {
                     (int) (
                             width * 0.645f
                     );
+
+            /*
+             * KORTTI 3
+             */
 
             int card3Left =
                     (int) (
@@ -639,6 +655,16 @@ public class CaptureService extends Service {
                             nameHeight
                     );
 
+            /*
+             * KAIKKI KOLME SAMALLA 2X
+             * OCR-VALMISTELULLA.
+             *
+             * TÄSSÄ ON TÄRKEÄ MUUTOS:
+             *
+             * KORTTI 1 EI ENÄÄ TEE TOISTA
+             * OCR-VERSIOTA.
+             */
+
             Bitmap prepared1 =
                     enlargeForOCR(card1);
 
@@ -647,11 +673,6 @@ public class CaptureService extends Service {
 
             Bitmap prepared3 =
                     enlargeForOCR(card3);
-
-            Bitmap prepared1Second =
-                    createCard1SecondVersion(
-                            card1
-                    );
 
             card1.recycle();
             card2.recycle();
@@ -667,7 +688,6 @@ public class CaptureService extends Service {
 
             runCardOCR(
                     prepared1,
-                    prepared1Second,
                     prepared2,
                     prepared3
             );
@@ -753,51 +773,12 @@ public class CaptureService extends Service {
         return enlarged;
     }
 
-    private Bitmap createCard1SecondVersion(
-            Bitmap source
-    ) {
-
-        int newWidth =
-                source.getWidth() * 2;
-
-        int newHeight =
-                source.getHeight() * 2;
-
-        Bitmap result =
-                Bitmap.createBitmap(
-                        newWidth,
-                        newHeight,
-                        Bitmap.Config.ARGB_8888
-                );
-
-        Canvas canvas =
-                new Canvas(result);
-
-        Paint paint =
-                new Paint(
-                        Paint.ANTI_ALIAS_FLAG
-                );
-
-        paint.setFilterBitmap(false);
-
-        canvas.drawBitmap(
-                source,
-                null,
-                new android.graphics.Rect(
-                        0,
-                        0,
-                        newWidth,
-                        newHeight
-                ),
-                paint
-        );
-
-        return result;
-    }
-
+    /*
+     * KAIKKI KOLME KORTTIA
+     * KÄYTTÄVÄT NYT YHTÄ OCR-LUKUA.
+     */
     private void runCardOCR(
-            Bitmap card1First,
-            Bitmap card1Second,
+            Bitmap card1,
             Bitmap card2,
             Bitmap card3
     ) {
@@ -805,228 +786,11 @@ public class CaptureService extends Service {
         final String[] results =
                 new String[3];
 
-        final String[] card1Results =
-                new String[2];
-
-        recognizeCard1Version(
-                card1First,
+        recognizeNormalCard(
+                card1,
                 0,
-                card1Results,
-                results,
-                card2,
-                card3
+                results
         );
-
-        recognizeCard1Version(
-                card1Second,
-                1,
-                card1Results,
-                results,
-                card2,
-                card3
-        );
-    }
-
-    private void recognizeCard1Version(
-            Bitmap bitmap,
-            int version,
-            String[] card1Results,
-            String[] results,
-            Bitmap card2,
-            Bitmap card3
-    ) {
-
-        try {
-
-            InputImage inputImage =
-                    InputImage.fromBitmap(
-                            bitmap,
-                            0
-                    );
-
-            recognizer
-                    .process(inputImage)
-                    .addOnSuccessListener(
-                            text -> {
-
-                                String raw =
-                                        text.getText();
-
-                                if (raw == null) {
-                                    raw = "";
-                                }
-
-                                Log.d(
-                                        TAG,
-                                        "RAW OCR CARD 1 VERSION " +
-                                                (version + 1) +
-                                                ": " +
-                                                raw
-                                );
-
-                                card1Results[version] =
-                                        cleanCardName(
-                                                raw
-                                        );
-
-                                if (!bitmap.isRecycled()) {
-                                    bitmap.recycle();
-                                }
-
-                                if (card1Results[0] != null &&
-                                        card1Results[1] != null) {
-
-                                    String card1 =
-                                            chooseBestCard1(
-                                                    card1Results[0],
-                                                    card1Results[1]
-                                            );
-
-                                    results[0] =
-                                            card1;
-
-                                    runCard2And3(
-                                            results,
-                                            card2,
-                                            card3
-                                    );
-                                }
-                            }
-                    )
-                    .addOnFailureListener(
-                            e -> {
-
-                                Log.e(
-                                        TAG,
-                                        "OCR failed CARD 1 VERSION " +
-                                                (version + 1),
-                                        e
-                                );
-
-                                card1Results[version] =
-                                        "";
-
-                                if (!bitmap.isRecycled()) {
-                                    bitmap.recycle();
-                                }
-
-                                if (card1Results[0] != null &&
-                                        card1Results[1] != null) {
-
-                                    results[0] =
-                                            chooseBestCard1(
-                                                    card1Results[0],
-                                                    card1Results[1]
-                                            );
-
-                                    runCard2And3(
-                                            results,
-                                            card2,
-                                            card3
-                                    );
-                                }
-                            }
-                    );
-
-        } catch (Exception e) {
-
-            Log.e(
-                    TAG,
-                    "OCR start failed CARD 1",
-                    e
-            );
-
-            card1Results[version] = "";
-
-            if (!bitmap.isRecycled()) {
-                bitmap.recycle();
-            }
-
-            if (card1Results[0] != null &&
-                    card1Results[1] != null) {
-
-                results[0] =
-                        chooseBestCard1(
-                                card1Results[0],
-                                card1Results[1]
-                        );
-
-                runCard2And3(
-                        results,
-                        card2,
-                        card3
-                );
-            }
-        }
-    }
-
-    private String chooseBestCard1(
-            String first,
-            String second
-    ) {
-
-        if (first == null) {
-            first = "";
-        }
-
-        if (second == null) {
-            second = "";
-        }
-
-        first =
-                cleanCardName(first);
-
-        second =
-                cleanCardName(second);
-
-        if (first.isEmpty()) {
-            return second;
-        }
-
-        if (second.isEmpty()) {
-            return first;
-        }
-
-        String a =
-                normalizeForComparison(first);
-
-        String b =
-                normalizeForComparison(second);
-
-        if (a.startsWith(b) ||
-                b.startsWith(a)) {
-
-            if (first.length() >=
-                    second.length()) {
-
-                return first;
-
-            } else {
-
-                return second;
-            }
-        }
-
-        if (first.length() >
-                second.length()) {
-
-            return first;
-        }
-
-        if (second.length() >
-                first.length()) {
-
-            return second;
-        }
-
-        return first;
-    }
-
-    private void runCard2And3(
-            String[] results,
-            Bitmap card2,
-            Bitmap card3
-    ) {
 
         recognizeNormalCard(
                 card2,
@@ -1041,6 +805,11 @@ public class CaptureService extends Service {
         );
     }
 
+    /*
+     * KORTTI 1, 2 JA 3:
+     *
+     * Täsmälleen sama OCR-käsittely.
+     */
     private void recognizeNormalCard(
             Bitmap bitmap,
             int index,
@@ -1079,6 +848,14 @@ public class CaptureService extends Service {
                                         cleanCardName(
                                                 raw
                                         );
+
+                                Log.d(
+                                        TAG,
+                                        "CLEAN OCR CARD " +
+                                                (index + 1) +
+                                                ": " +
+                                                results[index]
+                                );
 
                                 if (!bitmap.isRecycled()) {
                                     bitmap.recycle();
@@ -1133,22 +910,6 @@ public class CaptureService extends Service {
         }
     }
 
-    private String normalizeForComparison(
-            String text
-    ) {
-
-        if (text == null) {
-            return "";
-        }
-
-        return text
-                .toLowerCase()
-                .replaceAll(
-                        "[^a-z0-9åäö]",
-                        ""
-                );
-    }
-
     private void checkOCRFinished(
             String[] results
     ) {
@@ -1166,19 +927,7 @@ public class CaptureService extends Service {
     }
 
     /*
-     * =========================================================
      * OCR-TULOKSEN PUHDISTUS
-     * =========================================================
-     *
-     * Tähän lisätty vain kaksi korjausta:
-     *
-     * 1. Soldierof -> Soldier of
-     *
-     * 2. Korttinimen ensimmäinen kirjain aina isoksi.
-     *
-     * Muuta tekstin kirjainkokoa ei pakoteta, koska esimerkiksi
-     * korttinimissä voi olla sanoja, joiden oikea kirjainkoko
-     * pitää säilyttää.
      */
     private String cleanCardName(
             String text
@@ -1247,28 +996,18 @@ public class CaptureService extends Service {
             }
         }
 
-        /*
-         * Jos mitään käyttökelpoista riviä
-         * ei löytynyt.
-         */
         if (bestLine.isEmpty()) {
             return "";
         }
 
         /*
-         * -----------------------------------------------------
-         * KORJAUS 1:
-         *
-         * OCR saattaa yhdistää Soldier + of:
+         * Korjaa OCR:n yhdistämä:
          *
          * Soldierof
          * soldierof
          * SOLDIEROF
          *
-         * Kaikki muutetaan muotoon:
-         *
-         * Soldier of
-         * -----------------------------------------------------
+         * -> Soldier of
          */
         bestLine =
                 bestLine.replaceAll(
@@ -1277,8 +1016,7 @@ public class CaptureService extends Service {
                 );
 
         /*
-         * Myös mahdollinen ylimääräinen välilyönti
-         * normalisoidaan.
+         * Normalisoi useat välilyönnit.
          */
         bestLine =
                 bestLine.replaceAll(
@@ -1287,19 +1025,7 @@ public class CaptureService extends Service {
                 ).trim();
 
         /*
-         * -----------------------------------------------------
-         * KORJAUS 2:
-         *
-         * OCR voi välillä antaa esimerkiksi:
-         *
-         * raban Wands
-         * Raban Wands
-         *
-         * Pakotetaan ensimmäinen kirjain isoksi.
-         *
-         * Vain ensimmäinen kirjain muutetaan.
-         * Muu kirjainkoko säilytetään.
-         * -----------------------------------------------------
+         * Ensimmäinen kirjain aina isoksi.
          */
         bestLine =
                 capitalizeFirstLetter(
@@ -1309,19 +1035,6 @@ public class CaptureService extends Service {
         return bestLine;
     }
 
-    /*
-     * Muuttaa vain ensimmäisen kirjaimen isoksi.
-     *
-     * Esimerkiksi:
-     *
-     * raban Wands -> Raban Wands
-     * soldier of -> Soldier of
-     *
-     * eikä:
-     *
-     * RABAN WANDS
-     *
-     */
     private String capitalizeFirstLetter(
             String text
     ) {
