@@ -7,7 +7,6 @@ import android.app.Service;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
-import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.Image;
@@ -38,7 +37,6 @@ import java.util.Locale;
 public class CaptureService extends Service {
 
     private static final String CHANNEL_ID = "arena_helper_channel";
-
     private static final int OCR_INTERVAL = 1500;
     private static final int CARD_CONFIRMATIONS = 2;
     private static final int OFFER_CONFIRMATIONS = 2;
@@ -91,12 +89,13 @@ public class CaptureService extends Service {
 
         createNotificationChannel();
 
-        Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("Arena Helper")
-                .setContentText("Avustaja aktiivinen")
-                .setSmallIcon(android.R.drawable.ic_menu_info_details)
-                .setOngoing(true)
-                .build();
+        Notification notification =
+                new NotificationCompat.Builder(this, CHANNEL_ID)
+                        .setContentTitle("Arena Helper")
+                        .setContentText("Avustaja aktiivinen")
+                        .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                        .setOngoing(true)
+                        .build();
 
         startForeground(1, notification);
 
@@ -105,20 +104,21 @@ public class CaptureService extends Service {
         );
 
         createOverlay();
-
         startCapture();
     }
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(
-                    CHANNEL_ID,
-                    "Arena Helper",
-                    NotificationManager.IMPORTANCE_LOW
-            );
+            NotificationChannel channel =
+                    new NotificationChannel(
+                            CHANNEL_ID,
+                            "Arena Helper",
+                            NotificationManager.IMPORTANCE_LOW
+                    );
 
             NotificationManager manager =
-                    (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                    (NotificationManager)
+                            getSystemService(NOTIFICATION_SERVICE);
 
             if (manager != null) {
                 manager.createNotificationChannel(channel);
@@ -127,7 +127,9 @@ public class CaptureService extends Service {
     }
 
     private void createOverlay() {
-        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        windowManager =
+                (WindowManager)
+                        getSystemService(WINDOW_SERVICE);
 
         overlayView = new TextView(this);
 
@@ -144,6 +146,7 @@ public class CaptureService extends Service {
         WindowManager.LayoutParams params;
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+
             params = new WindowManager.LayoutParams(
                     WindowManager.LayoutParams.WRAP_CONTENT,
                     WindowManager.LayoutParams.WRAP_CONTENT,
@@ -152,7 +155,9 @@ public class CaptureService extends Service {
                             | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
                     PixelFormat.TRANSLUCENT
             );
+
         } else {
+
             params = new WindowManager.LayoutParams(
                     WindowManager.LayoutParams.WRAP_CONTENT,
                     WindowManager.LayoutParams.WRAP_CONTENT,
@@ -168,7 +173,10 @@ public class CaptureService extends Service {
         params.y = 100;
 
         if (windowManager != null) {
-            windowManager.addView(overlayView, params);
+            windowManager.addView(
+                    overlayView,
+                    params
+            );
         }
     }
 
@@ -179,9 +187,8 @@ public class CaptureService extends Service {
         }
 
         MediaProjectionManager manager =
-                (MediaProjectionManager) getSystemService(
-                        MEDIA_PROJECTION_SERVICE
-                );
+                (MediaProjectionManager)
+                        getSystemService(MEDIA_PROJECTION_SERVICE);
 
         if (manager == null) {
             return;
@@ -197,29 +204,32 @@ public class CaptureService extends Service {
             return;
         }
 
-        DisplayMetrics metrics = getResources().getDisplayMetrics();
+        DisplayMetrics metrics =
+                getResources().getDisplayMetrics();
 
         int width = metrics.widthPixels;
         int height = metrics.heightPixels;
         int density = metrics.densityDpi;
 
-        imageReader = ImageReader.newInstance(
-                width,
-                height,
-                PixelFormat.RGBA_8888,
-                2
-        );
+        imageReader =
+                ImageReader.newInstance(
+                        width,
+                        height,
+                        PixelFormat.RGBA_8888,
+                        2
+                );
 
-        virtualDisplay = mediaProjection.createVirtualDisplay(
-                "ArenaHelperCapture",
-                width,
-                height,
-                density,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                imageReader.getSurface(),
-                null,
-                handler
-        );
+        virtualDisplay =
+                mediaProjection.createVirtualDisplay(
+                        "ArenaHelperCapture",
+                        width,
+                        height,
+                        density,
+                        DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                        imageReader.getSurface(),
+                        null,
+                        handler
+                );
 
         imageReader.setOnImageAvailableListener(
                 reader -> processLatestImage(reader),
@@ -248,8 +258,8 @@ public class CaptureService extends Service {
         processing = true;
 
         try {
-            Bitmap bitmap = imageToBitmap(image);
 
+            Bitmap bitmap = imageToBitmap(image);
             image.close();
 
             if (bitmap == null) {
@@ -278,10 +288,14 @@ public class CaptureService extends Service {
             return null;
         }
 
-        ByteBuffer buffer = planes[0].getBuffer();
+        ByteBuffer buffer =
+                planes[0].getBuffer();
 
-        int pixelStride = planes[0].getPixelStride();
-        int rowStride = planes[0].getRowStride();
+        int pixelStride =
+                planes[0].getPixelStride();
+
+        int rowStride =
+                planes[0].getRowStride();
 
         int width = image.getWidth();
         int height = image.getHeight();
@@ -289,25 +303,26 @@ public class CaptureService extends Service {
         int rowPadding =
                 rowStride - pixelStride * width;
 
-        Bitmap bitmap = Bitmap.createBitmap(
-                width + rowPadding / pixelStride,
-                height,
-                Bitmap.Config.ARGB_8888
-        );
+        Bitmap bitmap =
+                Bitmap.createBitmap(
+                        width + rowPadding / pixelStride,
+                        height,
+                        Bitmap.Config.ARGB_8888
+                );
 
         buffer.rewind();
-
         bitmap.copyPixelsFromBuffer(buffer);
 
         if (bitmap.getWidth() != width) {
 
-            Bitmap cropped = Bitmap.createBitmap(
-                    bitmap,
-                    0,
-                    0,
-                    width,
-                    height
-            );
+            Bitmap cropped =
+                    Bitmap.createBitmap(
+                            bitmap,
+                            0,
+                            0,
+                            width,
+                            height
+                    );
 
             bitmap.recycle();
 
@@ -319,45 +334,64 @@ public class CaptureService extends Service {
 
     private void runOCR(Bitmap source) {
 
-        DisplayMetrics metrics = getResources().getDisplayMetrics();
-
         int width = source.getWidth();
         int height = source.getHeight();
 
-        int nameTop = (int) (height * 0.45f);
-        int nameBottom = (int) (height * 0.55f);
+        int nameTop =
+                (int) (height * 0.45f);
 
-        Bitmap card1 = cropCard(
-                source,
-                (int) (width * 0.065f),
-                (int) (width * 0.38f),
-                nameTop,
-                nameBottom
-        );
+        int nameBottom =
+                (int) (height * 0.55f);
 
-        Bitmap card2 = cropCard(
-                source,
-                (int) (width * 0.355f),
-                (int) (width * 0.645f),
-                nameTop,
-                nameBottom
-        );
+        Bitmap card1 =
+                cropCard(
+                        source,
+                        (int) (width * 0.065f),
+                        (int) (width * 0.38f),
+                        nameTop,
+                        nameBottom
+                );
 
-        Bitmap card3 = cropCard(
-                source,
-                (int) (width * 0.60f),
-                (int) (width * 0.935f),
-                nameTop,
-                nameBottom
-        );
+        Bitmap card2 =
+                cropCard(
+                        source,
+                        (int) (width * 0.355f),
+                        (int) (width * 0.645f),
+                        nameTop,
+                        nameBottom
+                );
+
+        Bitmap card3 =
+                cropCard(
+                        source,
+                        (int) (width * 0.60f),
+                        (int) (width * 0.935f),
+                        nameTop,
+                        nameBottom
+                );
 
         source.recycle();
 
-        final String[] results = new String[3];
+        final String[] results =
+                new String[3];
 
-        recognizeNormalCard(card1, 0, results);
-        recognizeNormalCard(card2, 1, results);
-        recognizeNormalCard(card3, 2, results);
+        recognizeNormalCard(
+                card1,
+                0,
+                results
+        );
+
+        recognizeNormalCard(
+                card2,
+                1,
+                results
+        );
+
+        recognizeNormalCard(
+                card3,
+                2,
+                results
+        );
     }
 
     private Bitmap cropCard(
@@ -371,36 +405,50 @@ public class CaptureService extends Service {
         left = Math.max(0, left);
         top = Math.max(0, top);
 
-        right = Math.min(source.getWidth(), right);
-        bottom = Math.min(source.getHeight(), bottom);
+        right =
+                Math.min(
+                        source.getWidth(),
+                        right
+                );
 
-        if (right <= left || bottom <= top) {
+        bottom =
+                Math.min(
+                        source.getHeight(),
+                        bottom
+                );
+
+        if (right <= left ||
+                bottom <= top) {
             return null;
         }
 
-        Bitmap cropped = Bitmap.createBitmap(
-                source,
-                left,
-                top,
-                right - left,
-                bottom - top
-        );
+        Bitmap cropped =
+                Bitmap.createBitmap(
+                        source,
+                        left,
+                        top,
+                        right - left,
+                        bottom - top
+                );
 
         return enlargeForOCR(cropped);
     }
 
-    private Bitmap enlargeForOCR(Bitmap bitmap) {
+    private Bitmap enlargeForOCR(
+            Bitmap bitmap
+    ) {
 
         if (bitmap == null) {
             return null;
         }
 
-        Bitmap enlarged = Bitmap.createScaledBitmap(
-                bitmap,
-                bitmap.getWidth() * 2,
-                bitmap.getHeight() * 2,
-                true
-        );
+        Bitmap enlarged =
+                Bitmap.createScaledBitmap(
+                        bitmap,
+                        bitmap.getWidth() * 2,
+                        bitmap.getHeight() * 2,
+                        true
+                );
 
         bitmap.recycle();
 
@@ -414,13 +462,19 @@ public class CaptureService extends Service {
     ) {
 
         if (bitmap == null) {
-            results[index] = getStableCard(index);
+
+            results[index] =
+                    getStableCard(index);
+
             checkOCRFinished(results);
             return;
         }
 
         InputImage image =
-                InputImage.fromBitmap(bitmap, 0);
+                InputImage.fromBitmap(
+                        bitmap,
+                        0
+                );
 
         recognizer.process(image)
                 .addOnSuccessListener(text -> {
@@ -429,7 +483,10 @@ public class CaptureService extends Service {
                             cleanCardName(text);
 
                     results[index] =
-                            stabilizeCard(cleaned, index);
+                            stabilizeCard(
+                                    cleaned,
+                                    index
+                            );
 
                     bitmap.recycle();
 
@@ -446,7 +503,9 @@ public class CaptureService extends Service {
                 });
     }
 
-    private void checkOCRFinished(String[] results) {
+    private void checkOCRFinished(
+            String[] results
+    ) {
 
         if (results[0] == null ||
                 results[1] == null ||
@@ -463,7 +522,9 @@ public class CaptureService extends Service {
         processing = false;
     }
 
-    private String getStableCard(int index) {
+    private String getStableCard(
+            int index
+    ) {
 
         if (index == 0) {
             return card1Stability.stable;
@@ -488,7 +549,9 @@ public class CaptureService extends Service {
         }
 
         String normalized =
-                normalizeDetectedCardName(detected);
+                normalizeDetectedCardName(
+                        detected
+                );
 
         if (normalized.isEmpty()) {
             return getStableCard(index);
@@ -584,13 +647,12 @@ public class CaptureService extends Service {
 
         text = text.trim();
 
-        // Korjaa HTML-entiteetit, joita kortin nimi
-        // voi joskus saada OCR:n / online-datan kautta.
-        text = text.replace("&#039;", "'")
-                .replace("&#39;", "'")
-                .replace("&apos;", "'")
-                .replace("&amp;", "&")
-                .replace("&quot;", "\"");
+        /*
+         * AINOA uusi korjaus:
+         * Spellweaver&#039;s Brilliance
+         * -> Spellweaver's Brilliance
+         */
+        text = text.replace("&#039;", "'");
 
         text = text.replaceAll(
                 "[\\s\\.,:;|]+$",
@@ -605,6 +667,7 @@ public class CaptureService extends Service {
         text = fixSoldierOfInfinite(text);
 
         try {
+
             String corrected =
                     ArenaAdvisor.correctOcr(text);
 
@@ -617,13 +680,7 @@ public class CaptureService extends Service {
         } catch (Exception ignored) {
         }
 
-        // Korjaa HTML-entiteetit vielä uudelleen,
-        // jos correctOcr palautti sellaisen.
-        text = text.replace("&#039;", "'")
-                .replace("&#39;", "'")
-                .replace("&apos;", "'")
-                .replace("&amp;", "&")
-                .replace("&quot;", "\"");
+        text = text.replace("&#039;", "'");
 
         text = text.replaceAll(
                 "[\\s\\.,:;|]+$",
@@ -633,13 +690,16 @@ public class CaptureService extends Service {
         return text.trim();
     }
 
-    private String cleanCardName(Text text) {
+    private String cleanCardName(
+            Text text
+    ) {
 
         if (text == null) {
             return "";
         }
 
-        String raw = text.getText();
+        String raw =
+                text.getText();
 
         if (raw == null) {
             return "";
@@ -660,7 +720,9 @@ public class CaptureService extends Service {
 
             int letters = 0;
 
-            for (int i = 0; i < line.length(); i++) {
+            for (int i = 0;
+                    i < line.length();
+                    i++) {
 
                 if (Character.isLetter(
                         line.charAt(i)
@@ -702,18 +764,18 @@ public class CaptureService extends Service {
                 ""
         );
 
-        // HTML-entiteetit
-        best = best.replace("&#039;", "'")
-                .replace("&#39;", "'")
-                .replace("&apos;", "'")
-                .replace("&amp;", "&")
-                .replace("&quot;", "\"");
+        /*
+         * AINOA OCR-nimeen liittyvä lisäys:
+         */
+        best = best.replace("&#039;", "'");
 
         if (!best.isEmpty()) {
 
-            best = Character.toUpperCase(
-                    best.charAt(0)
-            ) + best.substring(1);
+            best =
+                    Character.toUpperCase(
+                            best.charAt(0)
+                    )
+                    + best.substring(1);
         }
 
         return best;
@@ -734,11 +796,21 @@ public class CaptureService extends Service {
                                 ""
                         );
 
-        if (normalized.contains("soldierofinfinite") ||
-                normalized.contains("so1dierofinfinite") ||
-                normalized.contains("sotdierofinfinite") ||
-                normalized.contains("soldierofihfinite") ||
-                normalized.contains("soldierofihfini")) {
+        if (normalized.contains(
+                "soldierofinfinite"
+        )
+                || normalized.contains(
+                "so1dierofinfinite"
+        )
+                || normalized.contains(
+                "sotdierofinfinite"
+        )
+                || normalized.contains(
+                "soldierofihfinite"
+        )
+                || normalized.contains(
+                "soldierofihfini"
+        )) {
 
             return "Soldier of the Infinite";
         }
@@ -750,7 +822,9 @@ public class CaptureService extends Service {
                 !stable.isEmpty()) {
 
             String stableNormalized =
-                    stable.toLowerCase(Locale.US)
+                    stable.toLowerCase(
+                                    Locale.US
+                            )
                             .replaceAll(
                                     "[^a-z0-9]",
                                     ""
@@ -759,6 +833,7 @@ public class CaptureService extends Service {
             if (stableNormalized.contains(
                     "soldierofinfinite"
             )) {
+
                 return "Soldier of the Infinite";
             }
         }
@@ -799,7 +874,10 @@ public class CaptureService extends Service {
         }
 
         int distance =
-                levenshtein(aa, bb);
+                levenshtein(
+                        aa,
+                        bb
+                );
 
         int maxLength =
                 Math.max(
@@ -823,20 +901,29 @@ public class CaptureService extends Service {
                 new int[a.length() + 1]
                         [b.length() + 1];
 
-        for (int i = 0; i <= a.length(); i++) {
+        for (int i = 0;
+                i <= a.length();
+                i++) {
             dp[i][0] = i;
         }
 
-        for (int j = 0; j <= b.length(); j++) {
+        for (int j = 0;
+                j <= b.length();
+                j++) {
             dp[0][j] = j;
         }
 
-        for (int i = 1; i <= a.length(); i++) {
+        for (int i = 1;
+                i <= a.length();
+                i++) {
 
-            for (int j = 1; j <= b.length(); j++) {
+            for (int j = 1;
+                    j <= b.length();
+                    j++) {
 
                 int cost =
-                        a.charAt(i - 1) ==
+                        a.charAt(i - 1)
+                                ==
                                 b.charAt(j - 1)
                                 ? 0
                                 : 1;
@@ -847,7 +934,8 @@ public class CaptureService extends Service {
                                         dp[i - 1][j] + 1,
                                         dp[i][j - 1] + 1
                                 ),
-                                dp[i - 1][j - 1] + cost
+                                dp[i - 1][j - 1]
+                                        + cost
                         );
             }
         }
@@ -913,15 +1001,15 @@ public class CaptureService extends Service {
                         card1
                 )
                         &&
-                        similarNames(
-                                pendingOffer2,
-                                card2
-                        )
+                similarNames(
+                        pendingOffer2,
+                        card2
+                )
                         &&
-                        similarNames(
-                                pendingOffer3,
-                                card3
-                        );
+                similarNames(
+                        pendingOffer3,
+                        card3
+                );
 
         if (sameOffer) {
 
@@ -960,7 +1048,9 @@ public class CaptureService extends Service {
 
             if (missing != null &&
                     !missing.isEmpty() &&
-                    !missing.equals(lastRecordedPick)) {
+                    !missing.equals(
+                            lastRecordedPick
+                    )) {
 
                 ArenaAdvisor.recordPickedCard(
                         missing
@@ -985,19 +1075,25 @@ public class CaptureService extends Service {
     ) {
 
         boolean old1Exists =
-                similarNames(old1, new1) ||
-                        similarNames(old1, new2) ||
-                        similarNames(old1, new3);
+                similarNames(old1, new1)
+                        ||
+                similarNames(old1, new2)
+                        ||
+                similarNames(old1, new3);
 
         boolean old2Exists =
-                similarNames(old2, new1) ||
-                        similarNames(old2, new2) ||
-                        similarNames(old2, new3);
+                similarNames(old2, new1)
+                        ||
+                similarNames(old2, new2)
+                        ||
+                similarNames(old2, new3);
 
         boolean old3Exists =
-                similarNames(old3, new1) ||
-                        similarNames(old3, new2) ||
-                        similarNames(old3, new3);
+                similarNames(old3, new1)
+                        ||
+                similarNames(old3, new2)
+                        ||
+                similarNames(old3, new3);
 
         int missingCount = 0;
         String missing = "";
@@ -1035,13 +1131,19 @@ public class CaptureService extends Service {
         }
 
         final String score1 =
-                ArenaAdvisor.getCardScore(card1);
+                ArenaAdvisor.getCardScore(
+                        card1
+                );
 
         final String score2 =
-                ArenaAdvisor.getCardScore(card2);
+                ArenaAdvisor.getCardScore(
+                        card2
+                );
 
         final String score3 =
-                ArenaAdvisor.getCardScore(card3);
+                ArenaAdvisor.getCardScore(
+                        card3
+                );
 
         final String recommendation =
                 ArenaAdvisor.recommend(
