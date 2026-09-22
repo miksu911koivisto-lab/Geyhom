@@ -1027,12 +1027,11 @@ public class ArenaAdvisor {
         return text;
     }
 
-    public static double getCardScore(
-            String cardName
-    ) {
-
-        return score(cardName);
-    }
+    public static String getCardScore(
+        String cardName
+) {
+    return formatScore(score(cardName));
+}
 
     public static double score(
             String cardName
