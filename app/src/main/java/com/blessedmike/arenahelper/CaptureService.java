@@ -753,12 +753,6 @@ public class CaptureService extends Service {
                         nameBottom
                 );
 
-        /*
-         * KORTTI 3
-         *
-         * Sama rajaus kuin edellisessä toimivassa
-         * versiossa.
-         */
         Bitmap card3 =
                 cropCard(
                         source,
@@ -898,28 +892,15 @@ public class CaptureService extends Service {
 
                     if (index == 2) {
 
-                        /*
-                         * Kortti 3 käyttää edelleen omaa
-                         * pitkän nimen OCR-käsittelyä.
-                         */
                         cleaned =
                                 cleanCard3Name(text);
 
                     } else {
 
-                        /*
-                         * Kortit 1 ja 2 ennallaan.
-                         */
                         cleaned =
                                 cleanCardName(text);
                     }
 
-                    /*
-                     * TÄRKEÄ:
-                     *
-                     * Kortille 3 käytetään erillistä
-                     * vakauskäsittelyä.
-                     */
                     if (index == 2) {
 
                         results[index] =
@@ -1086,7 +1067,6 @@ public class CaptureService extends Service {
             }
 
             stability.candidate = "";
-
             stability.candidateCount = 0;
 
             return stability.stable;
@@ -1135,21 +1115,6 @@ public class CaptureService extends Service {
      * ============================================================
      * KORTTI 3:N ERILLINEN VAKAUS
      * ============================================================
-     *
-     * Tämä on ainoa uusi suojaus.
-     *
-     * Jos vakaa nimi on esimerkiksi:
-     *
-     *     Toreth the Unbreaking
-     *
-     * ja OCR löytää vain:
-     *
-     *     the Unbreaking
-     *
-     * sitä EI hyväksytä uudeksi nimeksi.
-     *
-     * Sama koskee mitä tahansa lyhyempää tekstipätkää,
-     * joka on osa nykyistä vakaata nimeä.
      */
     private String stabilizeCard3(
             String detected
@@ -1171,8 +1136,8 @@ public class CaptureService extends Service {
         }
 
         /*
-         * Jos meillä on jo vakaa kortti ja uusi OCR-tulos
-         * on vain sen osa, pidetään vanha nimi.
+         * Jos nykyinen vakaa nimi on olemassa ja OCR
+         * löytää siitä vain osan, pidetään vanha nimi.
          */
         if (!card3Stability.stable.isEmpty() &&
                 isPartialOfStableCard3(
@@ -1180,30 +1145,18 @@ public class CaptureService extends Service {
                         card3Stability.stable
                 )) {
 
-            /*
-             * Osittainen OCR ei saa edes muodostaa
-             * ehdokasta uudeksi kortiksi.
-             */
             card3Stability.candidate = "";
             card3Stability.candidateCount = 0;
 
             return card3Stability.stable;
         }
 
-        /*
-         * Normaali vakaan nimen vastaavuus.
-         */
         if (!card3Stability.stable.isEmpty() &&
                 similarNames(
                         card3Stability.stable,
                         normalized
                 )) {
 
-            /*
-             * Jos OCR löysi tällä kertaa pidemmän
-             * version samasta nimestä, voidaan käyttää
-             * pidempää versiota.
-             */
             if (isLongerVersion(
                     normalized,
                     card3Stability.stable
@@ -1219,11 +1172,6 @@ public class CaptureService extends Service {
             return card3Stability.stable;
         }
 
-        /*
-         * Ei vielä vakaata nimeä.
-         * Käytetään normaalia kahden havainnon
-         * varmistusta.
-         */
         if (card3Stability.stable.isEmpty()) {
 
             if (card3Stability.candidate.isEmpty() ||
@@ -1258,7 +1206,6 @@ public class CaptureService extends Service {
                         card3Stability.candidate;
 
                 card3Stability.candidate = "";
-
                 card3Stability.candidateCount = 0;
             }
 
@@ -1267,11 +1214,6 @@ public class CaptureService extends Service {
                     : card3Stability.stable;
         }
 
-        /*
-         * Tässä ollaan vain, jos OCR näyttää kokonaan
-         * uuden kortin eikä kyseessä ole nykyisen nimen
-         * osittainen havainto.
-         */
         if (card3Stability.candidate.isEmpty() ||
                 !similarNames(
                         card3Stability.candidate,
@@ -1304,7 +1246,6 @@ public class CaptureService extends Service {
                     card3Stability.candidate;
 
             card3Stability.candidate = "";
-
             card3Stability.candidateCount = 0;
         }
 
@@ -1312,28 +1253,24 @@ public class CaptureService extends Service {
     }
 
     /*
-     * Tarkistaa, onko uusi OCR-tulos vain osa nykyisestä
-     * vakaasta kortinimestä.
+     * ============================================================
+     * KORTTI 3 - OSATUNNISTUKSEN TUNNISTUS
+     * ============================================================
      *
-     * Esimerkki:
+     * Esimerkiksi:
      *
-     * stable:
-     * Toreth the Unbreaking
+     * Vakaa:
+     * Naralex, Herald of the Flights
      *
-     * detected:
-     * the Unbreaking
+     * OCR:
+     * Ald of the Flight
      *
-     * => true
+     * Vaikka koko merkkijono ei ole suora substring,
+     * siinä on sama peräkkäinen sanajakso:
      *
-     * Myös:
+     * of the flight(s)
      *
-     * stable:
-     * Holy Eggbearer
-     *
-     * detected:
-     * Eggbearer
-     *
-     * => true
+     * joten sitä käsitellään osittaisena OCR-tuloksena.
      */
     private boolean isPartialOfStableCard3(
             String detected,
@@ -1370,9 +1307,6 @@ public class CaptureService extends Service {
             return false;
         }
 
-        /*
-         * Täsmälleen sama nimi ei ole osittainen.
-         */
         if (detectedNormalized.equals(
                 stableNormalized
         )) {
@@ -1381,19 +1315,186 @@ public class CaptureService extends Service {
         }
 
         /*
-         * Jos uusi OCR-tulos on lyhyempi ja löytyy
-         * kokonaisena nykyisestä nimestä, se on
-         * erittäin todennäköisesti vain OCR:n leikkaama
-         * osa pitkästä nimestä.
+         * Uuden OCR-tuloksen täytyy olla lyhyempi.
          */
-        if (detectedNormalized.length() <
-                stableNormalized.length()
-                &&
-                stableNormalized.contains(
-                        detectedNormalized
-                )) {
+        if (detectedNormalized.length() >=
+                stableNormalized.length()) {
+
+            return false;
+        }
+
+        /*
+         * Vanha suora substring-tarkistus.
+         */
+        if (stableNormalized.contains(
+                detectedNormalized
+        )) {
 
             return true;
+        }
+
+        /*
+         * UUSI KORTTI 3 -SUOJAUS:
+         *
+         * Verrataan sanoja peräkkäisinä jaksoina.
+         *
+         * Esimerkiksi:
+         *
+         * Naralex Herald of the Flights
+         *             ↓
+         *          of the Flight
+         *
+         * Flight / Flights hyväksytään samaksi sanaksi.
+         */
+        String[] detectedWords =
+                detected.toLowerCase(Locale.US)
+                        .replaceAll(
+                                "[^a-z0-9' ]",
+                                " "
+                        )
+                        .trim()
+                        .split("\\s+");
+
+        String[] stableWords =
+                stable.toLowerCase(Locale.US)
+                        .replaceAll(
+                                "[^a-z0-9' ]",
+                                " "
+                        )
+                        .trim()
+                        .split("\\s+");
+
+        if (detectedWords.length < 2 ||
+                stableWords.length < 2) {
+
+            return false;
+        }
+
+        int longestSequence = 0;
+
+        for (int i = 0;
+             i < detectedWords.length;
+             i++) {
+
+            for (int j = 0;
+                 j < stableWords.length;
+                 j++) {
+
+                int sequence = 0;
+
+                while (
+                        i + sequence <
+                                detectedWords.length
+                                &&
+                        j + sequence <
+                                stableWords.length
+                        &&
+                        sameCard3Word(
+                                detectedWords[
+                                        i + sequence
+                                ],
+                                stableWords[
+                                        j + sequence
+                                ]
+                        )
+                ) {
+
+                    sequence++;
+                }
+
+                if (sequence >
+                        longestSequence) {
+
+                    longestSequence =
+                            sequence;
+                }
+            }
+        }
+
+        /*
+         * Kolmen tai useamman peräkkäisen sanan
+         * osuma on erittäin vahva merkki siitä,
+         * että OCR on ottanut vain osan nimestä.
+         *
+         * Tämä ratkaisee esimerkiksi:
+         *
+         * "Naralex, Herald of the Flights"
+         * "Ald of the Flight"
+         */
+        if (longestSequence >= 3) {
+            return true;
+        }
+
+        /*
+         * Kahden sanan osuma hyväksytään vain,
+         * jos havaittu nimi on hyvin lyhyt.
+         * Näin esimerkiksi "of the" ei yksinään
+         * pysty lukitsemaan suojausta pitkäksi aikaa.
+         */
+        if (longestSequence >= 2 &&
+                detectedWords.length <= 3) {
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /*
+     * Kortti 3:n sanavertailu.
+     *
+     * Flight == Flights
+     * Herald == Herald
+     * etc.
+     */
+    private boolean sameCard3Word(
+            String a,
+            String b
+    ) {
+
+        if (a == null ||
+                b == null) {
+
+            return false;
+        }
+
+        a =
+                a.toLowerCase(
+                        Locale.US
+                );
+
+        b =
+                b.toLowerCase(
+                        Locale.US
+                );
+
+        if (a.equals(b)) {
+            return true;
+        }
+
+        /*
+         * Yksinkertainen yksikkö/monikko-suojaus.
+         */
+        if (a.length() > 3 &&
+                b.length() > 3) {
+
+            if (a.endsWith("s") &&
+                    a.substring(
+                            0,
+                            a.length() - 1
+                    ).equals(b)) {
+
+                return true;
+            }
+
+            if (b.endsWith("s") &&
+                    b.substring(
+                            0,
+                            b.length() - 1
+                    ).equals(a)) {
+
+                return true;
+            }
         }
 
         return false;
@@ -1505,9 +1606,6 @@ public class CaptureService extends Service {
         return text.trim();
     }
 
-    /*
-     * Korttien 1 ja 2 alkuperäinen käsittely.
-     */
     private String cleanCardName(
             Text text
     ) {
@@ -1613,19 +1711,6 @@ public class CaptureService extends Service {
         return best;
     }
 
-    /*
-     * Kortti 3:n pitkien nimien OCR.
-     *
-     * Jos ML Kit jakaa nimen kahdelle riville,
-     * esimerkiksi:
-     *
-     * Holy Egg
-     * bearer
-     *
-     * tulokseksi saadaan:
-     *
-     * Holy Egg bearer
-     */
     private String cleanCard3Name(
             Text text
     ) {
