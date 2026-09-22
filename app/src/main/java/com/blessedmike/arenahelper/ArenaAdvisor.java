@@ -198,6 +198,7 @@ public class ArenaAdvisor {
             String name,
             double score
     ) {
+
         CARDS.put(
                 normalize(name),
                 score
@@ -208,6 +209,7 @@ public class ArenaAdvisor {
             String name,
             int rawScore
     ) {
+
         addCard(
                 name,
                 rawScore / HEARTHARENA_SCALE
@@ -218,6 +220,7 @@ public class ArenaAdvisor {
             String from,
             String to
     ) {
+
         OCR_ALIASES.put(
                 normalize(from),
                 to
@@ -890,12 +893,14 @@ public class ArenaAdvisor {
         String normalized =
                 normalize(cleaned);
 
-        // Soldier of the Infinite
         if (normalized.contains(
                 "soldier of the infinite"
         ) ||
                 normalized.contains(
                         "soldier of infinit"
+                ) ||
+                normalized.contains(
+                        "soldier of the infinit"
                 ) ||
                 normalized.contains(
                         "soldier of ihfini"
@@ -907,7 +912,6 @@ public class ArenaAdvisor {
             return "Soldier of the Infinite";
         }
 
-        // OCR-alias
         String alias =
                 OCR_ALIASES.get(
                         normalized
@@ -917,7 +921,6 @@ public class ArenaAdvisor {
             return alias;
         }
 
-        // Tarkka paikallinen osuma
         synchronized (CARDS) {
 
             if (CARDS.containsKey(
@@ -930,7 +933,6 @@ public class ArenaAdvisor {
             }
         }
 
-        // Tarkka online-osuma
         if (ONLINE_NAMES.contains(
                 normalized
         )) {
@@ -940,7 +942,6 @@ public class ArenaAdvisor {
             );
         }
 
-        // Prefix
         String prefix =
                 findPrefixMatch(
                         normalized
@@ -953,7 +954,6 @@ public class ArenaAdvisor {
             );
         }
 
-        // Fuzzy paikalliset
         String fuzzy =
                 findBestLocalMatch(
                         normalized
@@ -966,7 +966,6 @@ public class ArenaAdvisor {
             );
         }
 
-        // Fuzzy online
         fuzzy =
                 findBestOnlineMatch(
                         normalized
@@ -1177,7 +1176,7 @@ public class ArenaAdvisor {
     }
 
     // ================================================================
-    // SCORE
+    // NUMEERINEN SCORE
     // ================================================================
 
     public static double score(
@@ -1246,19 +1245,21 @@ public class ArenaAdvisor {
     }
 
     // ================================================================
-    // CAPTURE SERVICE - YHTEENSOPIVUUS
+    // CAPTURE SERVICE - TÄMÄN PITÄÄ OLLA STRING
     // ================================================================
 
-    /*
-     * CaptureService.java käyttää tätä nimeä.
-     *
-     * ÄLÄ POISTA tätä metodia.
-     */
-    public static double getCardScore(
+    public static String getCardScore(
             String cardName
     ) {
 
-        return score(cardName);
+        double value =
+                score(cardName);
+
+        return String.format(
+                Locale.US,
+                "%.2f",
+                value
+        );
     }
 
     // ================================================================
@@ -1294,7 +1295,7 @@ public class ArenaAdvisor {
                     correctOcr(card);
 
             double baseScore =
-                    getCardScore(corrected);
+                    score(corrected);
 
             if (baseScore <= 0.0) {
                 continue;
@@ -1333,13 +1334,6 @@ public class ArenaAdvisor {
         String normalized =
                 normalize(cardName);
 
-        /*
-         * Jos sama kortti on jo valittu,
-         * pieni 0.10 pisteen vähennys.
-         *
-         * Tämä on tarkoituksella erittäin pieni,
-         * jotta HearthArena-arvo pysyy päätekijänä.
-         */
         synchronized (PICKED_CARDS) {
 
             if (PICKED_CARDS.contains(
@@ -1385,12 +1379,6 @@ public class ArenaAdvisor {
         }
     }
 
-    /*
-     * CaptureService.java käyttää tätä nimeä.
-     *
-     * Tämä on tarkoituksella sama toiminto kuin
-     * addPickedCard().
-     */
     public static void recordPickedCard(
             String cardName
     ) {
@@ -1488,7 +1476,7 @@ public class ArenaAdvisor {
     ) {
 
         return getReason(
-                getCardScore(cardName)
+                score(cardName)
         );
     }
 
@@ -1518,7 +1506,7 @@ public class ArenaAdvisor {
     }
 
     // ================================================================
-    // NIMIEN NORMALISOINTI
+    // NORMALISOINTI
     // ================================================================
 
     private static String cleanCardName(
