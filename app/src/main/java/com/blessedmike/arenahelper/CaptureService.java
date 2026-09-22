@@ -1545,10 +1545,15 @@ public class CaptureService extends Service {
                         card3
                 );
 
-        final String recommendationScore =
+        /*
+         * ArenaAdvisor palauttaa nämä double-arvoina.
+         * Niitä ei siis voi sijoittaa String-muuttujaan
+         * suoraan.
+         */
+        final double recommendationScore =
                 ArenaAdvisor.getRecommendationScore();
 
-        final String recommendationGap =
+        final double recommendationGap =
                 ArenaAdvisor.getRecommendationGap();
 
         final String recommendationReason =
@@ -1625,27 +1630,27 @@ public class CaptureService extends Service {
                         : recommendation
         );
 
-        if (recommendationScore != null &&
-                !recommendationScore.isEmpty()) {
+        display.append(
+                "\nARVO "
+        )
+                .append(
+                        String.format(
+                                Locale.US,
+                                "%.2f",
+                                recommendationScore
+                        )
+                );
 
-            display.append(
-                    "\nARVO "
-            )
-                    .append(
-                            recommendationScore
-                    );
-        }
-
-        if (recommendationGap != null &&
-                !recommendationGap.isEmpty()) {
-
-            display.append(
-                    "\nEro seuraavaan: "
-            )
-                    .append(
-                            recommendationGap
-                    );
-        }
+        display.append(
+                "\nEro seuraavaan: +"
+        )
+                .append(
+                        String.format(
+                                Locale.US,
+                                "%.2f",
+                                recommendationGap
+                        )
+                );
 
         if (recommendationReason != null &&
                 !recommendationReason.isEmpty()) {
