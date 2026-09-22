@@ -23,9 +23,20 @@ public class ArenaAdvisor {
     private static final String HEARTHARENA_URL =
             "https://www.heartharena.com/tierlist";
 
+    /*
+     * HearthArena käyttää noin 0-130 asteikkoa.
+     * Sovellus näyttää arvon 0-10.
+     */
     private static final double HEARTHARENA_SCALE = 13.0;
 
-    private static final double UNKNOWN_CARD_SCORE = 5.0;
+    /*
+     * TÄRKEÄ:
+     *
+     * 5.0 EI OLE ENÄÄ TUNTEMATTOMAN KORTIN ARVO.
+     *
+     * Tunnistamaton kortti = 0.0.
+     */
+    private static final double UNKNOWN_CARD_SCORE = 0.0;
 
     private static final Map<String, CardData> CARDS =
             Collections.synchronizedMap(
@@ -88,6 +99,12 @@ public class ArenaAdvisor {
     }
 
     static {
+
+        /*
+         * ============================
+         * VARMISTETUT FALLBACK-KORTIT
+         * ============================
+         */
 
         add(
                 "Soldier of the Infinite",
@@ -249,6 +266,44 @@ public class ArenaAdvisor {
                 false
         );
 
+        add(
+                "Spellweaver's Brilliance",
+                3.92,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        add(
+                "Windswept Pageturner",
+                5.23,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        /*
+         * ============================
+         * OCR-ALIAKSET
+         * ============================
+         */
+
         alias(
                 "soldier of ihfinite",
                 "Soldier of the Infinite"
@@ -261,6 +316,11 @@ public class ArenaAdvisor {
 
         alias(
                 "soldier of infinite",
+                "Soldier of the Infinite"
+        );
+
+        alias(
+                "soldier of the infinite",
                 "Soldier of the Infinite"
         );
 
@@ -299,6 +359,63 @@ public class ArenaAdvisor {
                 "Surge Needle"
         );
 
+        /*
+         * Spellweaver's Brilliance:
+         * apostrofi voi kadota OCR:ssä.
+         */
+        alias(
+                "spellweaver's brilliance",
+                "Spellweaver's Brilliance"
+        );
+
+        alias(
+                "spellweavers brilliance",
+                "Spellweaver's Brilliance"
+        );
+
+        alias(
+                "spellweaver brilliance",
+                "Spellweaver's Brilliance"
+        );
+
+        alias(
+                "spellweaver's brillianc",
+                "Spellweaver's Brilliance"
+        );
+
+        alias(
+                "spellweavers brillianc",
+                "Spellweaver's Brilliance"
+        );
+
+        /*
+         * Windswept Pageturner:
+         * yleisiä yhden merkin OCR-virheitä.
+         */
+        alias(
+                "windswept pageturner",
+                "Windswept Pageturner"
+        );
+
+        alias(
+                "windswept pageturn",
+                "Windswept Pageturner"
+        );
+
+        alias(
+                "windswept pagetumer",
+                "Windswept Pageturner"
+        );
+
+        alias(
+                "windswept pageturner",
+                "Windswept Pageturner"
+        );
+
+        /*
+         * Yritetään ladata koko nykyinen
+         * HearthArena-lista.
+         */
         loadOnlineTierList();
     }
 
@@ -383,17 +500,33 @@ public class ArenaAdvisor {
                 );
 
                 connection.setConnectTimeout(
-                        10000
+                        15000
                 );
 
                 connection.setReadTimeout(
-                        15000
+                        20000
+                );
+
+                connection.setInstanceFollowRedirects(
+                        true
                 );
 
                 connection.setRequestProperty(
                         "User-Agent",
                         "Mozilla/5.0 " +
-                        "(Android Arena Helper)"
+                        "(Linux; Android 16) " +
+                        "AppleWebKit/537.36 " +
+                        "Chrome/140.0 Mobile Safari/537.36"
+                );
+
+                connection.setRequestProperty(
+                        "Accept",
+                        "text/html,application/xhtml+xml"
+                );
+
+                connection.setRequestProperty(
+                        "Accept-Language",
+                        "en-US,en;q=0.9"
                 );
 
                 int response =
@@ -408,22 +541,34 @@ public class ArenaAdvisor {
                     String html =
                             readStream(stream);
 
-                    decodeHtml(html);
+                    if (html != null &&
+                            !html.isEmpty()) {
 
-                    onlineLoaded = true;
+                        decodeHtml(html);
+
+                        /*
+                         * Merkitään ladatuksi vain,
+                         * jos jotain oikeasti löytyi.
+                         */
+                        if (!ONLINE_NAMES.isEmpty()) {
+                            onlineLoaded = true;
+                        }
+                    }
                 }
 
             } catch (Exception ignored) {
 
                 /*
-                 * Jos verkkolistan lataus epäonnistuu,
-                 * fallback-kortit toimivat edelleen.
+                 * Fallback-kortit jäävät käyttöön.
                  */
 
             } finally {
 
                 if (connection != null) {
-                    connection.disconnect();
+
+                    try {
+                        connection.disconnect();
+                    } catch (Exception ignored) {}
                 }
 
                 loadingOnline = false;
@@ -470,14 +615,38 @@ public class ArenaAdvisor {
 
         String cleaned =
                 html
-                        .replace("&amp;", "&")
-                        .replace("&quot;", "\"")
-                        .replace("&#039;", "'")
-                        .replace("&#39;", "'")
-                        .replace("&apos;", "'")
-                        .replace("&lt;", "<")
-                        .replace("&gt;", ">")
-                        .replace("&nbsp;", " ");
+                        .replace(
+                                "&amp;",
+                                "&"
+                        )
+                        .replace(
+                                "&quot;",
+                                "\""
+                        )
+                        .replace(
+                                "&#039;",
+                                "'"
+                        )
+                        .replace(
+                                "&#39;",
+                                "'"
+                        )
+                        .replace(
+                                "&apos;",
+                                "'"
+                        )
+                        .replace(
+                                "&lt;",
+                                "<"
+                        )
+                        .replace(
+                                "&gt;",
+                                ">"
+                        )
+                        .replace(
+                                "&nbsp;",
+                                " "
+                        );
 
         parseTierRows(cleaned);
         parseLooseCardScores(cleaned);
@@ -494,7 +663,8 @@ public class ArenaAdvisor {
 
         String previousName = "";
 
-        for (String raw : lines) {
+        for (String raw :
+                lines) {
 
             if (raw == null) {
                 continue;
@@ -509,7 +679,8 @@ public class ArenaAdvisor {
             }
 
             line =
-                    decodeEntities(line);
+                    decodeEntities(line)
+                            .trim();
 
             if (looksLikeCardName(line)) {
 
@@ -520,9 +691,7 @@ public class ArenaAdvisor {
             }
 
             if (!previousName.isEmpty() &&
-                    line.matches(
-                            "^(?:\\d{1,3})(?:\\.\\d+)?$"
-                    )) {
+                    isScoreLine(line)) {
 
                 try {
 
@@ -531,7 +700,7 @@ public class ArenaAdvisor {
                                     line
                             );
 
-                    if (score >= 1 &&
+                    if (score >= 0 &&
                             score <= 130) {
 
                         addOnlineCard(
@@ -574,38 +743,76 @@ public class ArenaAdvisor {
                 continue;
             }
 
-            if (i + 1 >= lines.length) {
-                continue;
-            }
+            /*
+             * Normaali:
+             *
+             * Card Name
+             * 85
+             */
+            if (i + 1 <
+                    lines.length) {
 
-            String next =
-                    lines[i + 1].trim();
+                String next =
+                        lines[i + 1]
+                                .trim();
 
-            if (!next.matches(
-                    "^\\d{1,3}(?:\\.\\d+)?$"
-            )) {
-                continue;
-            }
+                if (isScoreLine(next)) {
 
-            try {
+                    try {
 
-                double score =
-                        Double.parseDouble(
-                                next
+                        double score =
+                                Double.parseDouble(
+                                        next
+                                );
+
+                        addOnlineCard(
+                                cleanCardName(line),
+                                score
                         );
 
-                if (score >= 1 &&
-                        score <= 130) {
-
-                    addOnlineCard(
-                            cleanCardName(line),
-                            score
-                    );
+                    } catch (Exception ignored) {
+                    }
                 }
+            }
 
-            } catch (Exception ignored) {
+            /*
+             * Jos HTML on pakannut useamman
+             * elementin samalle riville,
+             * yritetään löytää numeroita
+             * samasta tekstistä.
+             */
+            String[] pieces =
+                    line.split(
+                            "\\s{2,}"
+                    );
+
+            if (pieces.length > 1) {
+
+                for (String piece :
+                        pieces) {
+
+                    piece =
+                            piece.trim();
+
+                    if (isScoreLine(piece)) {
+                        continue;
+                    }
+                }
             }
         }
+    }
+
+    private static boolean isScoreLine(
+            String text
+    ) {
+
+        if (text == null) {
+            return false;
+        }
+
+        return text.trim().matches(
+                "^\\d{1,3}(?:\\.\\d+)?$"
+        );
     }
 
     private static void addOnlineCard(
@@ -638,10 +845,15 @@ public class ArenaAdvisor {
                         )
                 );
 
+        String key =
+                normalize(name);
+
+        if (key.isEmpty()) {
+            return;
+        }
+
         CardData existing =
-                CARDS.get(
-                        normalize(name)
-                );
+                CARDS.get(key);
 
         if (existing == null) {
 
@@ -652,19 +864,21 @@ public class ArenaAdvisor {
                     );
 
             CARDS.put(
-                    normalize(name),
+                    key,
                     data
             );
 
         } else {
 
+            /*
+             * Online-data saa päivittää
+             * fallback-arvon.
+             */
             existing.baseScore =
                     converted;
         }
 
-        ONLINE_NAMES.add(
-                normalize(name)
-        );
+        ONLINE_NAMES.add(key);
     }
 
     private static String stripHtml(
@@ -703,14 +917,38 @@ public class ArenaAdvisor {
         }
 
         return text
-                .replace("&amp;", "&")
-                .replace("&quot;", "\"")
-                .replace("&#039;", "'")
-                .replace("&#39;", "'")
-                .replace("&apos;", "'")
-                .replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replace("&nbsp;", " ");
+                .replace(
+                        "&amp;",
+                        "&"
+                )
+                .replace(
+                        "&quot;",
+                        "\""
+                )
+                .replace(
+                        "&#039;",
+                        "'"
+                )
+                .replace(
+                        "&#39;",
+                        "'"
+                )
+                .replace(
+                        "&apos;",
+                        "'"
+                )
+                .replace(
+                        "&lt;",
+                        "<"
+                )
+                .replace(
+                        "&gt;",
+                        ">"
+                )
+                .replace(
+                        "&nbsp;",
+                        " "
+                );
     }
 
     private static boolean looksLikeCardName(
@@ -748,8 +986,30 @@ public class ArenaAdvisor {
         }
 
         if (text.contains(
+                "Cards in red"
+        )) {
+            return false;
+        }
+
+        if (text.contains(
                 "Tierlist"
         )) {
+            return false;
+        }
+
+        if (text.contains(
+                "Search for a card"
+        )) {
+            return false;
+        }
+
+        if (text.contains(
+                "Common"
+        )
+                &&
+                text.contains(
+                        "Cards"
+                )) {
             return false;
         }
 
@@ -812,21 +1072,8 @@ public class ArenaAdvisor {
                 input.trim();
 
         cleaned =
-                cleaned.replace(
-                        "&#039;",
-                        "'"
-                );
-
-        cleaned =
-                cleaned.replace(
-                        "&#39;",
-                        "'"
-                );
-
-        cleaned =
-                cleaned.replace(
-                        "&apos;",
-                        "'"
+                decodeEntities(
+                        cleaned
                 );
 
         cleaned =
@@ -839,6 +1086,21 @@ public class ArenaAdvisor {
             return "";
         }
 
+        /*
+         * Tunnetut OCR-erikoiskorjaukset.
+         */
+        String soldier =
+                fixSoldierOfInfinite(
+                        cleaned
+                );
+
+        if (!soldier.equals(cleaned)) {
+            return soldier;
+        }
+
+        /*
+         * Normaali alias.
+         */
         String normalized =
                 normalize(cleaned);
 
@@ -851,6 +1113,9 @@ public class ArenaAdvisor {
             return alias;
         }
 
+        /*
+         * Täsmälleen tunnettu nimi.
+         */
         CardData exact =
                 CARDS.get(
                         normalized
@@ -860,17 +1125,12 @@ public class ArenaAdvisor {
             return exact.name;
         }
 
-        String soldier =
-                fixSoldierOfInfinite(
-                        cleaned
-                );
-
-        if (!soldier.equals(cleaned)) {
-            return soldier;
-        }
-
+        /*
+         * Fuzzy matching.
+         */
         String bestName = "";
-        int bestDistance = Integer.MAX_VALUE;
+        int bestDistance =
+                Integer.MAX_VALUE;
 
         synchronized (CARDS) {
 
@@ -886,6 +1146,35 @@ public class ArenaAdvisor {
                         normalize(
                                 card.name
                         );
+
+                if (cardNormalized.isEmpty()) {
+                    continue;
+                }
+
+                /*
+                 * Jos toinen on toisen sisällä,
+                 * hyväksytään se.
+                 */
+                if (cardNormalized.contains(
+                        normalized
+                )
+                        ||
+                        normalized.contains(
+                                cardNormalized
+                        )) {
+
+                    int difference =
+                            Math.abs(
+                                    cardNormalized.length()
+                                            -
+                                    normalized.length()
+                            );
+
+                    if (difference <= 3) {
+
+                        return card.name;
+                    }
+                }
 
                 int distance =
                         levenshtein(
@@ -915,17 +1204,40 @@ public class ArenaAdvisor {
                             ).length()
                     );
 
-            int allowed =
-                    Math.max(
-                            2,
-                            maxLength / 5
-                    );
+            /*
+             * Lyhyille nimille tiukempi raja.
+             * Pitkille nimille hieman sallivampi.
+             */
+            int allowed;
+
+            if (maxLength <= 8) {
+
+                allowed = 1;
+
+            } else if (maxLength <= 15) {
+
+                allowed = 2;
+
+            } else {
+
+                allowed =
+                        Math.max(
+                                2,
+                                maxLength / 5
+                        );
+            }
 
             if (bestDistance <= allowed) {
                 return bestName;
             }
         }
 
+        /*
+         * Ei tunnistettu.
+         *
+         * Palautetaan alkuperäinen teksti,
+         * mutta score() antaa tälle 0.0.
+         */
         return cleaned;
     }
 
@@ -933,27 +1245,36 @@ public class ArenaAdvisor {
             String text
     ) {
 
+        if (text == null) {
+            return "";
+        }
+
         String normalized =
                 normalize(text);
 
         if (normalized.contains(
                 "soldierofinfinite"
         )
-                || normalized.contains(
-                "so1dierofinfinite"
-        )
-                || normalized.contains(
-                "sotdierofinfinite"
-        )
-                || normalized.contains(
-                "soldierofihfinite"
-        )
-                || normalized.contains(
-                "soldierofihfini"
-        )
-                || normalized.contains(
-                "soldieroftheinfinite"
-        )) {
+                ||
+                normalized.contains(
+                        "so1dierofinfinite"
+                )
+                ||
+                normalized.contains(
+                        "sotdierofinfinite"
+                )
+                ||
+                normalized.contains(
+                        "soldierofihfinite"
+                )
+                ||
+                normalized.contains(
+                        "soldierofihfini"
+                )
+                ||
+                normalized.contains(
+                        "soldieroftheinfinite"
+                )) {
 
             return "Soldier of the Infinite";
         }
@@ -961,10 +1282,6 @@ public class ArenaAdvisor {
         return text;
     }
 
-    /*
-     * CaptureService käyttää tätä.
-     * Palautetaan STRING, esimerkiksi "8.2".
-     */
     public static String getCardScore(
             String cardName
     ) {
@@ -974,9 +1291,6 @@ public class ArenaAdvisor {
         );
     }
 
-    /*
-     * Sisäinen numeerinen pistelaskenta.
-     */
     public static double score(
             String cardName
     ) {
@@ -992,11 +1306,20 @@ public class ArenaAdvisor {
                         cardName
                 );
 
-        CardData card =
-                CARDS.get(
-                        normalize(corrected)
-                );
+        String key =
+                normalize(corrected);
 
+        CardData card =
+                CARDS.get(key);
+
+        /*
+         * TÄRKEÄ:
+         *
+         * Jos korttia ei tunnistettu,
+         * EI palauteta 5.0.
+         *
+         * Palautetaan 0.0.
+         */
         if (card == null) {
 
             return UNKNOWN_CARD_SCORE;
@@ -1099,6 +1422,11 @@ public class ArenaAdvisor {
             double value =
                     score(card);
 
+            /*
+             * Tunnistamatonta 0-arvoista korttia
+             * ei valita suositukseksi, jos yhtään
+             * oikeasti tunnistettua korttia löytyy.
+             */
             if (value > bestScore) {
 
                 bestScore =
@@ -1111,6 +1439,21 @@ public class ArenaAdvisor {
 
         if (bestCard.isEmpty()) {
             return "Odotetaan kortteja...";
+        }
+
+        /*
+         * Jos kaikki kolme ovat tunnistamattomia,
+         * ei väitetä jotain niistä parhaaksi.
+         */
+        boolean anyKnown =
+                score(card1) > 0.0
+                        ||
+                score(card2) > 0.0
+                        ||
+                score(card3) > 0.0;
+
+        if (!anyKnown) {
+            return "Kortteja ei tunnistettu";
         }
 
         return bestCard +
@@ -1141,8 +1484,7 @@ public class ArenaAdvisor {
 
         if (card == null) {
 
-            return "Korttia ei vielä löydetty " +
-                    "tierlistasta.";
+            return "Korttia ei tunnistettu.";
         }
 
         ArrayList<String> reasons =
@@ -1200,6 +1542,7 @@ public class ArenaAdvisor {
 
         if (cardName == null ||
                 cardName.trim().isEmpty()) {
+
             return false;
         }
 
@@ -1223,8 +1566,14 @@ public class ArenaAdvisor {
                         cardName
                 );
 
-        return corrected != null &&
-                corrected.length() >= 3;
+        if (corrected == null ||
+                corrected.trim().isEmpty()) {
+            return false;
+        }
+
+        return CARDS.containsKey(
+                normalize(corrected)
+        );
     }
 
     public static void recordPickedCard(
@@ -1233,6 +1582,7 @@ public class ArenaAdvisor {
 
         if (cardName == null ||
                 cardName.trim().isEmpty()) {
+
             return;
         }
 
@@ -1308,6 +1658,17 @@ public class ArenaAdvisor {
                         "&apos;",
                         "'"
                 )
+                /*
+                 * Apostrofi, välilyönnit,
+                 * välimerkit jne. poistetaan.
+                 *
+                 * Näin:
+                 *
+                 * Spellweaver's
+                 * Spellweavers
+                 *
+                 * ovat sama nimi.
+                 */
                 .replaceAll(
                         "[^a-z0-9]",
                         ""
@@ -1408,12 +1769,6 @@ public class ArenaAdvisor {
         );
     }
 
-    /*
-     * Yhteensopivuus vanhan koodin kanssa.
-     *
-     * TÄSSÄ EI enää kutsuta formatScore(getCardScore()),
-     * koska getCardScore palauttaa jo Stringin.
-     */
     public static String getCardScoreText(
             String cardName
     ) {
