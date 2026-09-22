@@ -99,13 +99,8 @@ public class ArenaAdvisor {
         initializeAliases();
 
         /*
-         * TÄRKEÄ KORJAUS:
-         *
-         * Älä käynnistä HearthArena-latausta samaan aikaan
-         * korttitietokannan kanssa.
-         *
-         * loadCards() käynnistää HearthArena-latauksen vasta,
-         * kun CANONICAL_NAMES on täytetty.
+         * Korttitietokanta ladataan ensin.
+         * HearthArena käynnistetään vasta sen jälkeen.
          */
         loadCards();
     }
@@ -303,9 +298,6 @@ public class ArenaAdvisor {
 
                 int count = 0;
 
-                /*
-                 * Tyhjennetään vanhat tiedot ennen uutta latausta.
-                 */
                 CARDS.clear();
                 CANONICAL_NAMES.clear();
                 CARD_INFO.clear();
@@ -410,15 +402,8 @@ public class ArenaAdvisor {
                                 + count;
 
                 /*
-                 * =================================================
-                 * TÄRKEÄ:
-                 * HearthArena käynnistetään vasta NYT.
-                 *
-                 * Tässä vaiheessa CANONICAL_NAMES sisältää
-                 * korttien nimet.
-                 * =================================================
+                 * HearthArena vasta nyt.
                  */
-
                 loadHearthArenaScores();
 
             } catch (Exception e) {
@@ -455,10 +440,6 @@ public class ArenaAdvisor {
             return;
         }
 
-        /*
-         * Jos korttitietoja ei ole vielä ladattu,
-         * älä yritä parseroida HearthArenaa.
-         */
         if (CANONICAL_NAMES.isEmpty()) {
 
             Log.d(
@@ -549,10 +530,6 @@ public class ArenaAdvisor {
                     );
                 }
 
-                /*
-                 * Tyhjennetään vanhat HearthArena-arvot ennen
-                 * uuden listan lataamista.
-                 */
                 clearHearthArenaMapsOnly();
 
                 int parsed =
@@ -560,10 +537,6 @@ public class ArenaAdvisor {
                                 html
                         );
 
-                /*
-                 * Jos HTML-parseri löysi liian vähän,
-                 * yritetään suoraan tekstiparsintaa.
-                 */
                 if (parsed < 5) {
 
                     clearHearthArenaMapsOnly();
@@ -594,26 +567,10 @@ public class ArenaAdvisor {
                                 + parsed
                 );
 
-                /*
-                 * Tulostetaan muutama esimerkki logiin.
-                 * Näin nähdään Android-logista heti,
-                 * saatiinko oikeasti korttien arvot.
-                 */
-                logTestScore(
-                        "Alter Time"
-                );
-
-                logTestScore(
-                        "Merry Moonkin"
-                );
-
-                logTestScore(
-                        "Soldier of the Infinite"
-                );
-
-                logTestScore(
-                        "Soldier of the Bronze"
-                );
+                logTestScore("Alter Time");
+                logTestScore("Merry Moonkin");
+                logTestScore("Soldier of the Infinite");
+                logTestScore("Soldier of the Bronze");
 
             } catch (Exception e) {
 
@@ -758,10 +715,6 @@ public class ArenaAdvisor {
             return 0;
         }
 
-        /*
-         * Jos input on jo puhdasta tekstiä,
-         * htmlToText ei riko sitä.
-         */
         String text =
                 htmlToText(
                         input
@@ -791,8 +744,21 @@ public class ArenaAdvisor {
             }
 
             /*
-             * Luokan otsikko.
+             * ====================================================
+             * LUOKAN OTSIKKO
+             *
+             * HearthArena voi käyttää esimerkiksi:
+             *
+             * Mage
+             * Mage Cards
+             * Epic Mage Cards
+             * Legendary Mage Cards
+             * Epic Mage
+             *
+             * Aikaisempi parseri tunnisti vain täsmälleen MAGE.
+             * ====================================================
              */
+
             String detectedClass =
                     detectClassHeader(
                             line
@@ -803,15 +769,29 @@ public class ArenaAdvisor {
                 activeClass =
                         detectedClass;
 
+                Log.d(
+                        TAG,
+                        "HearthArena class section: "
+                                + activeClass
+                                + " <- "
+                                + line
+                );
+
                 continue;
             }
 
             /*
              * Neutral-osio.
              */
-            if (normalize(line).equals(
+            String normalizedLine =
+                    normalize(line);
+
+            if (normalizedLine.equals(
                     normalize("Neutral")
-            )) {
+            ) ||
+                    normalizedLine.equals(
+                            normalize("Neutral Cards")
+                    )) {
 
                 activeClass =
                         "NEUTRAL";
@@ -820,15 +800,14 @@ public class ArenaAdvisor {
             }
 
             /*
-             * Jos emme tiedä luokkaa,
-             * emme voi tallentaa class-specific-arvoa.
+             * Emme tiedä luokkaa.
              */
             if (activeClass.isEmpty()) {
                 continue;
             }
 
             /*
-             * Poistetaan listanumero.
+             * Poistetaan ranking-numero.
              */
             String possibleName =
                     removeRankingPrefix(
@@ -845,41 +824,69 @@ public class ArenaAdvisor {
             }
 
             /*
-             * Yritetään löytää kortin nimi.
+             * ====================================================
+             * ENSIMMÄINEN YRITYS:
+             *
+             * Koko rivi on kortin nimi.
+             * ====================================================
              */
+
             String canonical =
                     findCanonicalCardName(
                             possibleName
                     );
 
             /*
-             * Jos rivi ei ole tunnettu kortti,
-             * siirrytään seuraavaan.
+             * ====================================================
+             * TOINEN YRITYS:
+             *
+             * Jos rivi sisältää kortin nimen + numeron samalla
+             * rivillä, esimerkiksi:
+             *
+             * 1. Merry Moonkin 69
+             *
+             * yritetään löytää kortin nimi rivin sisältä.
+             * ====================================================
              */
+
+            if (canonical == null) {
+
+                canonical =
+                        findCardNameInsideLine(
+                                possibleName
+                        );
+            }
+
             if (canonical == null) {
                 continue;
             }
 
             /*
-             * Etsi kortin jälkeen oleva numero.
+             * Etsi arvo ensin samalta riviltä.
              */
             Double score =
-                    findFollowingScore(
-                            lines,
-                            i
+                    findScoreOnSameLine(
+                            possibleName,
+                            canonical
                     );
+
+            /*
+             * Jos ei löytynyt samalta riviltä,
+             * etsitään seuraavista riveistä.
+             */
+            if (score == null) {
+
+                score =
+                        findFollowingScore(
+                                lines,
+                                i
+                        );
+            }
 
             if (score == null) {
                 continue;
             }
 
-            /*
-             * HearthArena käyttää nykyisellä tierlistillä
-             * kokonaislukutyyppisiä arvoja, mutta myös
-             * arena-run-sivuilla voi esiintyä desimaaleja.
-             *
-             * Molemmat hyväksytään.
-             */
             if (score < 0 ||
                     score > 200) {
 
@@ -941,9 +948,170 @@ public class ArenaAdvisor {
             }
 
             parsed++;
+
+            /*
+             * Näytetään debug-logissa tärkeät kortit.
+             */
+            if (key.equals(
+                    normalize("Merry Moonkin")
+            ) ||
+                    key.equals(
+                            normalize("Alter Time")
+                    )) {
+
+                Log.d(
+                        TAG,
+                        "PARSED CARD: "
+                                + canonical
+                                + " = "
+                                + score
+                                + " ["
+                                + activeClass
+                                + "]"
+                );
+            }
         }
 
         return parsed;
+    }
+
+    /*
+     * ============================================================
+     * FIND CARD NAME INSIDE LINE
+     * ============================================================
+     */
+
+    private static String findCardNameInsideLine(
+            String line
+    ) {
+
+        if (line == null ||
+                line.isEmpty()) {
+
+            return null;
+        }
+
+        String normalizedLine =
+                normalize(line);
+
+        /*
+         * Ensin etsitään tarkka korttinimi rivin sisältä.
+         */
+        for (Map.Entry<String, String> entry
+                : CANONICAL_NAMES.entrySet()) {
+
+            String normalizedCard =
+                    entry.getKey();
+
+            if (normalizedCard.isEmpty()) {
+                continue;
+            }
+
+            if (normalizedLine.equals(
+                    normalizedCard
+            )) {
+
+                return entry.getValue();
+            }
+
+            if (normalizedLine.startsWith(
+                    normalizedCard + " "
+            ) ||
+                    normalizedLine.endsWith(
+                            " " + normalizedCard
+                    ) ||
+                    normalizedLine.contains(
+                            " " + normalizedCard + " "
+                    )) {
+
+                return entry.getValue();
+            }
+        }
+
+        /*
+         * Alias-tarkistus.
+         */
+        for (Map.Entry<String, String> entry
+                : ALIASES.entrySet()) {
+
+            String alias =
+                    entry.getKey();
+
+            if (normalizedLine.contains(
+                    alias
+            )) {
+
+                return entry.getValue();
+            }
+        }
+
+        return null;
+    }
+
+    /*
+     * ============================================================
+     * SCORE ON SAME LINE
+     * ============================================================
+     */
+
+    private static Double findScoreOnSameLine(
+            String line,
+            String canonical
+    ) {
+
+        if (line == null ||
+                canonical == null) {
+
+            return null;
+        }
+
+        String normalizedLine =
+                normalize(line);
+
+        String normalizedCard =
+                normalize(canonical);
+
+        int cardPosition =
+                normalizedLine.indexOf(
+                        normalizedCard
+                );
+
+        if (cardPosition < 0) {
+            return null;
+        }
+
+        String afterCard =
+                normalizedLine.substring(
+                        cardPosition
+                                + normalizedCard.length()
+                ).trim();
+
+        if (afterCard.isEmpty()) {
+            return null;
+        }
+
+        /*
+         * Jos kortin jälkeen on esimerkiksi "69"
+         * tai "69.0", otetaan se.
+         */
+        String[] parts =
+                afterCard.split(
+                        "\\s+"
+                );
+
+        for (String part : parts) {
+
+            Double score =
+                    parseScore(
+                            part
+                    );
+
+            if (score != null) {
+                return score;
+            }
+        }
+
+        return null;
     }
 
     /*
@@ -960,7 +1128,7 @@ public class ArenaAdvisor {
         int max =
                 Math.min(
                         lines.length,
-                        start + 8
+                        start + 10
                 );
 
         for (int i = start + 1;
@@ -974,6 +1142,29 @@ public class ArenaAdvisor {
 
             if (value.isEmpty()) {
                 continue;
+            }
+
+            /*
+             * Luokkaotsikko katkaisee kortin pistehaun.
+             */
+            if (!detectClassHeader(
+                    value
+            ).isEmpty()) {
+
+                return null;
+            }
+
+            String normalized =
+                    normalize(value);
+
+            if (normalized.equals(
+                    normalize("Neutral")
+            ) ||
+                    normalized.equals(
+                            normalize("Neutral Cards")
+                    )) {
+
+                return null;
             }
 
             /*
@@ -992,6 +1183,19 @@ public class ArenaAdvisor {
                 return null;
             }
 
+            /*
+             * Myös riviltä "Merry Moonkin 69" voidaan
+             * löytää piste.
+             */
+            Double inline =
+                    findAnyScoreInLine(
+                            value
+                    );
+
+            if (inline != null) {
+                return inline;
+            }
+
             Double parsed =
                     parseScore(
                             value
@@ -1000,6 +1204,54 @@ public class ArenaAdvisor {
             if (parsed != null) {
 
                 return parsed;
+            }
+        }
+
+        return null;
+    }
+
+    /*
+     * ============================================================
+     * FIND ANY SCORE IN LINE
+     * ============================================================
+     */
+
+    private static Double findAnyScoreInLine(
+            String line
+    ) {
+
+        if (line == null ||
+                line.isEmpty()) {
+
+            return null;
+        }
+
+        String cleaned =
+                line
+                        .replace(
+                                "↓",
+                                " "
+                        )
+                        .replace(
+                                "↑",
+                                " "
+                        );
+
+        String[] parts =
+                cleaned.split(
+                        "\\s+"
+                );
+
+        for (String part : parts) {
+
+            Double score =
+                    parseScore(
+                            part
+                    );
+
+            if (score != null) {
+
+                return score;
             }
         }
 
@@ -1033,14 +1285,6 @@ public class ArenaAdvisor {
                         )
                         .trim();
 
-        /*
-         * Sallitaan esimerkiksi:
-         *
-         * 97
-         * 69
-         * 95.40
-         * 69,30
-         */
         if (!value.matches(
                 "\\d+(?:[\\.,]\\d+)?"
         )) {
@@ -1292,16 +1536,142 @@ public class ArenaAdvisor {
             String line
     ) {
 
+        if (line == null ||
+                line.trim().isEmpty()) {
+
+            return "";
+        }
+
         String normalized =
                 normalizeClass(
+                        line
+                );
+
+        /*
+         * Täsmällinen osuma:
+         *
+         * MAGE
+         */
+        for (String valid
+                : VALID_CLASSES) {
+
+            if (normalized.equals(
+                    valid
+            )) {
+
+                return valid;
+            }
+        }
+
+        /*
+         * HearthArena käyttää otsikoita kuten:
+         *
+         * Mage Cards
+         * Epic Mage Cards
+         * Legendary Mage Cards
+         *
+         * Tarkistetaan myös nämä.
+         */
+        String normalizedGeneric =
+                normalize(
                         line
                 );
 
         for (String valid
                 : VALID_CLASSES) {
 
-            if (normalized.equals(
-                    valid
+            String classNormalized =
+                    normalize(
+                            valid
+                    );
+
+            if (normalizedGeneric.equals(
+                    classNormalized + " cards"
+            )) {
+
+                return valid;
+            }
+
+            if (normalizedGeneric.equals(
+                    "epic " +
+                            classNormalized +
+                            " cards"
+            )) {
+
+                return valid;
+            }
+
+            if (normalizedGeneric.equals(
+                    "rare " +
+                            classNormalized +
+                            " cards"
+            )) {
+
+                return valid;
+            }
+
+            if (normalizedGeneric.equals(
+                    "common " +
+                            classNormalized +
+                            " cards"
+            )) {
+
+                return valid;
+            }
+
+            if (normalizedGeneric.equals(
+                    "legendary " +
+                            classNormalized +
+                            " cards"
+            )) {
+
+                return valid;
+            }
+
+            if (normalizedGeneric.equals(
+                    "basic " +
+                            classNormalized +
+                            " cards"
+            )) {
+
+                return valid;
+            }
+
+            if (normalizedGeneric.equals(
+                    "epic " +
+                            classNormalized
+            )) {
+
+                return valid;
+            }
+
+            if (normalizedGeneric.equals(
+                    "rare " +
+                            classNormalized
+            )) {
+
+                return valid;
+            }
+
+            if (normalizedGeneric.equals(
+                    "common " +
+                            classNormalized
+            )) {
+
+                return valid;
+            }
+
+            if (normalizedGeneric.equals(
+                    "legendary " +
+                            classNormalized
+            )) {
+
+                return valid;
+            }
+
+            if (normalizedGeneric.equals(
+                    "basic " +
+                            classNormalized
             )) {
 
                 return valid;
@@ -1399,9 +1769,25 @@ public class ArenaAdvisor {
             return true;
         }
 
-        return ALIASES.containsKey(
+        if (ALIASES.containsKey(
                 normalized
-        );
+        )) {
+
+            return true;
+        }
+
+        /*
+         * Tarkistetaan myös rivi, jossa korttinimen jälkeen
+         * on piste/arvo.
+         */
+        if (findCardNameInsideLine(
+                line
+        ) != null) {
+
+            return true;
+        }
+
+        return false;
     }
 
     /*
@@ -1635,7 +2021,7 @@ public class ArenaAdvisor {
         }
 
         /*
-         * 3. TUNNETTU PAIKALLINEN FALLBACK
+         * 3. PAIKALLINEN FALLBACK
          */
         Double fallback =
                 FALLBACK_SCORES.get(
@@ -1653,9 +2039,6 @@ public class ArenaAdvisor {
             );
         }
 
-        /*
-         * EI enää yleistä 5.00-arvoa.
-         */
         reason =
                 "Kortille ei löytynyt arvoa";
 
