@@ -1448,6 +1448,71 @@ public class CaptureService extends Service {
         return "";
     }
 
+    private String getSafeReason(
+            String cardName
+    ) {
+
+        if (cardName == null ||
+                cardName.trim().isEmpty()) {
+
+            return "";
+        }
+
+        try {
+
+            String reason =
+                    ArenaAdvisor.getCardReason(
+                            cardName
+                    );
+
+            if (reason != null &&
+                    !reason.trim().isEmpty()) {
+
+                return reason.trim();
+            }
+
+        } catch (Exception ignored) {}
+
+        return "";
+    }
+
+    private String formatCardBlock(
+            String title,
+            String cardName,
+            String score
+    ) {
+
+        String reason =
+                getSafeReason(
+                        cardName
+                );
+
+        StringBuilder block =
+                new StringBuilder();
+
+        block.append(title)
+                .append("\n");
+
+        block.append(cardName == null ||
+                cardName.isEmpty()
+                ? "—"
+                : cardName);
+
+        block.append("\nARVO: ")
+                .append(score == null ||
+                        score.isEmpty()
+                        ? "—"
+                        : score);
+
+        if (!reason.isEmpty()) {
+
+            block.append("\n")
+                    .append(reason);
+        }
+
+        return block.toString();
+    }
+
     private void updateOverlay(
             String card1,
             String card2,
@@ -1480,38 +1545,121 @@ public class CaptureService extends Service {
                         card3
                 );
 
+        final String recommendationScore =
+                ArenaAdvisor.getRecommendationScore();
+
+        final String recommendationGap =
+                ArenaAdvisor.getRecommendationGap();
+
+        final String recommendationReason =
+                ArenaAdvisor.getRecommendationReason();
+
         final String currentClass =
                 ArenaAdvisor.getCurrentClass();
 
-        String display =
-                "ARENA HELPER\n" +
-                "CLASS: " +
-                currentClass +
-                "\n\n" +
+        StringBuilder display =
+                new StringBuilder();
 
-                "KORTTI 1\n" +
-                card1 +
-                "\nARVO: " +
-                score1 +
-                "\n\n" +
+        display.append(
+                "ARENA HELPER\n"
+        );
 
-                "KORTTI 2\n" +
-                card2 +
-                "\nARVO: " +
-                score2 +
-                "\n\n" +
+        display.append(
+                "CLASS: "
+        )
+                .append(
+                        currentClass
+                )
+                .append(
+                        "\n\n"
+                );
 
-                "KORTTI 3\n" +
-                card3 +
-                "\nARVO: " +
-                score3 +
-                "\n\n" +
+        display.append(
+                formatCardBlock(
+                        "KORTTI 1",
+                        card1,
+                        score1
+                )
+        );
 
-                "SUOSITUS\n" +
-                recommendation;
+        display.append(
+                "\n\n"
+        );
+
+        display.append(
+                formatCardBlock(
+                        "KORTTI 2",
+                        card2,
+                        score2
+                )
+        );
+
+        display.append(
+                "\n\n"
+        );
+
+        display.append(
+                formatCardBlock(
+                        "KORTTI 3",
+                        card3,
+                        score3
+                )
+        );
+
+        display.append(
+                "\n\n"
+        );
+
+        display.append(
+                "━━━━━━━━━━━━━━━━\n"
+        );
+
+        display.append(
+                "SUOSITUS\n"
+        );
+
+        display.append(
+                recommendation == null ||
+                        recommendation.isEmpty()
+                        ? "—"
+                        : recommendation
+        );
+
+        if (recommendationScore != null &&
+                !recommendationScore.isEmpty()) {
+
+            display.append(
+                    "\nARVO "
+            )
+                    .append(
+                            recommendationScore
+                    );
+        }
+
+        if (recommendationGap != null &&
+                !recommendationGap.isEmpty()) {
+
+            display.append(
+                    "\nEro seuraavaan: "
+            )
+                    .append(
+                            recommendationGap
+                    );
+        }
+
+        if (recommendationReason != null &&
+                !recommendationReason.isEmpty()) {
+
+            display.append(
+                    "\n\nMIKSI?\n"
+            )
+                    .append(
+                            recommendationReason
+                    );
+        }
 
         overlayView.setText(
-                display
+                display.toString()
         );
     }
 
