@@ -15,6 +15,8 @@ public class ArenaAccessibilityService
     private static final String HEARTHSTONE_PACKAGE =
             "com.blizzard.wtcg.hearthstone";
 
+    private boolean hearthstoneActive = false;
+
     @Override
     public void onAccessibilityEvent(
             AccessibilityEvent event
@@ -27,19 +29,66 @@ public class ArenaAccessibilityService
         CharSequence packageName =
                 event.getPackageName();
 
-        if (packageName == null ||
-                !HEARTHSTONE_PACKAGE.equals(
-                        packageName.toString()
-                )) {
-
-            return;
-        }
+        String packageNameString =
+                packageName == null
+                        ? ""
+                        : packageName.toString();
 
         int type =
                 event.getEventType();
 
         /*
-         * TYPE_VIEW_CLICKED on tärkein.
+         * Seurataan sovelluksen vaihtumista.
+         *
+         * Hearthstone -> overlay näkyviin
+         * Muu sovellus -> overlay piiloon
+         */
+        if (type ==
+                        AccessibilityEvent
+                                .TYPE_WINDOW_STATE_CHANGED
+                ||
+                type ==
+                        AccessibilityEvent
+                                .TYPE_WINDOWS_CHANGED) {
+
+            boolean active =
+                    HEARTHSTONE_PACKAGE.equals(
+                            packageNameString
+                    );
+
+            if (active != hearthstoneActive) {
+
+                hearthstoneActive =
+                        active;
+
+                CaptureService
+                        .setHearthstoneActive(
+                                active
+                        );
+
+                Log.d(
+                        TAG,
+                        active
+                                ? "Hearthstone avattu"
+                                : "Hearthstone suljettu / poistuttu"
+                );
+            }
+        }
+
+        /*
+         * Kaikki muu kuin Hearthstone ei saa
+         * käsitellä korttiklikkauksia.
+         */
+        if (!HEARTHSTONE_PACKAGE.equals(
+                packageNameString
+        )) {
+
+            return;
+        }
+
+        /*
+         * TYPE_VIEW_CLICKED on edelleen
+         * korttivalinnan tärkein tapahtuma.
          */
         if (type !=
                 AccessibilityEvent.TYPE_VIEW_CLICKED) {
@@ -118,6 +167,16 @@ public class ArenaAccessibilityService
 
     @Override
     public void onInterrupt() {
+
+        /*
+         * Jos AccessibilityService keskeytetään,
+         * piilotetaan overlay varmuuden vuoksi.
+         */
+        hearthstoneActive = false;
+
+        CaptureService.setHearthstoneActive(
+                false
+        );
 
         Log.d(
                 TAG,
