@@ -1,1153 +1,949 @@
 package com.blessedmike.arenahelper;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.Service;
+import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.PixelFormat;
+import android.hardware.display.DisplayManager;
+import android.hardware.display.VirtualDisplay;
+import android.media.Image;
+import android.media.ImageReader;
+import android.media.projection.MediaProjection;
+import android.media.projection.MediaProjectionManager;
+import android.os.Build;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
+import android.util.DisplayMetrics;
+import android.view.Gravity;
+import android.view.WindowManager;
+import android.widget.TextView;
 
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.HashSet;
+import androidx.annotation.Nullable;
+import androidx.core.app.NotificationCompat;
+
+import com.google.mlkit.vision.common.InputImage;
+import com.google.mlkit.vision.text.Text;
+import com.google.mlkit.vision.text.TextRecognition;
+import com.google.mlkit.vision.text.TextRecognizer;
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
+
+import java.nio.ByteBuffer;
 import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
-public class ArenaAdvisor {
+public class CaptureService extends Service {
 
-    private static final String HEARTHARENA_URL =
-            "https://www.heartharena.com/tierlist";
+    private static final String CHANNEL_ID =
+            "arena_helper_channel";
 
-    private static final double HEARTHARENA_SCALE = 13.0;
+    private static final int OCR_INTERVAL = 1500;
+    private static final int CARD_CONFIRMATIONS = 2;
+    private static final int OFFER_CONFIRMATIONS = 2;
 
-    private static final double UNKNOWN_CARD_SCORE = 0.0;
+    private WindowManager windowManager;
+    private TextView overlayView;
 
-    private static final Map<String, CardData> CARDS =
-            new HashMap<>();
+    private MediaProjection mediaProjection;
+    private VirtualDisplay virtualDisplay;
+    private ImageReader imageReader;
 
-    private static final Map<String, String> OCR_ALIASES =
-            new HashMap<>();
-
-    private static final Set<String> ONLINE_NAMES =
-            new HashSet<>();
-
-    private static final Set<String> PICKED_CARDS =
-            new HashSet<>();
-
-    private static final ExecutorService EXECUTOR =
-            Executors.newSingleThreadExecutor();
-
-    private static final Handler MAIN_HANDLER =
+    private final Handler handler =
             new Handler(Looper.getMainLooper());
 
-    private static boolean onlineLoadStarted = false;
+    private TextRecognizer recognizer;
 
-    private static boolean onlineDataLoaded = false;
+    private boolean processing = false;
 
-    private static final Map<String, Integer> ONLINE_RAW_SCORES =
-            new HashMap<>();
+    private String confirmedCard1 = "";
+    private String confirmedCard2 = "";
+    private String confirmedCard3 = "";
 
-    private static final Map<String, String> ONLINE_CARD_NAMES =
-            new HashMap<>();
+    private String pendingOffer1 = "";
+    private String pendingOffer2 = "";
+    private String pendingOffer3 = "";
+    private int pendingOfferCount = 0;
 
-    private static class CardData {
+    private String lastRecordedPick = "";
 
-        final String name;
-        final double score;
+    private static int projectionResultCode;
+    private static Intent projectionData;
 
-        CardData(
-                String name,
-                double score
-        ) {
-            this.name = name;
-            this.score = score;
-        }
-    }
-
-    static {
-
-        /*
-         * ---------------------------------------------------------
-         * VARAKORTIT
-         * ---------------------------------------------------------
-         */
-
-        addCard(
-                "Soldier of the Infinite",
-                8.20
-        );
-
-        addCard(
-                "Crystallized Leyline",
-                5.65
-        );
-
-        addCard(
-                "Surge Needle",
-                5.85
-        );
-
-        addCard(
-                "Bursting Leyline",
-                6.50
-        );
-
-        addCard(
-                "Contraband Wands",
-                6.30
-        );
-
-        addCard(
-                "Cold Snap",
-                7.50
-        );
-
-        addCard(
-                "Code Violet",
-                7.20
-        );
-
-        addCard(
-                "Ley Walker",
-                5.50
-        );
-
-        addCard(
-                "Leyline Nexus",
-                6.00
-        );
-
-        addCard(
-                "Raban Wands",
-                6.50
-        );
-
-        addCard(
-                "Spellweaver's Brilliance",
-                3.92
-        );
-
-        addCard(
-                "Windswept Pageturner",
-                5.23
-        );
-
-        addCard(
-                "Spirit Gatherer",
-                7.69
-        );
-
-        addCard(
-                "Vault Breaker",
-                62.0 / HEARTHARENA_SCALE
-        );
-
-        addCard(
-                "Scorching Winds",
-                48.0 / HEARTHARENA_SCALE
-        );
-
-
-        /*
-         * ---------------------------------------------------------
-         * OCR-ALIAKSET
-         * ---------------------------------------------------------
-         */
-
-        addAlias(
-                "soldier of infinite",
-                "Soldier of the Infinite"
-        );
-
-        addAlias(
-                "soldier of the infinite",
-                "Soldier of the Infinite"
-        );
-
-        addAlias(
-                "soldierofinfinite",
-                "Soldier of the Infinite"
-        );
-
-        addAlias(
-                "so1dier of infinite",
-                "Soldier of the Infinite"
-        );
-
-        addAlias(
-                "so1dier of the infinite",
-                "Soldier of the Infinite"
-        );
-
-        addAlias(
-                "sotdier of infinite",
-                "Soldier of the Infinite"
-        );
-
-        addAlias(
-                "sotdier of the infinite",
-                "Soldier of the Infinite"
-        );
-
-        addAlias(
-                "soldier of ihfinite",
-                "Soldier of the Infinite"
-        );
-
-        addAlias(
-                "soldier of ihfini",
-                "Soldier of the Infinite"
-        );
-
-        addAlias(
-                "raban wand",
-                "Raban Wands"
-        );
-
-        addAlias(
-                "raban wands",
-                "Raban Wands"
-        );
-
-        addAlias(
-                "raban wandz",
-                "Raban Wands"
-        );
-
-        addAlias(
-                "crystallized leyline",
-                "Crystallized Leyline"
-        );
-
-        addAlias(
-                "crystallised leyline",
-                "Crystallized Leyline"
-        );
-
-        addAlias(
-                "crystalized leyline",
-                "Crystallized Leyline"
-        );
-
-        addAlias(
-                "crystalised leyline",
-                "Crystallized Leyline"
-        );
-
-        addAlias(
-                "surge needle",
-                "Surge Needle"
-        );
-
-        addAlias(
-                "surge need1e",
-                "Surge Needle"
-        );
-
-        addAlias(
-                "spellweavers brilliance",
-                "Spellweaver's Brilliance"
-        );
-
-        addAlias(
-                "spellweaver's brilliance",
-                "Spellweaver's Brilliance"
-        );
-
-        addAlias(
-                "spellweavers brillance",
-                "Spellweaver's Brilliance"
-        );
-
-        addAlias(
-                "windswept pageturner",
-                "Windswept Pageturner"
-        );
-
-        addAlias(
-                "spirit gatherer",
-                "Spirit Gatherer"
-        );
-
-        addAlias(
-                "spirit gather",
-                "Spirit Gatherer"
-        );
-
-        addAlias(
-                "spirit gathere",
-                "Spirit Gatherer"
-        );
-
-        addAlias(
-                "vault breaker",
-                "Vault Breaker"
-        );
-
-        addAlias(
-                "vault breake",
-                "Vault Breaker"
-        );
-
-        addAlias(
-                "vault breker",
-                "Vault Breaker"
-        );
-
-        addAlias(
-                "scorching winds",
-                "Scorching Winds"
-        );
-
-        addAlias(
-                "scorching wind",
-                "Scorching Winds"
-        );
-
-        addAlias(
-                "scorching wnds",
-                "Scorching Winds"
-        );
-
-        loadOnlineData();
-    }
-
-    private ArenaAdvisor() {
-    }
-
-    private static void addCard(
-            String name,
-            double score
+    public static void setProjectionData(
+            int resultCode,
+            Intent data
     ) {
-
-        if (name == null ||
-                name.trim().isEmpty()) {
-
-            return;
-        }
-
-        String key =
-                normalizeKey(name);
-
-        CARDS.put(
-                key,
-                new CardData(
-                        name,
-                        score
-                )
-        );
+        projectionResultCode = resultCode;
+        projectionData = data;
     }
 
-    private static void addAlias(
-            String alias,
-            String cardName
-    ) {
-
-        if (alias == null ||
-                cardName == null) {
-
-            return;
-        }
-
-        OCR_ALIASES.put(
-                normalizeKey(alias),
-                cardName
-        );
+    private static class CardStability {
+        String stable = "";
+        String candidate = "";
+        int candidateCount = 0;
     }
 
-    /*
-     * -------------------------------------------------------------
-     * ONLINE DATA
-     * -------------------------------------------------------------
-     */
+    private final CardStability card1Stability =
+            new CardStability();
 
-    private static void loadOnlineData() {
+    private final CardStability card2Stability =
+            new CardStability();
 
-        if (onlineLoadStarted) {
-            return;
-        }
+    private final CardStability card3Stability =
+            new CardStability();
 
-        onlineLoadStarted = true;
+    private final MediaProjection.Callback
+            mediaProjectionCallback =
+            new MediaProjection.Callback() {
 
-        EXECUTOR.execute(() -> {
+                @Override
+                public void onStop() {
 
-            HttpURLConnection connection = null;
+                    if (virtualDisplay != null) {
+                        try {
+                            virtualDisplay.release();
+                        } catch (Exception ignored) {}
 
-            try {
-
-                URL url =
-                        new URL(
-                                HEARTHARENA_URL
-                        );
-
-                connection =
-                        (HttpURLConnection)
-                                url.openConnection();
-
-                connection.setRequestMethod(
-                        "GET"
-                );
-
-                connection.setConnectTimeout(
-                        12000
-                );
-
-                connection.setReadTimeout(
-                        20000
-                );
-
-                connection.setUseCaches(
-                        false
-                );
-
-                connection.setRequestProperty(
-                        "User-Agent",
-                        "Mozilla/5.0 " +
-                        "(Android) ArenaHelper"
-                );
-
-                connection.setRequestProperty(
-                        "Accept",
-                        "text/html,application/xhtml+xml"
-                );
-
-                int responseCode =
-                        connection.getResponseCode();
-
-                if (responseCode !=
-                        HttpURLConnection.HTTP_OK) {
-
-                    return;
-                }
-
-                InputStream input =
-                        connection.getInputStream();
-
-                String html =
-                        readStream(
-                                input
-                        );
-
-                if (html == null ||
-                        html.trim().isEmpty()) {
-
-                    return;
-                }
-
-                parseHearthArenaPage(
-                        html
-                );
-
-                if (!ONLINE_RAW_SCORES.isEmpty()) {
-
-                    synchronized (ArenaAdvisor.class) {
-
-                        for (
-                                Map.Entry<String, Integer>
-                                        entry :
-                                        ONLINE_RAW_SCORES.entrySet()
-                        ) {
-
-                            String normalizedName =
-                                    entry.getKey();
-
-                            int rawScore =
-                                    entry.getValue();
-
-                            String displayName =
-                                    ONLINE_CARD_NAMES.get(
-                                            normalizedName
-                                    );
-
-                            if (displayName == null ||
-                                    displayName.isEmpty()) {
-
-                                displayName =
-                                        findOriginalName(
-                                                normalizedName
-                                        );
-                            }
-
-                            if (displayName == null ||
-                                    displayName.isEmpty()) {
-
-                                displayName =
-                                        normalizedName;
-                            }
-
-                            double score =
-                                    rawScore /
-                                            HEARTHARENA_SCALE;
-
-                            CARDS.put(
-                                    normalizedName,
-                                    new CardData(
-                                            displayName,
-                                            score
-                                    )
-                            );
-
-                            ONLINE_NAMES.add(
-                                    normalizedName
-                            );
-                        }
-
-                        onlineDataLoaded = true;
+                        virtualDisplay = null;
                     }
+
+                    if (imageReader != null) {
+                        try {
+                            imageReader.close();
+                        } catch (Exception ignored) {}
+
+                        imageReader = null;
+                    }
+
+                    mediaProjection = null;
                 }
+            };
 
-            } catch (Exception ignored) {
+    @Override
+    public void onCreate() {
+        super.onCreate();
 
-            } finally {
+        createNotificationChannel();
 
-                if (connection != null) {
-
-                    try {
-                        connection.disconnect();
-                    } catch (Exception ignored) {}
-                }
-            }
-        });
-    }
-
-    private static String readStream(
-            InputStream input
-    ) {
-
-        if (input == null) {
-            return "";
-        }
-
-        StringBuilder builder =
-                new StringBuilder();
-
-        try {
-
-            BufferedReader reader =
-                    new BufferedReader(
-                            new InputStreamReader(
-                                    input,
-                                    StandardCharsets.UTF_8
-                            )
-                    );
-
-            String line;
-
-            while (
-                    (line = reader.readLine())
-                            != null
-            ) {
-
-                builder.append(line);
-                builder.append('\n');
-            }
-
-            reader.close();
-
-        } catch (Exception ignored) {}
-
-        return builder.toString();
-    }
-
-    /*
-     * -------------------------------------------------------------
-     * HEARTHARENA PARSER
-     * -------------------------------------------------------------
-     */
-
-    private static void parseHearthArenaPage(
-            String html
-    ) {
-
-        if (html == null ||
-                html.isEmpty()) {
-
-            return;
-        }
-
-        String text =
-                stripHtml(
-                        html
-                );
-
-        if (text == null ||
-                text.isEmpty()) {
-
-            return;
-        }
-
-        String[] lines =
-                text.split(
-                        "\\r?\\n"
-                );
-
-        String previousCard =
-                "";
-
-        for (String rawLine : lines) {
-
-            if (rawLine == null) {
-                continue;
-            }
-
-            String line =
-                    decodeHtml(
-                            rawLine
-                    ).trim();
-
-            if (line.isEmpty()) {
-                continue;
-            }
-
-            line =
-                    normalizeWhitespace(
-                            line
-                    );
-
-            /*
-             * HearthArena käyttää riveillä esimerkiksi:
-             *
-             * 1. Merithra of the Dream
-             * 107
-             *
-             * Poistetaan sijoitusnumerointi ennen kuin
-             * nimeä käsitellään.
-             */
-            line =
-                    removeRankingPrefix(
-                            line
-                    );
-
-            /*
-             * Jos nimi ja piste ovat samalla rivillä,
-             * esimerkiksi:
-             *
-             * Merithra of the Dream 107
-             *
-             * käsitellään se myös.
-             */
-            String[] sameLine =
-                    splitCardAndScore(
-                            line
-                    );
-
-            if (sameLine != null) {
-
-                String cardName =
-                        cleanOnlineCardName(
-                                sameLine[0]
-                        );
-
-                String scoreText =
-                        sameLine[1];
-
-                storeOnlineCard(
-                        cardName,
-                        scoreText
-                );
-
-                previousCard = "";
-
-                continue;
-            }
-
-            String scoreLine =
-                    line.replace(
-                            "↓",
-                            ""
-                    ).trim();
-
-            if (scoreLine.matches(
-                    "\\d+(?:\\.\\d+)?"
-            )) {
-
-                if (!previousCard.isEmpty()) {
-
-                    storeOnlineCard(
-                            previousCard,
-                            scoreLine
-                    );
-                }
-
-                previousCard = "";
-
-                continue;
-            }
-
-            if (isLikelyCardName(line)) {
-
-                previousCard =
-                        cleanOnlineCardName(
-                                line
-                        );
-            }
-        }
-    }
-
-    /*
-     * Poistaa esimerkiksi:
-     *
-     * 1. Card Name
-     * 12. Card Name
-     * 123. Card Name
-     */
-    private static String removeRankingPrefix(
-            String text
-    ) {
-
-        if (text == null) {
-            return "";
-        }
-
-        return text.replaceFirst(
-                "^\\s*\\d+\\.\\s+",
-                ""
-        ).trim();
-    }
-
-    /*
-     * Tunnistaa rivin:
-     *
-     * Card Name 107
-     *
-     * tai:
-     *
-     * Card Name 107↓
-     */
-    private static String[] splitCardAndScore(
-            String line
-    ) {
-
-        if (line == null ||
-                line.trim().isEmpty()) {
-
-            return null;
-        }
-
-        String cleaned =
-                line.replace(
-                        "↓",
-                        ""
-                ).trim();
-
-        java.util.regex.Matcher matcher =
-                java.util.regex.Pattern
-                        .compile(
-                                "^(.+?)\\s+(\\d+(?:\\.\\d+)?)$"
+        Notification notification =
+                new NotificationCompat.Builder(
+                        this,
+                        CHANNEL_ID
+                )
+                        .setContentTitle("Arena Helper")
+                        .setContentText("Avustaja aktiivinen")
+                        .setSmallIcon(
+                                android.R.drawable
+                                        .ic_menu_info_details
                         )
-                        .matcher(
-                                cleaned
+                        .setOngoing(true)
+                        .build();
+
+        startForeground(
+                1,
+                notification
+        );
+
+        recognizer =
+                TextRecognition.getClient(
+                        TextRecognizerOptions
+                                .DEFAULT_OPTIONS
+                );
+
+        createOverlay();
+        startCapture();
+    }
+
+    private void createNotificationChannel() {
+
+        if (Build.VERSION.SDK_INT >=
+                Build.VERSION_CODES.O) {
+
+            NotificationChannel channel =
+                    new NotificationChannel(
+                            CHANNEL_ID,
+                            "Arena Helper",
+                            NotificationManager
+                                    .IMPORTANCE_LOW
+                    );
+
+            NotificationManager manager =
+                    (NotificationManager)
+                            getSystemService(
+                                    NOTIFICATION_SERVICE
+                            );
+
+            if (manager != null) {
+                manager.createNotificationChannel(
+                        channel
+                );
+            }
+        }
+    }
+
+    private void createOverlay() {
+
+        windowManager =
+                (WindowManager)
+                        getSystemService(
+                                WINDOW_SERVICE
                         );
 
-        if (!matcher.matches()) {
-            return null;
+        overlayView =
+                new TextView(this);
+
+        overlayView.setText(
+                "ARENA HELPER\n\n" +
+                "Kortteja luetaan..."
+        );
+
+        overlayView.setTextSize(13);
+
+        overlayView.setTextColor(
+                0xFFFFFFFF
+        );
+
+        overlayView.setBackgroundColor(
+                0xCC000000
+        );
+
+        overlayView.setPadding(
+                18,
+                18,
+                18,
+                18
+        );
+
+        WindowManager.LayoutParams params;
+
+        if (Build.VERSION.SDK_INT >=
+                Build.VERSION_CODES.O) {
+
+            params =
+                    new WindowManager.LayoutParams(
+                            WindowManager.LayoutParams
+                                    .WRAP_CONTENT,
+                            WindowManager.LayoutParams
+                                    .WRAP_CONTENT,
+                            WindowManager.LayoutParams
+                                    .TYPE_APPLICATION_OVERLAY,
+                            WindowManager.LayoutParams
+                                    .FLAG_NOT_FOCUSABLE
+                                    |
+                                    WindowManager.LayoutParams
+                                            .FLAG_NOT_TOUCHABLE,
+                            PixelFormat.TRANSLUCENT
+                    );
+
+        } else {
+
+            params =
+                    new WindowManager.LayoutParams(
+                            WindowManager.LayoutParams
+                                    .WRAP_CONTENT,
+                            WindowManager.LayoutParams
+                                    .WRAP_CONTENT,
+                            WindowManager.LayoutParams
+                                    .TYPE_PHONE,
+                            WindowManager.LayoutParams
+                                    .FLAG_NOT_FOCUSABLE
+                                    |
+                                    WindowManager.LayoutParams
+                                            .FLAG_NOT_TOUCHABLE,
+                            PixelFormat.TRANSLUCENT
+                    );
         }
 
-        String possibleName =
-                matcher.group(1);
+        params.gravity =
+                Gravity.TOP | Gravity.LEFT;
 
-        String score =
-                matcher.group(2);
+        params.x = 20;
+        params.y = 100;
 
-        if (!isLikelyCardName(
-                possibleName
-        )) {
+        if (windowManager != null) {
 
-            return null;
+            windowManager.addView(
+                    overlayView,
+                    params
+            );
         }
+    }
+
+    private void startCapture() {
+
+        if (projectionData == null) {
+            return;
+        }
+
+        MediaProjectionManager manager =
+                (MediaProjectionManager)
+                        getSystemService(
+                                MEDIA_PROJECTION_SERVICE
+                        );
+
+        if (manager == null) {
+            return;
+        }
+
+        mediaProjection =
+                manager.getMediaProjection(
+                        projectionResultCode,
+                        projectionData
+                );
+
+        if (mediaProjection == null) {
+            return;
+        }
+
+        mediaProjection.registerCallback(
+                mediaProjectionCallback,
+                handler
+        );
+
+        DisplayMetrics metrics =
+                getResources()
+                        .getDisplayMetrics();
+
+        int width =
+                metrics.widthPixels;
+
+        int height =
+                metrics.heightPixels;
+
+        int density =
+                metrics.densityDpi;
+
+        imageReader =
+                ImageReader.newInstance(
+                        width,
+                        height,
+                        PixelFormat.RGBA_8888,
+                        2
+                );
+
+        imageReader.setOnImageAvailableListener(
+                reader ->
+                        processLatestImage(reader),
+                handler
+        );
+
+        virtualDisplay =
+                mediaProjection.createVirtualDisplay(
+                        "ArenaHelperCapture",
+                        width,
+                        height,
+                        density,
+                        DisplayManager
+                                .VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                        imageReader.getSurface(),
+                        null,
+                        handler
+                );
+    }
+
+    private void processLatestImage(
+            ImageReader reader
+    ) {
+
+        if (processing) {
+
+            Image image =
+                    reader.acquireLatestImage();
+
+            if (image != null) {
+                image.close();
+            }
+
+            return;
+        }
+
+        Image image =
+                reader.acquireLatestImage();
+
+        if (image == null) {
+            return;
+        }
+
+        processing = true;
 
         try {
 
-            double value =
-                    Double.parseDouble(
-                            score
-                    );
+            Bitmap bitmap =
+                    imageToBitmap(image);
 
-            if (value < 0 ||
-                    value > 200) {
+            image.close();
 
-                return null;
+            if (bitmap == null) {
+                processing = false;
+                return;
             }
+
+            runOCR(bitmap);
 
         } catch (Exception e) {
 
+            try {
+                image.close();
+            } catch (Exception ignored) {}
+
+            processing = false;
+        }
+    }
+
+    private Bitmap imageToBitmap(
+            Image image
+    ) {
+
+        Image.Plane[] planes =
+                image.getPlanes();
+
+        if (planes.length == 0) {
             return null;
         }
 
-        return new String[] {
-                possibleName,
-                score
-        };
-    }
+        ByteBuffer buffer =
+                planes[0].getBuffer();
 
-    private static void storeOnlineCard(
-            String cardName,
-            String scoreText
-    ) {
+        int pixelStride =
+                planes[0].getPixelStride();
 
-        if (cardName == null ||
-                cardName.trim().isEmpty()) {
+        int rowStride =
+                planes[0].getRowStride();
 
-            return;
-        }
+        int width =
+                image.getWidth();
 
-        if (scoreText == null ||
-                scoreText.trim().isEmpty()) {
+        int height =
+                image.getHeight();
 
-            return;
-        }
+        int rowPadding =
+                rowStride -
+                        pixelStride * width;
 
-        try {
+        Bitmap bitmap =
+                Bitmap.createBitmap(
+                        width +
+                                rowPadding /
+                                        pixelStride,
+                        height,
+                        Bitmap.Config.ARGB_8888
+                );
 
-            double parsed =
-                    Double.parseDouble(
-                            scoreText
+        buffer.rewind();
+
+        bitmap.copyPixelsFromBuffer(
+                buffer
+        );
+
+        if (bitmap.getWidth() != width) {
+
+            Bitmap cropped =
+                    Bitmap.createBitmap(
+                            bitmap,
+                            0,
+                            0,
+                            width,
+                            height
                     );
 
-            if (parsed < 0 ||
-                    parsed > 200) {
+            bitmap.recycle();
 
-                return;
-            }
+            return cropped;
+        }
 
-            int integerScore =
-                    (int)
-                            Math.round(
-                                    parsed
+        return bitmap;
+    }
+
+    private void runOCR(
+            Bitmap source
+    ) {
+
+        int width =
+                source.getWidth();
+
+        int height =
+                source.getHeight();
+
+        int nameTop =
+                (int)
+                        (height * 0.45f);
+
+        int nameBottom =
+                (int)
+                        (height * 0.55f);
+
+        Bitmap card1 =
+                cropCard(
+                        source,
+                        (int)
+                                (width * 0.065f),
+                        (int)
+                                (width * 0.38f),
+                        nameTop,
+                        nameBottom
+                );
+
+        Bitmap card2 =
+                cropCard(
+                        source,
+                        (int)
+                                (width * 0.355f),
+                        (int)
+                                (width * 0.60f),
+                        nameTop,
+                        nameBottom
+                );
+
+        Bitmap card3 =
+                cropCard(
+                        source,
+                        (int)
+                                (width * 0.60f),
+                        (int)
+                                (width * 0.935f),
+                        nameTop,
+                        nameBottom
+                );
+
+        source.recycle();
+
+        final String[] results =
+                new String[3];
+
+        recognizeNormalCard(
+                card1,
+                0,
+                results
+        );
+
+        recognizeNormalCard(
+                card2,
+                1,
+                results
+        );
+
+        recognizeNormalCard(
+                card3,
+                2,
+                results
+        );
+    }
+
+    private Bitmap cropCard(
+            Bitmap source,
+            int left,
+            int right,
+            int top,
+            int bottom
+    ) {
+
+        left =
+                Math.max(
+                        0,
+                        left
+                );
+
+        top =
+                Math.max(
+                        0,
+                        top
+                );
+
+        right =
+                Math.min(
+                        source.getWidth(),
+                        right
+                );
+
+        bottom =
+                Math.min(
+                        source.getHeight(),
+                        bottom
+                );
+
+        if (right <= left ||
+                bottom <= top) {
+
+            return null;
+        }
+
+        Bitmap cropped =
+                Bitmap.createBitmap(
+                        source,
+                        left,
+                        top,
+                        right - left,
+                        bottom - top
+                );
+
+        return enlargeForOCR(
+                cropped
+        );
+    }
+
+    private Bitmap enlargeForOCR(
+            Bitmap bitmap
+    ) {
+
+        if (bitmap == null) {
+            return null;
+        }
+
+        Bitmap enlarged =
+                Bitmap.createScaledBitmap(
+                        bitmap,
+                        bitmap.getWidth() * 2,
+                        bitmap.getHeight() * 2,
+                        true
+                );
+
+        bitmap.recycle();
+
+        return enlarged;
+    }
+
+    private void recognizeNormalCard(
+            Bitmap bitmap,
+            int index,
+            String[] results
+    ) {
+
+        if (bitmap == null) {
+
+            results[index] =
+                    getStableCard(index);
+
+            checkOCRFinished(
+                    results
+            );
+
+            return;
+        }
+
+        InputImage image =
+                InputImage.fromBitmap(
+                        bitmap,
+                        0
+                );
+
+        recognizer.process(image)
+                .addOnSuccessListener(text -> {
+
+                    String cleaned =
+                            cleanCardName(text);
+
+                    results[index] =
+                            stabilizeCard(
+                                    cleaned,
+                                    index
                             );
 
-            String cleanedName =
-                    cleanOnlineCardName(
-                            cardName
-                    );
+                    bitmap.recycle();
 
-            String key =
-                    normalizeKey(
-                            cleanedName
+                    checkOCRFinished(
+                            results
                     );
+                })
+                .addOnFailureListener(e -> {
 
-            if (key.isEmpty() ||
-                    !isLikelyCardName(
-                            cleanedName
+                    results[index] =
+                            getStableCard(index);
+
+                    bitmap.recycle();
+
+                    checkOCRFinished(
+                            results
+                    );
+                });
+    }
+
+    private void checkOCRFinished(
+            String[] results
+    ) {
+
+        if (results[0] == null ||
+                results[1] == null ||
+                results[2] == null) {
+
+            return;
+        }
+
+        updateCards(
+                results[0],
+                results[1],
+                results[2]
+        );
+
+        processing = false;
+    }
+
+    private String getStableCard(
+            int index
+    ) {
+
+        if (index == 0) {
+            return card1Stability.stable;
+        }
+
+        if (index == 1) {
+            return card2Stability.stable;
+        }
+
+        return card3Stability.stable;
+    }
+
+    private String stabilizeCard(
+            String detected,
+            int index
+    ) {
+
+        if (detected == null ||
+                detected.trim().isEmpty()) {
+
+            return getStableCard(index);
+        }
+
+        String normalized =
+                normalizeDetectedCardName(
+                        detected
+                );
+
+        if (normalized.isEmpty()) {
+            return getStableCard(index);
+        }
+
+        CardStability stability;
+
+        if (index == 0) {
+
+            stability =
+                    card1Stability;
+
+        } else if (index == 1) {
+
+            stability =
+                    card2Stability;
+
+        } else {
+
+            stability =
+                    card3Stability;
+        }
+
+        /*
+         * Ensimmäistä nimeä ei ole vielä lukittu.
+         */
+        if (stability.stable.isEmpty()) {
+
+            if (stability.candidate.isEmpty() ||
+                    !similarNames(
+                            stability.candidate,
+                            normalized
                     )) {
 
-                return;
+                stability.candidate =
+                        normalized;
+
+                stability.candidateCount = 1;
+
+            } else {
+
+                /*
+                 * Jos uusi OCR-tulos on saman nimen
+                 * pidempi ja tarkempi versio,
+                 * säilytetään pidempi ehdokas.
+                 *
+                 * Esimerkiksi:
+                 * Holy
+                 * Holy Egg
+                 * Holy Eggbearer
+                 */
+                stability.candidate =
+                        preferLongerSimilarName(
+                                stability.candidate,
+                                normalized
+                        );
+
+                stability.candidateCount++;
             }
 
-            Integer old =
-                    ONLINE_RAW_SCORES.get(
-                            key
+            if (stability.candidateCount >=
+                    CARD_CONFIRMATIONS) {
+
+                stability.stable =
+                        stability.candidate;
+
+                stability.candidate = "";
+                stability.candidateCount = 0;
+            }
+
+            return stability.stable.isEmpty()
+                    ? stability.candidate
+                    : stability.stable;
+        }
+
+        /*
+         * Kortin nimi on jo lukittu.
+         *
+         * Jos uusi OCR-tulos on sama nimi:
+         *
+         * Holy Eggbearer -> Holy
+         *
+         * EI saa korvata lukittua nimeä.
+         *
+         * Jos taas:
+         *
+         * Holy -> Holy Eggbearer
+         *
+         * pidempi nimi saa korvata lyhyen.
+         */
+        if (similarNames(
+                stability.stable,
+                normalized
+        )) {
+
+            stability.stable =
+                    preferLongerSimilarName(
+                            stability.stable,
+                            normalized
                     );
 
-            /*
-             * Sama kortti voi esiintyä useassa
-             * luokkataulukossa.
-             *
-             * Tällä hetkellä käytetään korkeinta
-             * löydettyä arvoa, koska sovelluksella
-             * ei vielä ole pelaajan valittua
-             * Arena-luokkaa käytettävissä.
-             */
-            if (old == null ||
-                    integerScore > old) {
+            stability.candidate = "";
+            stability.candidateCount = 0;
 
-                ONLINE_RAW_SCORES.put(
-                        key,
-                        integerScore
-                );
-
-                ONLINE_CARD_NAMES.put(
-                        key,
-                        cleanedName
-                );
-
-            } else if (!ONLINE_CARD_NAMES.containsKey(
-                    key
-            )) {
-
-                ONLINE_CARD_NAMES.put(
-                        key,
-                        cleanedName
-                );
-            }
-
-        } catch (Exception ignored) {}
-    }
-
-    private static String cleanOnlineCardName(
-            String text
-    ) {
-
-        if (text == null) {
-            return "";
+            return stability.stable;
         }
 
-        String result =
-                decodeHtml(
-                        text
-                );
+        /*
+         * Täysin erilainen nimi.
+         * Vaaditaan kaksi peräkkäistä havaintoa ennen
+         * kuin lukittu kortti vaihdetaan.
+         */
+        if (stability.candidate.isEmpty() ||
+                !similarNames(
+                        stability.candidate,
+                        normalized
+                )) {
 
-        result =
-                removeRankingPrefix(
-                        result
-                );
+            stability.candidate =
+                    normalized;
 
-        result =
-                normalizeWhitespace(
-                        result
-                );
+            stability.candidateCount = 1;
 
-        result =
-                result.replace(
-                        "↓",
-                        ""
-                );
+        } else {
 
-        return result.trim();
-    }
-
-    private static boolean isLikelyCardName(
-            String text
-    ) {
-
-        if (text == null) {
-            return false;
+            stability.candidateCount++;
         }
 
-        String value =
-                text.trim();
+        if (stability.candidateCount >=
+                CARD_CONFIRMATIONS) {
 
-        if (value.isEmpty()) {
-            return false;
+            stability.stable =
+                    stability.candidate;
+
+            stability.candidate = "";
+            stability.candidateCount = 0;
         }
 
-        value =
-                removeRankingPrefix(
-                        value
-                );
-
-        String lower =
-                value.toLowerCase(
-                        Locale.US
-                );
-
-        if (lower.equals(
-                "death knight"
-        )
-                ||
-                lower.equals(
-                        "demon hunter"
-                )
-                ||
-                lower.equals(
-                        "druid"
-                )
-                ||
-                lower.equals(
-                        "hunter"
-                )
-                ||
-                lower.equals(
-                        "mage"
-                )
-                ||
-                lower.equals(
-                        "paladin"
-                )
-                ||
-                lower.equals(
-                        "priest"
-                )
-                ||
-                lower.equals(
-                        "rogue"
-                )
-                ||
-                lower.equals(
-                        "shaman"
-                )
-                ||
-                lower.equals(
-                        "warlock"
-                )
-                ||
-                lower.equals(
-                        "warrior"
-                )
-                ||
-                lower.equals(
-                        "neutral"
-                )
-                ||
-                lower.contains(
-                        "cards"
-                )
-                ||
-                lower.equals(
-                        "great"
-                )
-                ||
-                lower.equals(
-                        "good"
-                )
-                ||
-                lower.equals(
-                        "above average"
-                )
-                ||
-                lower.equals(
-                        "average"
-                )
-                ||
-                lower.equals(
-                        "below average"
-                )
-                ||
-                lower.equals(
-                        "bad"
-                )
-                ||
-                lower.equals(
-                        "terrible"
-                )
-                ||
-                lower.startsWith(
-                        "cards in "
-                )
-                ||
-                lower.startsWith(
-                        "english"
-                )
-        ) {
-
-            return false;
-        }
-
-        if (value.matches(
-                "\\d+\\."
-        )) {
-
-            return false;
-        }
-
-        if (value.matches(
-                "\\d+(?:\\.\\d+)?"
-        )) {
-
-            return false;
-        }
-
-        boolean hasLetter =
-                false;
-
-        for (int i = 0;
-                i < value.length();
-                i++) {
-
-            if (Character.isLetter(
-                    value.charAt(i)
-            )) {
-
-                hasLetter = true;
-                break;
-            }
-        }
-
-        if (!hasLetter) {
-            return false;
-        }
-
-        if (value.length() > 100) {
-            return false;
-        }
-
-        return true;
+        return stability.stable;
     }
 
     /*
-     * -------------------------------------------------------------
-     * HTML
-     * -------------------------------------------------------------
+     * Pitää saman kortin pidemmän ja tarkemman
+     * OCR-nimen.
+     *
+     * Esimerkkejä:
+     *
+     * Holy + Holy Eggbearer
+     * -> Holy Eggbearer
+     *
+     * Holy Eggbearer + Holy
+     * -> Holy Eggbearer
+     *
+     * Soldier + Soldier of the Infinite
+     * -> Soldier of the Infinite
+     *
+     * Jos nimet ovat vain muuten samankaltaisia,
+     * vanha vakaa nimi säilytetään.
      */
-
-    private static String stripHtml(
-            String html
+    private String preferLongerSimilarName(
+            String oldName,
+            String newName
     ) {
 
-        if (html == null) {
-            return "";
+        if (oldName == null ||
+                oldName.trim().isEmpty()) {
+
+            return newName == null
+                    ? ""
+                    : newName;
         }
 
-        String result =
-                html;
+        if (newName == null ||
+                newName.trim().isEmpty()) {
 
-        result =
-                result.replaceAll(
-                        "(?is)<script[^>]*>.*?</script>",
-                        "\n"
-                );
+            return oldName;
+        }
 
-        result =
-                result.replaceAll(
-                        "(?is)<style[^>]*>.*?</style>",
-                        "\n"
-                );
+        String oldNormalized =
+                oldName.toLowerCase(
+                                Locale.US
+                        )
+                        .replaceAll(
+                                "[^a-z0-9]",
+                                ""
+                        );
 
-        result =
-                result.replaceAll(
-                        "(?i)<br\\s*/?>",
-                        "\n"
-                );
+        String newNormalized =
+                newName.toLowerCase(
+                                Locale.US
+                        )
+                        .replaceAll(
+                                "[^a-z0-9]",
+                                ""
+                        );
 
-        result =
-                result.replaceAll(
-                        "(?i)</div>",
-                        "\n"
-                );
+        if (oldNormalized.equals(
+                newNormalized
+        )) {
 
-        result =
-                result.replaceAll(
-                        "(?i)</li>",
-                        "\n"
-                );
+            return oldName;
+        }
 
-        result =
-                result.replaceAll(
-                        "(?i)</p>",
-                        "\n"
-                );
+        /*
+         * Jos uusi OCR-tulos sisältää koko vanhan
+         * nimen ja on pidempi, se on tarkempi versio.
+         */
+        if (newNormalized.contains(
+                oldNormalized
+        )
+                &&
+                newNormalized.length() >
+                        oldNormalized.length()) {
 
-        result =
-                result.replaceAll(
-                        "(?i)</h[1-6]>",
-                        "\n"
-                );
+            return newName;
+        }
 
-        result =
-                result.replaceAll(
-                        "(?i)</tr>",
-                        "\n"
-                );
+        /*
+         * Jos vanha nimi sisältää uuden nimen,
+         * vanha on jo tarkempi.
+         */
+        if (oldNormalized.contains(
+                newNormalized
+        )) {
 
-        result =
-                result.replaceAll(
-                        "<[^>]+>",
-                        ""
-                );
+            return oldName;
+        }
 
-        result =
-                decodeHtml(
-                        result
-                );
-
-        return result;
+        /*
+         * Muussa tapauksessa pidetään vanha vakaa nimi.
+         */
+        return oldName;
     }
 
-    private static String decodeHtml(
+    private String normalizeDetectedCardName(
             String text
     ) {
 
@@ -1155,73 +951,167 @@ public class ArenaAdvisor {
             return "";
         }
 
-        String result =
-                text;
+        text =
+                text.trim();
 
-        result =
-                result.replace(
-                        "&amp;",
-                        "&"
-                );
-
-        result =
-                result.replace(
-                        "&quot;",
-                        "\""
-                );
-
-        result =
-                result.replace(
+        text =
+                text.replace(
                         "&#039;",
                         "'"
                 );
 
-        result =
-                result.replace(
-                        "&#39;",
-                        "'"
+        text =
+                text.replaceAll(
+                        "[\\s\\.,:;|]+$",
+                        ""
                 );
 
-        result =
-                result.replace(
-                        "&apos;",
-                        "'"
-                );
-
-        result =
-                result.replace(
-                        "&nbsp;",
+        text =
+                text.replaceAll(
+                        "\\s+",
                         " "
+                ).trim();
+
+        text =
+                fixSoldierOfInfinite(
+                        text
                 );
 
-        result =
-                result.replace(
-                        "&lt;",
-                        "<"
-                );
+        try {
 
-        result =
-                result.replace(
-                        "&gt;",
-                        ">"
-                );
+            String corrected =
+                    ArenaAdvisor.correctOcr(
+                            text
+                    );
 
-        result =
-                result.replaceAll(
-                        "&#x27;",
+            if (corrected != null &&
+                    !corrected.trim().isEmpty()) {
+
+                text =
+                        corrected.trim();
+            }
+
+        } catch (Exception ignored) {}
+
+        text =
+                text.replace(
+                        "&#039;",
                         "'"
                 );
 
-        result =
-                result.replaceAll(
-                        "&#x2F;",
-                        "/"
+        text =
+                text.replaceAll(
+                        "[\\s\\.,:;|]+$",
+                        ""
                 );
 
-        return result;
+        return text.trim();
     }
 
-    private static String normalizeWhitespace(
+    private String cleanCardName(
+            Text text
+    ) {
+
+        if (text == null) {
+            return "";
+        }
+
+        String raw =
+                text.getText();
+
+        if (raw == null) {
+            return "";
+        }
+
+        String[] lines =
+                raw.split("\\r?\\n");
+
+        String best = "";
+
+        for (String line : lines) {
+
+            if (line == null) {
+                continue;
+            }
+
+            line =
+                    line.trim();
+
+            int letters = 0;
+
+            for (int i = 0;
+                    i < line.length();
+                    i++) {
+
+                if (Character.isLetter(
+                        line.charAt(i)
+                )) {
+
+                    letters++;
+                }
+            }
+
+            if (letters >= 2) {
+
+                best =
+                        line;
+
+                break;
+            }
+        }
+
+        if (best.isEmpty()) {
+            best = raw.trim();
+        }
+
+        best =
+                best.replaceAll(
+                        "^[^A-Za-zÀ-ÿ0-9]+",
+                        ""
+                )
+                .replaceAll(
+                        "[^A-Za-zÀ-ÿ0-9'&\\-\\.\\s]+$",
+                        ""
+                )
+                .trim();
+
+        best =
+                fixSoldierOfInfinite(
+                        best
+                );
+
+        best =
+                best.replaceAll(
+                        "\\s+",
+                        " "
+                ).trim();
+
+        best =
+                best.replaceAll(
+                        "[\\s\\.,:;|]+$",
+                        ""
+                );
+
+        best =
+                best.replace(
+                        "&#039;",
+                        "'"
+                );
+
+        if (!best.isEmpty()) {
+
+            best =
+                    Character.toUpperCase(
+                            best.charAt(0)
+                    )
+                    +
+                    best.substring(1);
+        }
+
+        return best;
+    }
+
+    private String fixSoldierOfInfinite(
             String text
     ) {
 
@@ -1229,101 +1119,14 @@ public class ArenaAdvisor {
             return "";
         }
 
-        return text
-                .replace(
-                        '\u00A0',
-                        ' '
-                )
-                .replaceAll(
-                        "\\s+",
-                        " "
-                )
-                .trim();
-    }
-
-    private static String findOriginalName(
-            String normalized
-    ) {
-
-        if (normalized == null ||
-                normalized.isEmpty()) {
-
-            return "";
-        }
-
-        String onlineName =
-                ONLINE_CARD_NAMES.get(
-                        normalized
-                );
-
-        if (onlineName != null &&
-                !onlineName.isEmpty()) {
-
-            return onlineName;
-        }
-
-        for (CardData card :
-                CARDS.values()) {
-
-            if (normalizeKey(
-                    card.name
-            ).equals(
-                    normalized
-            )) {
-
-                return card.name;
-            }
-        }
-
-        return restoreBasicName(
-                normalized
-        );
-    }
-
-    private static String restoreBasicName(
-            String normalized
-    ) {
-
-        if (normalized == null ||
-                normalized.isEmpty()) {
-
-            return "";
-        }
-
-        return normalized
-                .replace(
-                        "_",
-                        " "
-                );
-    }
-
-    /*
-     * -------------------------------------------------------------
-     * OCR
-     * -------------------------------------------------------------
-     */
-
-    public static String correctOcr(
-            String input
-    ) {
-
-        if (input == null) {
-            return "";
-        }
-
-        String cleaned =
-                cleanInput(
-                        input
-                );
-
-        if (cleaned.isEmpty()) {
-            return "";
-        }
-
         String normalized =
-                normalizeKey(
-                        cleaned
-                );
+                text.toLowerCase(
+                                Locale.US
+                        )
+                        .replaceAll(
+                                "[^a-z0-9]",
+                                ""
+                        );
 
         if (normalized.contains(
                 "soldierofinfinite"
@@ -1348,528 +1151,33 @@ public class ArenaAdvisor {
             return "Soldier of the Infinite";
         }
 
-        String alias =
-                OCR_ALIASES.get(
-                        normalized
-                );
+        String stable =
+                card1Stability.stable;
 
-        if (alias != null) {
-            return alias;
-        }
+        if (stable != null &&
+                !stable.isEmpty()) {
 
-        CardData exact =
-                CARDS.get(
-                        normalized
-                );
-
-        if (exact != null) {
-            return exact.name;
-        }
-
-        String bestName =
-                "";
-
-        int bestDistance =
-                Integer.MAX_VALUE;
-
-        int maxAllowed =
-                Math.max(
-                        2,
-                        normalized.length() / 4
-                );
-
-        for (CardData card :
-                CARDS.values()) {
-
-            String candidate =
-                    normalizeKey(
-                            card.name
-                    );
-
-            if (candidate.isEmpty()) {
-                continue;
-            }
-
-            if (candidate.equals(
-                    normalized
-            )) {
-
-                return card.name;
-            }
-
-            if (candidate.contains(
-                    normalized
-            )
-                    ||
-                    normalized.contains(
-                            candidate
-                    )) {
-
-                int distance =
-                        Math.abs(
-                                candidate.length()
-                                        -
-                                        normalized.length()
-                        );
-
-                if (distance <
-                        bestDistance) {
-
-                    bestDistance =
-                            distance;
-
-                    bestName =
-                            card.name;
-                }
-
-                continue;
-            }
-
-            int distance =
-                    levenshtein(
-                            normalized,
-                            candidate
-                    );
-
-            if (distance <
-                    bestDistance) {
-
-                bestDistance =
-                        distance;
-
-                bestName =
-                        card.name;
-            }
-        }
-
-        if (!bestName.isEmpty() &&
-                bestDistance <=
-                        maxAllowed) {
-
-            return bestName;
-        }
-
-        return cleaned;
-    }
-
-    private static String cleanInput(
-            String text
-    ) {
-
-        if (text == null) {
-            return "";
-        }
-
-        String result =
-                text.trim();
-
-        result =
-                result.replace(
-                        "&#039;",
-                        "'"
-                );
-
-        result =
-                result.replace(
-                        "&#39;",
-                        "'"
-                );
-
-        result =
-                result.replaceAll(
-                        "\\s+",
-                        " "
-                );
-
-        result =
-                result.replaceAll(
-                        "^[^A-Za-zÀ-ÿ0-9]+",
-                        ""
-                );
-
-        result =
-                result.replaceAll(
-                        "[^A-Za-zÀ-ÿ0-9'&\\-\\.\\s]+$",
-                        ""
-                );
-
-        result =
-                result.replaceAll(
-                        "[\\s\\.,:;|]+$",
-                        ""
-                );
-
-        return result.trim();
-    }
-
-    private static String normalizeKey(
-            String text
-    ) {
-
-        if (text == null) {
-            return "";
-        }
-
-        return text
-                .toLowerCase(
-                        Locale.US
-                )
-                .replace(
-                        "’",
-                        "'"
-                )
-                .replace(
-                        "´",
-                        "'"
-                )
-                .replaceAll(
-                        "[^a-z0-9]",
-                        ""
-                );
-    }
-
-    /*
-     * -------------------------------------------------------------
-     * SCORE
-     * -------------------------------------------------------------
-     */
-
-    public static String getCardScore(
-            String cardName
-    ) {
-
-        double value =
-                score(
-                        cardName
-                );
-
-        if (value <= 0.0) {
-            return "0.0";
-        }
-
-        return String.format(
-                Locale.US,
-                "%.2f",
-                value
-        );
-    }
-
-    public static double score(
-            String cardName
-    ) {
-
-        if (cardName == null ||
-                cardName.trim().isEmpty()) {
-
-            return UNKNOWN_CARD_SCORE;
-        }
-
-        String corrected =
-                correctOcr(
-                        cardName
-                );
-
-        if (corrected == null ||
-                corrected.trim().isEmpty()) {
-
-            return UNKNOWN_CARD_SCORE;
-        }
-
-        String key =
-                normalizeKey(
-                        corrected
-                );
-
-        CardData card =
-                CARDS.get(
-                        key
-                );
-
-        if (card == null &&
-                onlineDataLoaded) {
-
-            for (String onlineName :
-                    ONLINE_NAMES) {
-
-                if (similarKeys(
-                        onlineName,
-                        key
-                )) {
-
-                    card =
-                            CARDS.get(
-                                    onlineName
+            String stableNormalized =
+                    stable.toLowerCase(
+                                    Locale.US
+                            )
+                            .replaceAll(
+                                    "[^a-z0-9]",
+                                    ""
                             );
 
-                    if (card != null) {
-                        break;
-                    }
-                }
+            if (stableNormalized.contains(
+                    "soldierofinfinite"
+            )) {
+
+                return "Soldier of the Infinite";
             }
         }
 
-        if (card == null) {
-            return UNKNOWN_CARD_SCORE;
-        }
-
-        double result =
-                card.score;
-
-        result +=
-                synergyBonus(
-                        card.name
-                );
-
-        return result;
+        return text;
     }
 
-    private static double synergyBonus(
-            String cardName
-    ) {
-
-        if (cardName == null ||
-                cardName.isEmpty()) {
-
-            return 0.0;
-        }
-
-        String key =
-                normalizeKey(
-                        cardName
-                );
-
-        if (PICKED_CARDS.contains(
-                key
-        )) {
-
-            return 0.10;
-        }
-
-        return 0.0;
-    }
-
-    /*
-     * -------------------------------------------------------------
-     * RECOMMENDATION
-     * -------------------------------------------------------------
-     */
-
-    public static String recommend(
-            String card1,
-            String card2,
-            String card3
-    ) {
-
-        double score1 =
-                score(
-                        card1
-                );
-
-        double score2 =
-                score(
-                        card2
-                );
-
-        double score3 =
-                score(
-                        card3
-                );
-
-        if (score1 <= 0.0 &&
-                score2 <= 0.0 &&
-                score3 <= 0.0) {
-
-            return "Kortteja ei tunnistettu";
-        }
-
-        if (score1 >= score2 &&
-                score1 >= score3) {
-
-            return formatRecommendation(
-                    1,
-                    card1,
-                    score1
-            );
-        }
-
-        if (score2 >= score1 &&
-                score2 >= score3) {
-
-            return formatRecommendation(
-                    2,
-                    card2,
-                    score2
-            );
-        }
-
-        return formatRecommendation(
-                3,
-                card3,
-                score3
-        );
-    }
-
-    private static String formatRecommendation(
-            int number,
-            String cardName,
-            double score
-    ) {
-
-        if (cardName == null ||
-                cardName.trim().isEmpty()) {
-
-            return "Korttia ei tunnistettu";
-        }
-
-        return "Kortti " +
-                number +
-                " – " +
-                cardName +
-                " (" +
-                String.format(
-                        Locale.US,
-                        "%.2f",
-                        score
-                ) +
-                ")";
-    }
-
-    public static String getReason(
-            String cardName
-    ) {
-
-        double value =
-                score(
-                        cardName
-                );
-
-        if (value <= 0.0) {
-
-            return "Kortille ei löytynyt arvoa.";
-        }
-
-        if (value >= 8.0) {
-
-            return "Erittäin vahva Arena-valinta.";
-        }
-
-        if (value >= 7.0) {
-
-            return "Vahva Arena-valinta.";
-        }
-
-        if (value >= 6.0) {
-
-            return "Hyvä Arena-valinta.";
-        }
-
-        if (value >= 5.0) {
-
-            return "Keskitasoinen Arena-valinta.";
-        }
-
-        if (value >= 4.0) {
-
-            return "Alle keskitason Arena-valinta.";
-        }
-
-        return "Heikko Arena-valinta.";
-    }
-
-    public static boolean isValidCard(
-            String cardName
-    ) {
-
-        if (cardName == null ||
-                cardName.trim().isEmpty()) {
-
-            return false;
-        }
-
-        return score(
-                cardName
-        ) > 0.0;
-    }
-
-    /*
-     * -------------------------------------------------------------
-     * PICKED CARDS
-     * -------------------------------------------------------------
-     */
-
-    public static void recordPickedCard(
-            String cardName
-    ) {
-
-        if (cardName == null ||
-                cardName.trim().isEmpty()) {
-
-            return;
-        }
-
-        String corrected =
-                correctOcr(
-                        cardName
-                );
-
-        if (corrected == null ||
-                corrected.trim().isEmpty()) {
-
-            return;
-        }
-
-        PICKED_CARDS.add(
-                normalizeKey(
-                        corrected
-                )
-        );
-    }
-
-    public static int getPickedCount(
-            String cardName
-    ) {
-
-        if (cardName == null ||
-                cardName.trim().isEmpty()) {
-
-            return 0;
-        }
-
-        String key =
-                normalizeKey(
-                        correctOcr(
-                                cardName
-                        )
-                );
-
-        if (key.isEmpty()) {
-            return 0;
-        }
-
-        int count = 0;
-
-        if (PICKED_CARDS.contains(
-                key
-        )) {
-
-            count = 1;
-        }
-
-        return count;
-    }
-
-    public static void clearPickedCards() {
-
-        PICKED_CARDS.clear();
-    }
-
-    /*
-     * -------------------------------------------------------------
-     * FUZZY MATCHING
-     * -------------------------------------------------------------
-     */
-
-    private static boolean similarKeys(
+    private boolean similarNames(
             String a,
             String b
     ) {
@@ -1881,29 +1189,29 @@ public class ArenaAdvisor {
         }
 
         String aa =
-                normalizeKey(
-                        a
-                );
+                a.toLowerCase(
+                                Locale.US
+                        )
+                        .replaceAll(
+                                "[^a-z0-9]",
+                                ""
+                        );
 
         String bb =
-                normalizeKey(
-                        b
-                );
+                b.toLowerCase(
+                                Locale.US
+                        )
+                        .replaceAll(
+                                "[^a-z0-9]",
+                                ""
+                        );
 
-        if (aa.equals(
-                bb
-        )) {
-
+        if (aa.equals(bb)) {
             return true;
         }
 
-        if (aa.contains(
-                bb
-        )
-                ||
-                bb.contains(
-                        aa
-                )) {
+        if (aa.contains(bb) ||
+                bb.contains(aa)) {
 
             return true;
         }
@@ -1927,25 +1235,14 @@ public class ArenaAdvisor {
                 );
     }
 
-    private static int levenshtein(
+    private int levenshtein(
             String a,
             String b
     ) {
 
-        if (a == null) {
-            return b == null ? 0 : b.length();
-        }
-
-        if (b == null) {
-            return a.length();
-        }
-
         int[][] dp =
-                new int[
-                        a.length() + 1
-                ][
-                        b.length() + 1
-                ];
+                new int[a.length() + 1]
+                        [b.length() + 1];
 
         for (int i = 0;
                 i <= a.length();
@@ -1970,13 +1267,9 @@ public class ArenaAdvisor {
                     j++) {
 
                 int cost =
-                        a.charAt(
-                                i - 1
-                        )
+                        a.charAt(i - 1)
                                 ==
-                                b.charAt(
-                                        j - 1
-                                )
+                                b.charAt(j - 1)
                                 ? 0
                                 : 1;
 
@@ -1992,43 +1285,320 @@ public class ArenaAdvisor {
             }
         }
 
-        return dp[
-                a.length()
-        ][
-                b.length()
-        ];
+        return dp[a.length()][b.length()];
     }
 
-    /*
-     * -------------------------------------------------------------
-     * DEBUG / STATUS
-     * -------------------------------------------------------------
-     */
+    private void updateCards(
+            String card1,
+            String card2,
+            String card3
+    ) {
 
-    public static boolean isOnlineDataLoaded() {
-
-        return onlineDataLoaded;
-    }
-
-    public static int getKnownCardCount() {
-
-        return CARDS.size();
-    }
-
-    public static int getOnlineCardCount() {
-
-        return ONLINE_NAMES.size();
-    }
-
-    public static String getDataStatus() {
-
-        if (onlineDataLoaded) {
-
-            return "HearthArena: " +
-                    ONLINE_NAMES.size() +
-                    " korttia ladattu";
+        if (card1 == null) {
+            card1 = "";
         }
 
-        return "HearthArena-dataa ladataan...";
+        if (card2 == null) {
+            card2 = "";
+        }
+
+        if (card3 == null) {
+            card3 = "";
+        }
+
+        if (!card1.isEmpty() &&
+                !card2.isEmpty() &&
+                !card3.isEmpty()) {
+
+            handleOffer(
+                    card1,
+                    card2,
+                    card3
+            );
+        }
+
+        updateOverlay(
+                card1,
+                card2,
+                card3
+        );
+    }
+
+    private void handleOffer(
+            String card1,
+            String card2,
+            String card3
+    ) {
+
+        if (pendingOffer1.isEmpty()) {
+
+            pendingOffer1 = card1;
+            pendingOffer2 = card2;
+            pendingOffer3 = card3;
+            pendingOfferCount = 1;
+
+            return;
+        }
+
+        boolean sameOffer =
+                similarNames(
+                        pendingOffer1,
+                        card1
+                )
+                        &&
+                similarNames(
+                        pendingOffer2,
+                        card2
+                )
+                        &&
+                similarNames(
+                        pendingOffer3,
+                        card3
+                );
+
+        if (sameOffer) {
+
+            pendingOfferCount++;
+
+        } else {
+
+            pendingOffer1 = card1;
+            pendingOffer2 = card2;
+            pendingOffer3 = card3;
+            pendingOfferCount = 1;
+        }
+
+        if (pendingOfferCount <
+                OFFER_CONFIRMATIONS) {
+
+            return;
+        }
+
+        String new1 = card1;
+        String new2 = card2;
+        String new3 = card3;
+
+        if (!confirmedCard1.isEmpty() &&
+                !confirmedCard2.isEmpty() &&
+                !confirmedCard3.isEmpty()) {
+
+            String missing =
+                    findMissingPickedCard(
+                            confirmedCard1,
+                            confirmedCard2,
+                            confirmedCard3,
+                            new1,
+                            new2,
+                            new3
+                    );
+
+            if (missing != null &&
+                    !missing.isEmpty() &&
+                    !missing.equals(
+                            lastRecordedPick
+                    )) {
+
+                ArenaAdvisor.recordPickedCard(
+                        missing
+                );
+
+                lastRecordedPick =
+                        missing;
+            }
+        }
+
+        confirmedCard1 = new1;
+        confirmedCard2 = new2;
+        confirmedCard3 = new3;
+    }
+
+    private String findMissingPickedCard(
+            String old1,
+            String old2,
+            String old3,
+            String new1,
+            String new2,
+            String new3
+    ) {
+
+        boolean old1Exists =
+                similarNames(old1, new1)
+                        ||
+                similarNames(old1, new2)
+                        ||
+                similarNames(old1, new3);
+
+        boolean old2Exists =
+                similarNames(old2, new1)
+                        ||
+                similarNames(old2, new2)
+                        ||
+                similarNames(old2, new3);
+
+        boolean old3Exists =
+                similarNames(old3, new1)
+                        ||
+                similarNames(old3, new2)
+                        ||
+                similarNames(old3, new3);
+
+        int missingCount = 0;
+        String missing = "";
+
+        if (!old1Exists) {
+
+            missingCount++;
+            missing = old1;
+        }
+
+        if (!old2Exists) {
+
+            missingCount++;
+            missing = old2;
+        }
+
+        if (!old3Exists) {
+
+            missingCount++;
+            missing = old3;
+        }
+
+        if (missingCount == 1) {
+            return missing;
+        }
+
+        return "";
+    }
+
+    private void updateOverlay(
+            String card1,
+            String card2,
+            String card3
+    ) {
+
+        if (overlayView == null) {
+            return;
+        }
+
+        final String score1 =
+                ArenaAdvisor.getCardScore(
+                        card1
+                );
+
+        final String score2 =
+                ArenaAdvisor.getCardScore(
+                        card2
+                );
+
+        final String score3 =
+                ArenaAdvisor.getCardScore(
+                        card3
+                );
+
+        final String recommendation =
+                ArenaAdvisor.recommend(
+                        card1,
+                        card2,
+                        card3
+                );
+
+        String display =
+                "KORTTI 1\n" +
+                card1 +
+                "\nARVO: " +
+                score1 +
+                "\n\n" +
+
+                "KORTTI 2\n" +
+                card2 +
+                "\nARVO: " +
+                score2 +
+                "\n\n" +
+
+                "KORTTI 3\n" +
+                card3 +
+                "\nARVO: " +
+                score3 +
+                "\n\n" +
+
+                "SUOSITUS\n" +
+                recommendation;
+
+        overlayView.setText(
+                display
+        );
+    }
+
+    @Override
+    public void onDestroy() {
+
+        processing = false;
+
+        if (mediaProjection != null) {
+
+            try {
+                mediaProjection.unregisterCallback(
+                        mediaProjectionCallback
+                );
+            } catch (Exception ignored) {}
+        }
+
+        if (imageReader != null) {
+
+            try {
+                imageReader.close();
+            } catch (Exception ignored) {}
+
+            imageReader = null;
+        }
+
+        if (virtualDisplay != null) {
+
+            try {
+                virtualDisplay.release();
+            } catch (Exception ignored) {}
+
+            virtualDisplay = null;
+        }
+
+        if (mediaProjection != null) {
+
+            try {
+                mediaProjection.stop();
+            } catch (Exception ignored) {}
+
+            mediaProjection = null;
+        }
+
+        if (recognizer != null) {
+
+            try {
+                recognizer.close();
+            } catch (Exception ignored) {}
+
+            recognizer = null;
+        }
+
+        if (overlayView != null &&
+                windowManager != null) {
+
+            try {
+                windowManager.removeView(
+                        overlayView
+                );
+            } catch (Exception ignored) {}
+
+            overlayView = null;
+        }
+
+        super.onDestroy();
+    }
+
+    @Nullable
+    @Override
+    public IBinder onBind(
+            Intent intent
+    ) {
+        return null;
     }
 }
