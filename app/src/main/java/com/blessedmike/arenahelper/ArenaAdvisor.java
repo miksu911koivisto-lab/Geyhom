@@ -92,12 +92,6 @@ public class ArenaAdvisor {
      * ============================================================
      * ANALYSIS CONSTANTS
      * ============================================================
-     *
-     * HearthArena remains the primary card-quality signal.
-     *
-     * Secondary systems modify the value only within bounded
-     * ranges so that deck context cannot completely override
-     * the underlying card quality.
      */
 
     private static final double CURVE_MAX_BONUS = 0.45;
@@ -1900,13 +1894,6 @@ public class ArenaAdvisor {
         return UNKNOWN_CARD_SCORE;
     }
 
-    /*
-     * Public base-score API is retained.
-     *
-     * The complete dynamic score is available through
-     * getCardScore(), getCardScoreValue() and analyzeCard().
-     */
-
     public static double score(
             String cardName
     ) {
@@ -1988,7 +1975,7 @@ public class ArenaAdvisor {
     }
 
     /*
-     * This now returns the SAME dynamic final value that
+     * Returns the same dynamic final value that
      * recommendation uses.
      */
 
@@ -2048,6 +2035,7 @@ public class ArenaAdvisor {
                     0.0,
                     0.0,
                     0.0,
+                    0.0,
                     0,
                     "Korttia ei tunnistettu"
             );
@@ -2067,6 +2055,7 @@ public class ArenaAdvisor {
             DraftAnalysis unknown =
                     new DraftAnalysis(
                             corrected,
+                            0.0,
                             0.0,
                             0.0,
                             0.0,
@@ -2183,24 +2172,36 @@ public class ArenaAdvisor {
         double best =
                 -Double.MAX_VALUE;
 
+        double secondBest =
+                -Double.MAX_VALUE;
+
         String recommendation =
                 "";
 
         for (DraftAnalysis analysis :
                 result) {
 
-            if (analysis == null) {
+            if (analysis == null ||
+                    analysis.finalScore <= 0) {
+
                 continue;
             }
 
-            if (analysis.finalScore > best &&
-                    analysis.finalScore > 0) {
+            if (analysis.finalScore > best) {
+
+                secondBest =
+                        best;
 
                 best =
                         analysis.finalScore;
 
                 recommendation =
                         analysis.cardName;
+
+            } else if (analysis.finalScore > secondBest) {
+
+                secondBest =
+                        analysis.finalScore;
             }
         }
 
@@ -2219,29 +2220,6 @@ public class ArenaAdvisor {
                     "Kortteja ei tunnistettu";
 
             return result;
-        }
-
-        double secondBest =
-                -Double.MAX_VALUE;
-
-        for (DraftAnalysis analysis :
-                result) {
-
-            if (analysis == null) {
-                continue;
-            }
-
-            if (analysis.cardName.equals(
-                    recommendation
-            )) {
-                continue;
-            }
-
-            if (analysis.finalScore > secondBest) {
-
-                secondBest =
-                        analysis.finalScore;
-            }
         }
 
         if (secondBest ==
@@ -2407,9 +2385,6 @@ public class ArenaAdvisor {
         int total =
                 getPickedCardCountTotal();
 
-        /*
-         * First picks should primarily be raw card quality.
-         */
         if (total < 3) {
             return 0.0;
         }
@@ -2673,11 +2648,6 @@ public class ArenaAdvisor {
      * ============================================================
      * DECK FIT
      * ============================================================
-     *
-     * This measures whether the candidate fills a structural
-     * need in the current Arena deck.
-     *
-     * It deliberately does NOT replace card quality.
      */
 
     private static double calculateDeckFitAdjustment(
@@ -2710,10 +2680,6 @@ public class ArenaAdvisor {
         int weapons =
                 countPickedType("WEAPON");
 
-        /*
-         * Arena decks generally need a healthy number of
-         * playable minions.
-         */
         if (type.equals("MINION")) {
 
             if (total >= 8 &&
@@ -2729,11 +2695,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * If the deck is already spell-heavy, another spell
-         * gets less structural value unless it provides
-         * removal / tempo.
-         */
         if (type.equals("SPELL")) {
 
             if (total >= 12 &&
@@ -2749,9 +2710,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * Weapons have diminishing structural value.
-         */
         if (type.equals("WEAPON")) {
 
             if (weapons >= 2) {
@@ -2763,10 +2721,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * Very low-cost cards are useful when the deck lacks
-         * early plays.
-         */
         int cost =
                 getManaCost(candidate);
 
@@ -2781,10 +2735,6 @@ public class ArenaAdvisor {
             value += 0.15;
         }
 
-        /*
-         * Mid-game cards are useful when the deck has too many
-         * cheap cards.
-         */
         int mid =
                 getCurveCount(3)
                         + getCurveCount(4)
@@ -2798,9 +2748,6 @@ public class ArenaAdvisor {
             value += 0.12;
         }
 
-        /*
-         * High-cost cards should not be accumulated blindly.
-         */
         if (cost >= 7 &&
                 total >= 15) {
 
@@ -2909,10 +2856,6 @@ public class ArenaAdvisor {
                         candidateText
                 );
 
-        /*
-         * Shared tribe is a stronger signal than simply
-         * mentioning a generic keyword in text.
-         */
         value +=
                 calculateRaceSynergy(
                         candidate
@@ -3003,9 +2946,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * Direct spell-related synergy.
-         */
         if (candidateText.contains("spell") &&
                 pickedType.equals("SPELL")) {
 
@@ -3303,11 +3243,6 @@ public class ArenaAdvisor {
      * ============================================================
      * REMOVAL / TEMPO
      * ============================================================
-     *
-     * Arena decks benefit from interaction.
-     *
-     * This is intentionally conservative and based on actual
-     * card text plus simple stat/curve information.
      */
 
     private static double calculateRemovalTempoAdjustment(
@@ -3339,9 +3274,6 @@ public class ArenaAdvisor {
         int tempo =
                 0;
 
-        /*
-         * Direct removal / damage.
-         */
         if (containsAny(
                 text,
                 "destroy",
@@ -3357,9 +3289,6 @@ public class ArenaAdvisor {
             removal++;
         }
 
-        /*
-         * Board control.
-         */
         if (containsAny(
                 text,
                 "all enemy",
@@ -3373,9 +3302,6 @@ public class ArenaAdvisor {
             removal++;
         }
 
-        /*
-         * Hard control.
-         */
         if (containsAny(
                 text,
                 "polymorph",
@@ -3387,9 +3313,6 @@ public class ArenaAdvisor {
             removal++;
         }
 
-        /*
-         * Tempo keywords.
-         */
         if (containsAny(
                 text,
                 "rush",
@@ -3401,9 +3324,6 @@ public class ArenaAdvisor {
             tempo++;
         }
 
-        /*
-         * Immediate board impact.
-         */
         if (containsAny(
                 text,
                 "summon",
@@ -3416,9 +3336,6 @@ public class ArenaAdvisor {
             tempo++;
         }
 
-        /*
-         * Weapons provide board-control tempo.
-         */
         if (normalizeType(card.type)
                 .equals("WEAPON")) {
 
@@ -3445,10 +3362,6 @@ public class ArenaAdvisor {
                     );
         }
 
-        /*
-         * Actual stats can provide modest tempo value for
-         * early/mid-game minions.
-         */
         if (normalizeType(card.type)
                 .equals("MINION")) {
 
@@ -3473,11 +3386,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * If the existing deck already has a lot of removal,
-         * the next removal card gets slightly less structural
-         * value.
-         */
         int existingRemoval =
                 countPickedRemovalCards();
 
@@ -3487,10 +3395,6 @@ public class ArenaAdvisor {
             value -= 0.10;
         }
 
-        /*
-         * A deck with very little interaction benefits more
-         * from a removal card.
-         */
         if (removal > 0 &&
                 existingRemoval <= 1 &&
                 total >= 8) {
@@ -4570,10 +4474,6 @@ public class ArenaAdvisor {
         public final int attack;
         public final int health;
 
-        /*
-         * Additional Hearthstone metadata used by the
-         * synergy/deck-analysis system.
-         */
         public final String race;
         public final String spellSchool;
         public final String mechanics;
@@ -4657,9 +4557,6 @@ public class ArenaAdvisor {
                             : mechanics;
         }
 
-        /*
-         * Backward-compatible constructor.
-         */
         public CardData(
                 String name,
                 String cardClass,
@@ -4688,9 +4585,6 @@ public class ArenaAdvisor {
             );
         }
 
-        /*
-         * Original compatibility constructor.
-         */
         public CardData(
                 String name,
                 String cardClass,
@@ -4748,54 +4642,24 @@ public class ArenaAdvisor {
 
         public final String cardName;
 
-        /*
-         * Original HearthArena value.
-         */
         public final double hearthArenaScore;
 
-        /*
-         * Mana curve adjustment.
-         */
         public final double curveAdjustment;
 
-        /*
-         * Minion / spell / weapon balance.
-         */
         public final double typeAdjustment;
 
-        /*
-         * Existing deck synergy.
-         */
         public final double synergyAdjustment;
 
-        /*
-         * How well the card fills a structural deck need.
-         */
         public final double deckFitAdjustment;
 
-        /*
-         * Removal / tempo contribution.
-         */
         public final double removalTempoAdjustment;
 
-        /*
-         * Duplicate penalty.
-         */
         public final double duplicateAdjustment;
 
-        /*
-         * Final recommendation value.
-         */
         public final double finalScore;
 
-        /*
-         * Mana cost.
-         */
         public final int manaCost;
 
-        /*
-         * Human-readable explanation.
-         */
         public final String reason;
 
         public DraftAnalysis(
@@ -4867,8 +4731,7 @@ public class ArenaAdvisor {
         }
 
         /*
-         * Backward-compatible constructor matching the
-         * previous DraftAnalysis structure.
+         * Backward-compatible constructor.
          */
         public DraftAnalysis(
                 String cardName,
