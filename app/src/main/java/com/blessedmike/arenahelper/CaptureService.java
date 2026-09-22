@@ -759,15 +759,7 @@ public class CaptureService extends Service {
                 source.getHeight();
 
         /*
-         * TÄRKEÄ MUUTOS:
-         *
-         * Aikaisemmin käytössä oli noin 45–55 %.
-         * Se osui myös kortin tekstikuvaukseen.
-         *
-         * Kortin otsikko on tässä Hearthstone-näkymässä
-         * noin 43–51 % korkeudella.
-         *
-         * Tämä rajaus pyrkii ottamaan vain kortin nimen.
+         * Kortin nimen OCR-alue.
          */
         int nameTop =
                 (int)
@@ -934,6 +926,18 @@ public class CaptureService extends Service {
         recognizer.process(image)
                 .addOnSuccessListener(text -> {
 
+                    /*
+                     * TÄRKEÄ KORJAUS:
+                     *
+                     * Kortin nimi voi olla OCR:ssa kahdella
+                     * rivillä. Erityisesti kortti 3:n pitkät
+                     * nimet voivat katketa ensimmäisen rivin
+                     * jälkeen.
+                     *
+                     * Yhdistetään kaikki järkevät OCR-rivit
+                     * ennen kuin nimi annetaan
+                     * ArenaAdvisorille.
+                     */
                     String cleaned =
                             cleanCardName(text);
 
@@ -1080,11 +1084,6 @@ public class CaptureService extends Service {
                 stability.candidateCount = 0;
             }
 
-            /*
-             * Overlay voi näyttää hetkellisen OCR-havainnon,
-             * mutta sitä ei vielä käytetä aktiivisena
-             * varmennettuna korttina.
-             */
             return stability.stable.isEmpty()
                     ? normalized
                     : stability.stable;
@@ -1099,6 +1098,17 @@ public class CaptureService extends Service {
                 normalized
         )) {
 
+            /*
+             * Jos uusi OCR sisältää nykyisen nimen
+             * pidempänä versiona, otetaan pidempi nimi.
+             *
+             * Esimerkiksi:
+             *
+             * Holy Egg
+             * Holy Eggbearer
+             *
+             * -> Holy Eggbearer
+             */
             if (isLongerVersion(
                     normalized,
                     stability.stable
@@ -1246,8 +1256,27 @@ public class CaptureService extends Service {
             if (corrected != null &&
                     !corrected.trim().isEmpty()) {
 
-                text =
+                /*
+                 * Jos OCR tuotti pidemmän nimen ja
+                 * ArenaAdvisor palauttaa saman nimen
+                 * lyhyempänä, ei lyhennetä OCR-tulosta.
+                 */
+                String correctedTrimmed =
                         corrected.trim();
+
+                if (isLongerVersion(
+                        text,
+                        correctedTrimmed
+                )) {
+
+                    text =
+                            text.trim();
+
+                } else {
+
+                    text =
+                            correctedTrimmed;
+                }
             }
 
         } catch (Exception ignored) {
@@ -1286,15 +1315,27 @@ public class CaptureService extends Service {
         String[] lines =
                 raw.split("\\r?\\n");
 
-        String best = "";
-
         /*
-         * Valitaan ensimmäinen järkevä OCR-rivi.
+         * TÄRKEÄ KORJAUS:
          *
-         * Koska OCR-alue on nyt rajattu kortin
-         * otsikkoon, tämän pitäisi olla kortin nimi
-         * eikä kuvausteksti.
+         * Älä ota vain ensimmäistä OCR-riviä.
+         *
+         * Pitkä kortinimi voi jakautua esimerkiksi:
+         *
+         * Holy Egg
+         * bearer
+         *
+         * jolloin vanha koodi palautti vain:
+         *
+         * Holy Egg
+         *
+         * Nyt järkevät rivit yhdistetään:
+         *
+         * Holy Eggbearer
          */
+        StringBuilder combined =
+                new StringBuilder();
+
         for (String line : lines) {
 
             if (line == null) {
@@ -1303,6 +1344,10 @@ public class CaptureService extends Service {
 
             line =
                     line.trim();
+
+            if (line.isEmpty()) {
+                continue;
+            }
 
             int letters = 0;
 
@@ -1320,14 +1365,19 @@ public class CaptureService extends Service {
                 }
             }
 
-            if (letters >= 2) {
-
-                best =
-                        line;
-
-                break;
+            if (letters < 2) {
+                continue;
             }
+
+            if (combined.length() > 0) {
+                combined.append(" ");
+            }
+
+            combined.append(line);
         }
+
+        String best =
+                combined.toString().trim();
 
         if (best.isEmpty()) {
             best = raw.trim();
@@ -1420,7 +1470,37 @@ public class CaptureService extends Service {
             return "Soldier of the Infinite";
         }
 
+        /*
+         * Käytetään myös kortti 3:n vakaata nimeä.
+         */
         String stable =
+                card3Stability.stable;
+
+        if (stable != null &&
+                !stable.isEmpty()) {
+
+            String stableNormalized =
+                    stable.toLowerCase(
+                                    Locale.US
+                            )
+                            .replaceAll(
+                                    "[^a-z0-9]",
+                                    ""
+                            );
+
+            if (stableNormalized.contains(
+                    "soldierofinfinite"
+            )) {
+
+                return "Soldier of the Infinite";
+            }
+        }
+
+        /*
+         * Säilytetään myös kortti 1:n aikaisempi
+         * tarkistus.
+         */
+        stable =
                 card1Stability.stable;
 
         if (stable != null &&
