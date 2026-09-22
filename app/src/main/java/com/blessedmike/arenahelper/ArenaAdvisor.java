@@ -14,378 +14,396 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class ArenaAdvisor {
 
-    private static final String TAG = "ArenaAdvisor";
+private static final String TAG = "ArenaAdvisor";
 
-    private static final String CARDS_URL =
-            "https://api.hearthstonejson.com/v1/latest/enUS/cards.collectible.json";
+private static final String CARDS_URL =
+        "https://api.hearthstonejson.com/v1/latest/enUS/cards.collectible.json";
 
-    private static final String HEARTHARENA_URL =
-            "https://www.heartharena.com/tierlist";
+private static final String HEARTHARENA_URL =
+        "https://www.heartharena.com/tierlist";
 
-    private static final double UNKNOWN_CARD_SCORE = 0.0;
+private static final double UNKNOWN_CARD_SCORE = 0.0;
 
-    private static final ExecutorService EXECUTOR =
-            Executors.newFixedThreadPool(2);
+private static final ExecutorService EXECUTOR =
+        Executors.newFixedThreadPool(2);
 
-    /*
-     * ============================================================
-     * CARD DATA
-     * ============================================================
-     */
+/*
+ * ============================================================
+ * CARD DATA
+ * ============================================================
+ */
 
-    private static final Map<String, CardData> CARDS =
-            new HashMap<>();
+private static final Map<String, CardData> CARDS =
+        new HashMap<>();
 
-    private static final Map<String, String> CANONICAL_NAMES =
-            new HashMap<>();
+private static final Map<String, String> CANONICAL_NAMES =
+        new HashMap<>();
 
-    private static final Map<String, String> ALIASES =
-            new HashMap<>();
+private static final Map<String, String> ALIASES =
+        new HashMap<>();
 
-    private static final Map<String, CardInfo> CARD_INFO =
-            new HashMap<>();
+private static final Map<String, CardInfo> CARD_INFO =
+        new HashMap<>();
 
-    /*
-     * CLASS_SCORES:
-     *
-     * CLASS_SCORES.get("MAGE").get("ALTER TIME") -> 97.0
-     *
-     * HearthArena antaa eri luokille eri arvot.
-     */
-    private static final Map<String, Map<String, Double>> CLASS_SCORES =
-            new HashMap<>();
+/*
+ * HearthArena class-specific scores.
+ *
+ * Esimerkiksi:
+ *
+ * CLASS_SCORES.get("MAGE").get("alter time") -> 97.0
+ */
 
-    /*
-     * Neutral / yleinen tierlist-arvo.
-     */
-    private static final Map<String, Double> NEUTRAL_SCORES =
-            new HashMap<>();
+private static final Map<String, Map<String, Double>> CLASS_SCORES =
+        new HashMap<>();
 
-    /*
-     * Draftissa jo otetut kortit.
-     */
-    private static final Map<String, Integer> PICKED_CARDS =
-            new HashMap<>();
+/*
+ * Neutral scores.
+ */
 
-    /*
-     * ============================================================
-     * STATUS
-     * ============================================================
-     */
+private static final Map<String, Double> NEUTRAL_SCORES =
+        new HashMap<>();
 
-    private static volatile boolean onlineLoaded = false;
-    private static volatile boolean hearthArenaLoaded = false;
-    private static volatile boolean hearthArenaLoading = false;
+/*
+ * Draftissa jo otetut kortit.
+ */
 
-    private static volatile String status = "Käynnistetään...";
-    private static volatile String reason = "";
+private static final Map<String, Integer> PICKED_CARDS =
+        new HashMap<>();
 
-    /*
-     * ============================================================
-     * CLASS DETECTION
-     * ============================================================
-     */
+/*
+ * ============================================================
+ * STATUS
+ * ============================================================
+ */
 
-    private static volatile String currentClass = "";
+private static volatile boolean onlineLoaded = false;
+private static volatile boolean hearthArenaLoaded = false;
+private static volatile boolean hearthArenaLoading = false;
 
-    private static String candidateClass = "";
-    private static int candidateClassCount = 0;
+private static volatile String status = "Käynnistetään...";
+private static volatile String reason = "";
 
-    private static final int CLASS_CONFIRMATIONS = 2;
+/*
+ * ============================================================
+ * CLASS DETECTION
+ * ============================================================
+ */
 
-    private static final String[] VALID_CLASSES = {
-            "DEATH KNIGHT",
-            "DEMON HUNTER",
-            "DRUID",
-            "HUNTER",
-            "MAGE",
-            "PALADIN",
-            "PRIEST",
-            "ROGUE",
-            "SHAMAN",
-            "WARLOCK",
-            "WARRIOR"
-    };
+private static volatile String currentClass = "";
 
-    /*
-     * ============================================================
-     * KNOWN FALLBACK SCORES
-     * ============================================================
-     *
-     * Näitä käytetään vain jos HearthArena-dataa ei saada.
-     * Ne eivät saa koskaan syrjäyttää ladattua HearthArena-arvoa.
-     */
+private static String candidateClass = "";
+private static int candidateClassCount = 0;
 
-    private static final Map<String, Double> FALLBACK_SCORES =
-            new HashMap<>();
+private static final int CLASS_CONFIRMATIONS = 2;
 
-    /*
-     * ============================================================
-     * STATIC INITIALIZATION
-     * ============================================================
-     */
+private static final String[] VALID_CLASSES = {
+        "DEATH KNIGHT",
+        "DEMON HUNTER",
+        "DRUID",
+        "HUNTER",
+        "MAGE",
+        "PALADIN",
+        "PRIEST",
+        "ROGUE",
+        "SHAMAN",
+        "WARLOCK",
+        "WARRIOR"
+};
 
-    static {
-        initializeClassMaps();
-        initializeFallbackScores();
-        initializeAliases();
+/*
+ * ============================================================
+ * FALLBACK SCORES
+ * ============================================================
+ */
 
-        loadCards();
-        loadHearthArenaScores();
-    }
+private static final Map<String, Double> FALLBACK_SCORES =
+        new HashMap<>();
 
-    /*
-     * ============================================================
-     * CLASS MAP INITIALIZATION
-     * ============================================================
-     */
+/*
+ * ============================================================
+ * STATIC INITIALIZATION
+ * ============================================================
+ */
 
-    private static void initializeClassMaps() {
-        for (String className : VALID_CLASSES) {
-            CLASS_SCORES.put(className, new HashMap<>());
-        }
-    }
+static {
+    initializeClassMaps();
+    initializeFallbackScores();
+    initializeAliases();
 
-    /*
-     * ============================================================
-     * FALLBACK SCORES
-     * ============================================================
-     */
+    loadCards();
+    loadHearthArenaScores();
+}
 
-    private static void initializeFallbackScores() {
+/*
+ * ============================================================
+ * CLASS MAP INITIALIZATION
+ * ============================================================
+ */
 
-        FALLBACK_SCORES.put(
-                normalize("Temporal Construct"),
-                5.54
-        );
+private static void initializeClassMaps() {
 
-        FALLBACK_SCORES.put(
-                normalize("Bitter End"),
-                6.62
-        );
-
-        FALLBACK_SCORES.put(
-                normalize("Sealed Lancer"),
-                5.56
-        );
-
-        FALLBACK_SCORES.put(
-                normalize("Scaled Lancer"),
-                5.56
-        );
-
-        FALLBACK_SCORES.put(
-                normalize("Soldier of the Infinite"),
-                5.80
-        );
-
-        FALLBACK_SCORES.put(
-                normalize("Soldier of the Bronze"),
-                4.60
+    for (String className : VALID_CLASSES) {
+        CLASS_SCORES.put(
+                className,
+                new HashMap<>()
         );
     }
+}
 
-    /*
-     * ============================================================
-     * OCR ALIASES
-     * ============================================================
-     */
+/*
+ * ============================================================
+ * FALLBACK SCORES
+ * ============================================================
+ */
 
-    private static void initializeAliases() {
+private static void initializeFallbackScores() {
 
-        addAlias(
-                "soldier of ihfini",
-                "Soldier of the Infinite"
-        );
+    FALLBACK_SCORES.put(
+            normalize("Temporal Construct"),
+            5.54
+    );
 
-        addAlias(
-                "sotdier of infinite",
-                "Soldier of the Infinite"
-        );
+    FALLBACK_SCORES.put(
+            normalize("Bitter End"),
+            6.62
+    );
 
-        addAlias(
-                "so1dier of infinite",
-                "Soldier of the Infinite"
-        );
+    FALLBACK_SCORES.put(
+            normalize("Sealed Lancer"),
+            5.56
+    );
 
-        addAlias(
-                "soldier of the infinite",
-                "Soldier of the Infinite"
-        );
+    FALLBACK_SCORES.put(
+            normalize("Scaled Lancer"),
+            5.56
+    );
 
-        addAlias(
-                "soldieroftheinfinite",
-                "Soldier of the Infinite"
-        );
+    FALLBACK_SCORES.put(
+            normalize("Soldier of the Infinite"),
+            5.80
+    );
 
-        addAlias(
-                "soldier of bronze",
-                "Soldier of the Bronze"
-        );
+    FALLBACK_SCORES.put(
+            normalize("Soldier of the Bronze"),
+            4.60
+    );
+}
 
-        addAlias(
-                "soldierofthebronze",
-                "Soldier of the Bronze"
-        );
+/*
+ * ============================================================
+ * OCR ALIASES
+ * ============================================================
+ */
 
-        addAlias(
-                "temporalconstruct",
-                "Temporal Construct"
-        );
+private static void initializeAliases() {
 
-        addAlias(
-                "temporal construct",
-                "Temporal Construct"
-        );
+    addAlias(
+            "soldier of ihfini",
+            "Soldier of the Infinite"
+    );
 
-        addAlias(
-                "bitterend",
-                "Bitter End"
-        );
+    addAlias(
+            "sotdier of infinite",
+            "Soldier of the Infinite"
+    );
 
-        addAlias(
-                "bitter end",
-                "Bitter End"
-        );
+    addAlias(
+            "so1dier of infinite",
+            "Soldier of the Infinite"
+    );
 
-        addAlias(
-                "sealedlancer",
-                "Sealed Lancer"
-        );
+    addAlias(
+            "soldier of the infinite",
+            "Soldier of the Infinite"
+    );
 
-        addAlias(
-                "sealed lancer",
-                "Sealed Lancer"
-        );
+    addAlias(
+            "soldieroftheinfinite",
+            "Soldier of the Infinite"
+    );
 
-        addAlias(
-                "scaledlancer",
-                "Scaled Lancer"
-        );
+    addAlias(
+            "soldier of bronze",
+            "Soldier of the Bronze"
+    );
 
-        addAlias(
-                "scaled lancer",
-                "Scaled Lancer"
-        );
-    }
+    addAlias(
+            "soldierofthebronze",
+            "Soldier of the Bronze"
+    );
 
-    private static void addAlias(String bad, String correct) {
-        ALIASES.put(
-                normalize(bad),
-                correct
-        );
-    }
+    addAlias(
+            "temporalconstruct",
+            "Temporal Construct"
+    );
 
-    /*
-     * ============================================================
-     * HEARTHSTONEJSON CARD DATABASE
-     * ============================================================
-     */
+    addAlias(
+            "temporal construct",
+            "Temporal Construct"
+    );
 
-    private static void loadCards() {
+    addAlias(
+            "bitterend",
+            "Bitter End"
+    );
 
-        EXECUTOR.execute(() -> {
+    addAlias(
+            "bitter end",
+            "Bitter End"
+    );
 
-            HttpURLConnection connection = null;
+    addAlias(
+            "sealedlancer",
+            "Sealed Lancer"
+    );
 
-            try {
+    addAlias(
+            "sealed lancer",
+            "Sealed Lancer"
+    );
 
-                status = "Ladataan korttitietoja...";
+    addAlias(
+            "scaledlancer",
+            "Scaled Lancer"
+    );
 
-                URL url = new URL(CARDS_URL);
+    addAlias(
+            "scaled lancer",
+            "Scaled Lancer"
+    );
+}
 
-                connection = (HttpURLConnection) url.openConnection();
+private static void addAlias(
+        String bad,
+        String correct
+) {
 
-                connection.setRequestMethod("GET");
-                connection.setConnectTimeout(12000);
-                connection.setReadTimeout(12000);
+    ALIASES.put(
+            normalize(bad),
+            correct
+    );
+}
 
-                connection.setRequestProperty(
-                        "User-Agent",
-                        "ArenaHelper/1.0"
+/*
+ * ============================================================
+ * HEARTHSTONEJSON CARD DATABASE
+ * ============================================================
+ */
+
+private static void loadCards() {
+
+    EXECUTOR.execute(() -> {
+
+        HttpURLConnection connection = null;
+
+        try {
+
+            status = "Ladataan korttitietoja...";
+
+            URL url =
+                    new URL(CARDS_URL);
+
+            connection =
+                    (HttpURLConnection)
+                            url.openConnection();
+
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(12000);
+            connection.setReadTimeout(12000);
+
+            connection.setRequestProperty(
+                    "User-Agent",
+                    "ArenaHelper/1.0"
+            );
+
+            int responseCode =
+                    connection.getResponseCode();
+
+            if (responseCode != HttpURLConnection.HTTP_OK) {
+                throw new Exception(
+                        "HTTP " + responseCode
                 );
+            }
 
-                int responseCode =
-                        connection.getResponseCode();
-
-                if (responseCode != HttpURLConnection.HTTP_OK) {
-                    throw new Exception(
-                            "HTTP " + responseCode
+            String json =
+                    readStream(
+                            connection.getInputStream()
                     );
+
+            JSONArray array =
+                    new JSONArray(json);
+
+            int count = 0;
+
+            for (int i = 0;
+                 i < array.length();
+                 i++) {
+
+                JSONObject object =
+                        array.optJSONObject(i);
+
+                if (object == null) {
+                    continue;
                 }
 
-                String json =
-                        readStream(
-                                connection.getInputStream()
+                String name =
+                        object.optString(
+                                "name",
+                                ""
+                        ).trim();
+
+                if (name.isEmpty()) {
+                    continue;
+                }
+
+                String cardClass =
+                        object.optString(
+                                "cardClass",
+                                ""
+                        ).trim();
+
+                String type =
+                        object.optString(
+                                "type",
+                                ""
+                        ).trim();
+
+                String rarity =
+                        object.optString(
+                                "rarity",
+                                ""
+                        ).trim();
+
+                String id =
+                        object.optString(
+                                "id",
+                                ""
+                        ).trim();
+
+                CardData data =
+                        new CardData(
+                                name,
+                                cardClass,
+                                type,
+                                rarity,
+                                id
                         );
 
-                JSONArray array =
-                        new JSONArray(json);
+                String key =
+                        normalize(name);
 
-                int count = 0;
-
-                for (int i = 0; i < array.length(); i++) {
-
-                    JSONObject object =
-                            array.optJSONObject(i);
-
-                    if (object == null) {
-                        continue;
-                    }
-
-                    String name =
-                            object.optString(
-                                    "name",
-                                    ""
-                            ).trim();
-
-                    if (name.isEmpty()) {
-                        continue;
-                    }
-
-                    String cardClass =
-                            object.optString(
-                                    "cardClass",
-                                    ""
-                            ).trim();
-
-                    String type =
-                            object.optString(
-                                    "type",
-                                    ""
-                            ).trim();
-
-                    String rarity =
-                            object.optString(
-                                    "rarity",
-                                    ""
-                            ).trim();
-
-                    String id =
-                            object.optString(
-                                    "id",
-                                    ""
-                            ).trim();
-
-                    CardData data =
-                            new CardData(
-                                    name,
-                                    cardClass,
-                                    type,
-                                    rarity,
-                                    id
-                            );
-
-                    String key =
-                            normalize(name);
+                synchronized (CARDS) {
 
                     CARDS.put(
                             key,
@@ -404,409 +422,446 @@ public class ArenaAdvisor {
                                     normalizeClass(cardClass)
                             )
                     );
-
-                    count++;
                 }
 
-                onlineLoaded = count > 0;
+                count++;
+            }
 
-                if (onlineLoaded) {
-                    status =
-                            "Korttitiedot ladattu: "
-                                    + count;
-                }
+            onlineLoaded =
+                    count > 0;
 
-                Log.d(
-                        TAG,
-                        "HearthstoneJSON cards: "
-                                + count
-                );
-
-            } catch (Exception e) {
-
-                onlineLoaded = false;
-
-                Log.e(
-                        TAG,
-                        "Card database failed",
-                        e
-                );
+            if (onlineLoaded) {
 
                 status =
-                        "Korttitiedot eivät latautuneet";
-
-            } finally {
-
-                if (connection != null) {
-                    connection.disconnect();
-                }
+                        "Korttitiedot ladattu: "
+                                + count;
             }
-        });
+
+            Log.d(
+                    TAG,
+                    "HearthstoneJSON cards: "
+                            + count
+            );
+
+        } catch (Exception e) {
+
+            onlineLoaded = false;
+
+            Log.e(
+                    TAG,
+                    "Card database failed",
+                    e
+            );
+
+            status =
+                    "Korttitiedot eivät latautuneet";
+
+        } finally {
+
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    });
+}
+
+/*
+ * ============================================================
+ * HEARTHARENA LOADING
+ * ============================================================
+ */
+
+private static synchronized void loadHearthArenaScores() {
+
+    if (hearthArenaLoading) {
+        return;
     }
 
-    /*
-     * ============================================================
-     * HEARTHARENA LOADING
-     * ============================================================
-     */
+    hearthArenaLoading = true;
 
-    private static synchronized void loadHearthArenaScores() {
+    EXECUTOR.execute(() -> {
 
-        if (hearthArenaLoading) {
-            return;
-        }
+        HttpURLConnection connection = null;
 
-        hearthArenaLoading = true;
+        try {
 
-        EXECUTOR.execute(() -> {
+            status =
+                    "Ladataan HearthArena-arvoja...";
 
-            HttpURLConnection connection = null;
-
-            try {
-
-                status =
-                        "Ladataan HearthArena-arvoja...";
-
-                URL url =
-                        new URL(
-                                HEARTHARENA_URL
-                        );
-
-                connection =
-                        (HttpURLConnection)
-                                url.openConnection();
-
-                connection.setRequestMethod(
-                        "GET"
-                );
-
-                connection.setConnectTimeout(
-                        15000
-                );
-
-                connection.setReadTimeout(
-                        20000
-                );
-
-                /*
-                 * HearthArena voi käyttäytyä eri tavalla
-                 * ilman tavallista selaimen User-Agentia.
-                 */
-                connection.setRequestProperty(
-                        "User-Agent",
-                        "Mozilla/5.0 (Linux; Android 16) " +
-                                "AppleWebKit/537.36 " +
-                                "(KHTML, like Gecko) " +
-                                "Chrome/140.0 Mobile Safari/537.36"
-                );
-
-                connection.setRequestProperty(
-                        "Accept",
-                        "text/html,application/xhtml+xml"
-                );
-
-                connection.setRequestProperty(
-                        "Accept-Language",
-                        "en-US,en;q=0.9"
-                );
-
-                int responseCode =
-                        connection.getResponseCode();
-
-                if (responseCode != HttpURLConnection.HTTP_OK) {
-
-                    throw new Exception(
-                            "HearthArena HTTP "
-                                    + responseCode
+            URL url =
+                    new URL(
+                            HEARTHARENA_URL
                     );
-                }
 
-                String html =
-                        readStream(
-                                connection.getInputStream()
-                        );
+            connection =
+                    (HttpURLConnection)
+                            url.openConnection();
 
-                if (html == null ||
-                        html.length() < 1000) {
+            connection.setRequestMethod(
+                    "GET"
+            );
 
-                    throw new Exception(
-                            "HearthArena response empty"
+            connection.setConnectTimeout(
+                    15000
+            );
+
+            connection.setReadTimeout(
+                    20000
+            );
+
+            connection.setRequestProperty(
+                    "User-Agent",
+                    "Mozilla/5.0 (Linux; Android 16) " +
+                            "AppleWebKit/537.36 " +
+                            "(KHTML, like Gecko) " +
+                            "Chrome/140.0 Mobile Safari/537.36"
+            );
+
+            connection.setRequestProperty(
+                    "Accept",
+                    "text/html,application/xhtml+xml"
+            );
+
+            connection.setRequestProperty(
+                    "Accept-Language",
+                    "en-US,en;q=0.9"
+            );
+
+            int responseCode =
+                    connection.getResponseCode();
+
+            if (responseCode != HttpURLConnection.HTTP_OK) {
+
+                throw new Exception(
+                        "HearthArena HTTP "
+                                + responseCode
+                );
+            }
+
+            String html =
+                    readStream(
+                            connection.getInputStream()
                     );
-                }
 
-                /*
-                 * Ensin yritetään DOM/HTML-tyyppistä
-                 * rakennetta.
-                 */
-                int parsed =
-                        parseHearthArenaHtml(
+            if (html == null ||
+                    html.length() < 500) {
+
+                throw new Exception(
+                        "HearthArena response empty"
+                );
+            }
+
+            /*
+             * TÄRKEÄ KORJAUS:
+             *
+             * Emme enää vaadi HearthstoneJSON:n
+             * olevan ladattu ennen HearthArena-arvojen
+             * lukemista.
+             *
+             * HearthArena antaa itse oikean korttinimen.
+             */
+
+            int parsed =
+                    parseHearthArenaTable(
+                            html
+                    );
+
+            /*
+             * Vanhan / vaihtoehtoisen rakenteen parseri
+             * varmuuden vuoksi.
+             */
+
+            if (parsed < 5) {
+
+                int oldParsed =
+                        parseHearthArenaText(
                                 html
                         );
 
-                /*
-                 * Jos ensimmäinen parseri ei löytänyt
-                 * riittävästi rivejä, käytetään vielä
-                 * raakatekstiparseria.
-                 */
-                if (parsed < 5) {
-
-                    parsed =
-                            parseHearthArenaText(
-                                    html
-                            );
-                }
-
-                if (parsed <= 0) {
-
-                    throw new Exception(
-                            "HearthArena parser found 0 scores"
-                    );
-                }
-
-                hearthArenaLoaded = true;
-
-                status =
-                        "HearthArena ladattu: "
-                                + parsed
-                                + " arvoa";
-
-                Log.d(
-                        TAG,
-                        "HearthArena scores loaded: "
-                                + parsed
-                );
-
-            } catch (Exception e) {
-
-                hearthArenaLoaded = false;
-
-                Log.e(
-                        TAG,
-                        "HearthArena loading failed",
-                        e
-                );
-
-                status =
-                        "HearthArena ei latautunut";
-
-            } finally {
-
-                hearthArenaLoading = false;
-
-                if (connection != null) {
-                    connection.disconnect();
+                if (oldParsed > parsed) {
+                    parsed = oldParsed;
                 }
             }
-        });
+
+            if (parsed <= 0) {
+
+                throw new Exception(
+                        "HearthArena parser found 0 scores"
+                );
+            }
+
+            hearthArenaLoaded = true;
+
+            status =
+                    "HearthArena ladattu: "
+                            + parsed
+                            + " arvoa";
+
+            Log.d(
+                    TAG,
+                    "HearthArena scores loaded: "
+                            + parsed
+            );
+
+            /*
+             * Tulostetaan testiin muutama tunnettu
+             * kortti logcatissa.
+             */
+
+            logKnownScore(
+                    "Alter Time"
+            );
+
+            logKnownScore(
+                    "Merry Moonkin"
+            );
+
+            logKnownScore(
+                    "Soldier of the Infinite"
+            );
+
+        } catch (Exception e) {
+
+            hearthArenaLoaded = false;
+
+            Log.e(
+                    TAG,
+                    "HearthArena loading failed",
+                    e
+            );
+
+            status =
+                    "HearthArena ei latautunut";
+
+        } finally {
+
+            hearthArenaLoading = false;
+
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    });
+}
+
+/*
+ * ============================================================
+ * CURRENT HEARTHARENA TABLE PARSER
+ * ============================================================
+ *
+ * Nykyinen HearthArena /tierlist palauttaa dataa
+ * taulukkomuodossa.
+ *
+ * Esimerkiksi:
+ *
+ * Mage | Alter Time | Mage | 97 | ...
+ *
+ * Mage | Merry Moonkin | Neutral | 69 | ...
+ *
+ * Tämän parserin ei tarvitse odottaa HearthstoneJSONia.
+ */
+
+private static int parseHearthArenaTable(
+        String html
+) {
+
+    if (html == null ||
+            html.isEmpty()) {
+
+        return 0;
     }
 
+    int parsed = 0;
+
+    Set<String> seen =
+            new HashSet<>();
+
     /*
-     * ============================================================
-     * HTML PARSER
-     * ============================================================
+     * Etsi kaikki table row -elementit.
      */
+    Pattern rowPattern =
+            Pattern.compile(
+                    "(?is)<tr\\b[^>]*>(.*?)</tr>"
+            );
 
-    private static int parseHearthArenaHtml(
-            String html
-    ) {
+    Matcher rowMatcher =
+            rowPattern.matcher(html);
 
-        if (html == null ||
-                html.isEmpty()) {
+    while (rowMatcher.find()) {
 
-            return 0;
+        String row =
+                rowMatcher.group(1);
+
+        if (row == null ||
+                row.isEmpty()) {
+
+            continue;
+        }
+
+        List<String> cells =
+                extractTableCells(
+                        row
+                );
+
+        if (cells.size() < 4) {
+            continue;
+        }
+
+        String className =
+                cleanHtmlCell(
+                        cells.get(0)
+                );
+
+        String cardName =
+                cleanHtmlCell(
+                        cells.get(1)
+                );
+
+        String cardClass =
+                cleanHtmlCell(
+                        cells.get(2)
+                );
+
+        String scoreText =
+                cleanHtmlCell(
+                        cells.get(3)
+                );
+
+        /*
+         * Otsikkorivi.
+         */
+        if (normalize(className).equals("class") ||
+                normalize(cardName).equals("card")) {
+
+            continue;
         }
 
         /*
-         * Muutetaan HTML luettavaksi tekstiksi.
-         *
-         * Tärkeää:
-         * emme poista kaikkea suoraan yhdeksi
-         * merkkijonoksi, koska korttinimi ja score
-         * ovat HearthArenassa usein eri DOM-riveillä.
+         * HearthArena voi käyttää class-nimenä
+         * esimerkiksi "Demon Hunter".
          */
-        String text =
-                htmlToText(
-                        html
+        String normalizedClass =
+                normalizeClass(
+                        className
                 );
 
-        return parseHearthArenaText(
-                text
-        );
-    }
+        /*
+         * Jos rivi ei ole tunnettu class tai Neutral,
+         * kokeillaan vielä card class -kenttää.
+         */
+        if (!isValidScoreClass(
+                normalizedClass
+        )) {
 
-    /*
-     * ============================================================
-     * TEKSTIPARSER
-     * ============================================================
-     *
-     * HearthArenan nykyinen sivu näkyy käytännössä
-     * esimerkiksi:
-     *
-     * Mage
-     *
-     * 1. Alter Time
-     * 97
-     *
-     * 2. Merry Moonkin
-     * 69
-     *
-     * Parseri ei enää oleta tiettyä HTML-tagia.
-     */
-
-    private static int parseHearthArenaText(
-            String input
-    ) {
-
-        if (input == null ||
-                input.isEmpty()) {
-
-            return 0;
+            continue;
         }
 
-        String text =
-                htmlToText(
-                        input
+        if (cardName.isEmpty()) {
+            continue;
+        }
+
+        Double score =
+                parseScore(
+                        scoreText
                 );
 
-        String[] lines =
-                text.split("\\n");
-
-        String activeClass = "";
-
-        int parsed = 0;
-
-        Set<String> seen =
-                new HashSet<>();
-
-        for (int i = 0;
-             i < lines.length;
-             i++) {
-
-            String line =
-                    cleanLine(
-                            lines[i]
-                    );
-
-            if (line.isEmpty()) {
-                continue;
-            }
+        if (score == null) {
 
             /*
-             * Tunnista class-otsikko.
+             * Jos score ei ollut neljännessä
+             * sarakkeessa, etsitään ensimmäinen
+             * kelvollinen numero soluista.
              */
-            String detectedClass =
-                    detectClassHeader(
-                            line
+
+            score =
+                    findScoreInCells(
+                            cells
                     );
+        }
 
-            if (!detectedClass.isEmpty()) {
+        if (score == null) {
+            continue;
+        }
 
-                activeClass =
-                        detectedClass;
+        /*
+         * HearthArena käyttää nykyisessä listassa
+         * arvoja esim. 97, 69, 58 jne.
+         */
 
-                continue;
-            }
+        if (score < 0 ||
+                score > 150) {
 
-            /*
-             * Neutral-osio.
-             */
-            if (normalize(line).equals(
-                    normalize("Neutral")
-            )) {
+            continue;
+        }
 
-                activeClass =
-                        "NEUTRAL";
+        String key =
+                normalize(
+                        cardName
+                );
 
-                continue;
-            }
+        if (key.isEmpty()) {
+            continue;
+        }
 
-            if (activeClass.isEmpty()) {
-                continue;
-            }
+        /*
+         * Alias ei yleensä ole tarpeellinen
+         * HearthArena-nimelle, mutta jos sellainen
+         * löytyy, käytetään kanonista nimeä.
+         */
+        String alias =
+                ALIASES.get(
+                        key
+                );
 
-            /*
-             * Poimitaan korttinimi tästä rivistä.
-             *
-             * HearthArena käyttää usein:
-             *
-             * 1. Card Name
-             *
-             * joten ranking-numero poistetaan.
-             */
-            String possibleName =
-                    removeRankingPrefix(
-                            line
-                    );
+        if (alias != null) {
 
-            possibleName =
-                    removeTierNoise(
-                            possibleName
-                    );
-
-            if (possibleName.isEmpty()) {
-                continue;
-            }
-
-            /*
-             * Seuraavilta riveiltä etsitään score.
-             *
-             * Ensisijaisesti seuraava rivi.
-             */
-            Double score =
-                    findFollowingScore(
-                            lines,
-                            i
-                    );
-
-            if (score == null) {
-                continue;
-            }
-
-            /*
-             * Varmistetaan, että kyseessä on
-             * oikea Hearthstone-kortti.
-             */
-            String canonical =
-                    findCanonicalCardName(
-                            possibleName
-                    );
-
-            if (canonical == null) {
-                continue;
-            }
-
-            String key =
+            key =
                     normalize(
-                            canonical
+                            alias
                     );
+        }
 
-            /*
-             * Älä tallenna samaa korttia
-             * uudelleen saman classin sisällä.
-             */
-            String seenKey =
-                    activeClass
-                            + "|"
-                            + key;
+        String seenKey =
+                normalizedClass
+                        + "|"
+                        + key;
 
-            if (seen.contains(seenKey)) {
-                continue;
-            }
+        if (seen.contains(
+                seenKey
+        )) {
 
-            seen.add(seenKey);
+            continue;
+        }
 
-            if (activeClass.equals("NEUTRAL")) {
+        seen.add(
+                seenKey
+        );
+
+        if (normalizedClass.equals(
+                "NEUTRAL"
+        )) {
+
+            synchronized (
+                    NEUTRAL_SCORES
+            ) {
 
                 NEUTRAL_SCORES.put(
                         key,
                         score
                 );
+            }
 
-            } else {
+        } else {
 
-                Map<String, Double> classMap =
+            Map<String, Double> classMap;
+
+            synchronized (
+                    CLASS_SCORES
+            ) {
+
+                classMap =
                         CLASS_SCORES.get(
-                                activeClass
+                                normalizedClass
                         );
 
                 if (classMap == null) {
@@ -815,7 +870,7 @@ public class ArenaAdvisor {
                             new HashMap<>();
 
                     CLASS_SCORES.put(
-                            activeClass,
+                            normalizedClass,
                             classMap
                     );
                 }
@@ -825,164 +880,634 @@ public class ArenaAdvisor {
                         score
                 );
             }
-
-            parsed++;
         }
 
-        return parsed;
-    }
-
-    /*
-     * ============================================================
-     * FIND SCORE AFTER CARD NAME
-     * ============================================================
-     */
-
-    private static Double findFollowingScore(
-            String[] lines,
-            int start
-    ) {
-
         /*
-         * HearthArena:ssa nimi ja arvo ovat yleensä
-         * välittömästi peräkkäin.
+         * Jos HearthstoneJSON ei ole vielä valmis,
+         * luodaan vähintään perustieto nimestä.
          *
-         * Katsotaan kuitenkin muutama rivi eteenpäin,
-         * koska HTML:n tekstimuunnos voi lisätä tyhjiä
-         * rivejä.
+         * Tämä ratkaisee latauskilpailun.
          */
-        int max =
-                Math.min(
-                        lines.length,
-                        start + 5
-                );
+        synchronized (CANONICAL_NAMES) {
 
-        for (int i = start + 1;
-             i < max;
-             i++) {
-
-            String value =
-                    cleanLine(
-                            lines[i]
-                    );
-
-            if (value.isEmpty()) {
-                continue;
-            }
-
-            /*
-             * Jos seuraava rivi näyttää uudelta kortilta,
-             * lopetetaan tämän kortin etsintä.
-             */
-            String possibleNext =
-                    removeRankingPrefix(
-                            value
-                    );
-
-            if (looksLikeCardLine(
-                    possibleNext
+            if (!CANONICAL_NAMES.containsKey(
+                    key
             )) {
 
-                return null;
+                CANONICAL_NAMES.put(
+                        key,
+                        cardName
+                );
             }
+        }
 
-            Double parsed =
-                    parseScore(
-                            value
+        parsed++;
+    }
+
+    Log.d(
+            TAG,
+            "Table parser parsed: "
+                    + parsed
+    );
+
+    return parsed;
+}
+
+/*
+ * ============================================================
+ * TABLE CELL EXTRACTION
+ * ============================================================
+ */
+
+private static List<String> extractTableCells(
+        String row
+) {
+
+    List<String> result =
+            new ArrayList<>();
+
+    Pattern cellPattern =
+            Pattern.compile(
+                    "(?is)<t[dh]\\b[^>]*>(.*?)</t[dh]>"
+            );
+
+    Matcher matcher =
+            cellPattern.matcher(
+                    row
+            );
+
+    while (matcher.find()) {
+
+        String value =
+                matcher.group(1);
+
+        if (value == null) {
+            value = "";
+        }
+
+        result.add(
+                cleanHtmlCell(
+                        value
+                )
+        );
+    }
+
+    return result;
+}
+
+private static String cleanHtmlCell(
+        String value
+) {
+
+    if (value == null) {
+        return "";
+    }
+
+    String text =
+            value;
+
+    /*
+     * Poista sisäiset tagit.
+     */
+    text =
+            text.replaceAll(
+                    "(?is)<script[^>]*>.*?</script>",
+                    " "
+            );
+
+    text =
+            text.replaceAll(
+                    "(?is)<style[^>]*>.*?</style>",
+                    " "
+            );
+
+    text =
+            text.replaceAll(
+                    "(?s)<[^>]+>",
+                    " "
+            );
+
+    text =
+            decodeHtmlEntities(
+                    text
+            );
+
+    text =
+            text.replace(
+                    "\u00A0",
+                    " "
+            );
+
+    text =
+            text.replaceAll(
+                    "\\s+",
+                    " "
+            );
+
+    return text.trim();
+}
+
+private static Double findScoreInCells(
+        List<String> cells
+) {
+
+    /*
+     * Älä käytä ensimmäisiä kolmea solua,
+     * koska ne sisältävät luokan, nimen ja
+     * korttiluokan.
+     */
+
+    for (int i = 3;
+         i < cells.size();
+         i++) {
+
+        Double score =
+                parseScore(
+                        cells.get(i)
+                );
+
+        if (score != null &&
+                score >= 0 &&
+                score <= 150) {
+
+            return score;
+        }
+    }
+
+    return null;
+}
+
+private static boolean isValidScoreClass(
+        String value
+) {
+
+    if (value == null ||
+            value.isEmpty()) {
+
+        return false;
+    }
+
+    if (value.equals("NEUTRAL")) {
+        return true;
+    }
+
+    for (String valid
+            : VALID_CLASSES) {
+
+        if (valid.equals(value)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/*
+ * ============================================================
+ * OLD / TEXT HEARTHARENA PARSER
+ * ============================================================
+ */
+
+private static int parseHearthArenaText(
+        String input
+) {
+
+    if (input == null ||
+            input.isEmpty()) {
+
+        return 0;
+    }
+
+    String text =
+            htmlToText(
+                    input
+            );
+
+    String[] lines =
+            text.split("\\n");
+
+    String activeClass = "";
+
+    int parsed = 0;
+
+    Set<String> seen =
+            new HashSet<>();
+
+    for (int i = 0;
+         i < lines.length;
+         i++) {
+
+        String line =
+                cleanLine(
+                        lines[i]
+                );
+
+        if (line.isEmpty()) {
+            continue;
+        }
+
+        /*
+         * Tabellirivi voi tulla tekstimuunnoksessa
+         * yhtenä rivinä.
+         */
+        if (line.contains("|")) {
+
+            String[] parts =
+                    line.split(
+                            "\\|"
                     );
 
-            if (parsed != null) {
+            if (parts.length >= 4) {
 
-                /*
-                 * HearthArena-arvot ovat normaalisti
-                 * välillä 0-150.
-                 */
-                if (parsed >= 0 &&
-                        parsed <= 150) {
+                String cls =
+                        normalizeClass(
+                                parts[0].trim()
+                        );
 
-                    return parsed;
+                String name =
+                        parts[1].trim();
+
+                Double value =
+                        parseScore(
+                                parts[3].trim()
+                        );
+
+                if (isValidScoreClass(cls) &&
+                        !name.isEmpty() &&
+                        value != null) {
+
+                    String key =
+                            normalize(
+                                    name
+                            );
+
+                    String alias =
+                            ALIASES.get(
+                                    key
+                            );
+
+                    if (alias != null) {
+
+                        key =
+                                normalize(
+                                        alias
+                                );
+                    }
+
+                    String seenKey =
+                            cls + "|" + key;
+
+                    if (!seen.contains(
+                            seenKey
+                    )) {
+
+                        seen.add(
+                                seenKey
+                        );
+
+                        putScore(
+                                cls,
+                                key,
+                                value
+                        );
+
+                        synchronized (
+                                CANONICAL_NAMES
+                        ) {
+
+                            if (!CANONICAL_NAMES.containsKey(
+                                    key
+                            )) {
+
+                                CANONICAL_NAMES.put(
+                                        key,
+                                        name
+                                );
+                            }
+                        }
+
+                        parsed++;
+                    }
+
+                    continue;
                 }
             }
         }
 
-        return null;
-    }
+        String detectedClass =
+                detectClassHeader(
+                        line
+                );
 
-    /*
-     * ============================================================
-     * SCORE PARSING
-     * ============================================================
-     */
+        if (!detectedClass.isEmpty()) {
 
-    private static Double parseScore(
-            String text
-    ) {
+            activeClass =
+                    detectedClass;
 
-        if (text == null) {
-            return null;
+            continue;
         }
 
-        String value =
-                text.trim()
-                        .replace(
-                                "↓",
-                                ""
-                        )
-                        .replace(
-                                "↑",
-                                ""
-                        )
-                        .trim();
+        if (normalize(line).equals(
+                normalize("Neutral")
+        )) {
+
+            activeClass =
+                    "NEUTRAL";
+
+            continue;
+        }
+
+        if (activeClass.isEmpty()) {
+            continue;
+        }
+
+        String possibleName =
+                removeRankingPrefix(
+                        line
+                );
+
+        possibleName =
+                removeTierNoise(
+                        possibleName
+                );
+
+        if (possibleName.isEmpty()) {
+            continue;
+        }
+
+        Double score =
+                findFollowingScore(
+                        lines,
+                        i
+                );
+
+        if (score == null) {
+            continue;
+        }
+
+        String canonical =
+                findCanonicalCardName(
+                        possibleName
+                );
 
         /*
-         * Vain puhdas numero.
+         * TÄRKEÄ:
+         *
+         * Jos korttidietokanta ei ole vielä valmis,
+         * käytetään HearthArena:n omaa nimeä.
          */
-        if (!value.matches(
-                "\\d+(?:[\\.,]\\d+)?"
+        String key;
+
+        if (canonical != null) {
+
+            key =
+                    normalize(
+                            canonical
+                    );
+
+        } else {
+
+            key =
+                    normalize(
+                            possibleName
+                    );
+        }
+
+        if (key.isEmpty()) {
+            continue;
+        }
+
+        String seenKey =
+                activeClass + "|" + key;
+
+        if (seen.contains(
+                seenKey
+        )) {
+
+            continue;
+        }
+
+        seen.add(
+                seenKey
+        );
+
+        putScore(
+                activeClass,
+                key,
+                score
+        );
+
+        synchronized (
+                CANONICAL_NAMES
+        ) {
+
+            if (!CANONICAL_NAMES.containsKey(
+                    key
+            )) {
+
+                CANONICAL_NAMES.put(
+                        key,
+                        possibleName
+                );
+            }
+        }
+
+        parsed++;
+    }
+
+    return parsed;
+}
+
+private static void putScore(
+        String className,
+        String key,
+        double score
+) {
+
+    if (className == null ||
+            key == null ||
+            key.isEmpty()) {
+
+        return;
+    }
+
+    if (className.equals(
+            "NEUTRAL"
+    )) {
+
+        synchronized (
+                NEUTRAL_SCORES
+        ) {
+
+            NEUTRAL_SCORES.put(
+                    key,
+                    score
+            );
+        }
+
+        return;
+    }
+
+    Map<String, Double> classMap;
+
+    synchronized (
+            CLASS_SCORES
+    ) {
+
+        classMap =
+                CLASS_SCORES.get(
+                        className
+                );
+
+        if (classMap == null) {
+
+            classMap =
+                    new HashMap<>();
+
+            CLASS_SCORES.put(
+                    className,
+                    classMap
+            );
+        }
+
+        classMap.put(
+                key,
+                score
+        );
+    }
+}
+
+/*
+ * ============================================================
+ * SCORE AFTER CARD NAME
+ * ============================================================
+ */
+
+private static Double findFollowingScore(
+        String[] lines,
+        int start
+) {
+
+    int max =
+            Math.min(
+                    lines.length,
+                    start + 5
+            );
+
+    for (int i = start + 1;
+         i < max;
+         i++) {
+
+        String value =
+                cleanLine(
+                        lines[i]
+                );
+
+        if (value.isEmpty()) {
+            continue;
+        }
+
+        String possibleNext =
+                removeRankingPrefix(
+                        value
+                );
+
+        if (looksLikeCardLine(
+                possibleNext
         )) {
 
             return null;
         }
 
-        try {
+        Double parsed =
+                parseScore(
+                        value
+                );
 
-            return Double.parseDouble(
-                    value.replace(
-                            ',',
-                            '.'
-                    )
-            );
+        if (parsed != null &&
+                parsed >= 0 &&
+                parsed <= 150) {
 
-        } catch (Exception e) {
-
-            return null;
+            return parsed;
         }
     }
 
-    /*
-     * ============================================================
-     * CANONICAL CARD MATCHING
-     * ============================================================
-     */
+    return null;
+}
 
-    private static String findCanonicalCardName(
-            String input
+/*
+ * ============================================================
+ * SCORE PARSING
+ * ============================================================
+ */
+
+private static Double parseScore(
+        String text
+) {
+
+    if (text == null) {
+        return null;
+    }
+
+    String value =
+            text.trim()
+                    .replace(
+                            "↓",
+                            ""
+                    )
+                    .replace(
+                            "↑",
+                            ""
+                    )
+                    .trim();
+
+    if (!value.matches(
+            "\\d+(?:[\\.,]\\d+)?"
+    )) {
+
+        return null;
+    }
+
+    try {
+
+        return Double.parseDouble(
+                value.replace(
+                        ',',
+                        '.'
+                )
+        );
+
+    } catch (Exception e) {
+
+        return null;
+    }
+}
+
+/*
+ * ============================================================
+ * CANONICAL CARD MATCHING
+ * ============================================================
+ */
+
+private static String findCanonicalCardName(
+        String input
+) {
+
+    if (input == null ||
+            input.isEmpty()) {
+
+        return null;
+    }
+
+    String normalized =
+            normalize(
+                    input
+            );
+
+    synchronized (
+            CANONICAL_NAMES
     ) {
 
-        if (input == null ||
-                input.isEmpty()) {
-
-            return null;
-        }
-
-        String normalized =
-                normalize(
-                        input
-                );
-
-        /*
-         * Suora osuma.
-         */
         String exact =
                 CANONICAL_NAMES.get(
                         normalized
@@ -991,37 +1516,30 @@ public class ArenaAdvisor {
         if (exact != null) {
             return exact;
         }
+    }
 
-        /*
-         * Alias.
-         */
-        String alias =
-                ALIASES.get(
-                        normalized
-                );
+    String alias =
+            ALIASES.get(
+                    normalized
+            );
 
-        if (alias != null) {
-            return alias;
-        }
+    if (alias != null) {
+        return alias;
+    }
 
-        /*
-         * New / suffix -ongelmat:
-         *
-         * "Mathias Shaw New"
-         * "Captain Crowley New"
-         *
-         * HearthArena käyttää näitä merkintöjä
-         * omassa tierlist-tekstissään.
-         */
-        String withoutNew =
-                normalized
-                        .replace(
-                                " new",
-                                ""
-                        )
-                        .trim();
+    String withoutNew =
+            normalized
+                    .replace(
+                            " new",
+                            ""
+                    )
+                    .trim();
 
-        exact =
+    synchronized (
+            CANONICAL_NAMES
+    ) {
+
+        String exact =
                 CANONICAL_NAMES.get(
                         withoutNew
                 );
@@ -1029,18 +1547,17 @@ public class ArenaAdvisor {
         if (exact != null) {
             return exact;
         }
+    }
 
-        /*
-         * Fuzzy matching.
-         *
-         * Tätä käytetään vain lyhyelle etäisyydelle,
-         * jotta emme yhdistä kahta eri korttia väärin.
-         */
-        int bestDistance =
-                Integer.MAX_VALUE;
+    int bestDistance =
+            Integer.MAX_VALUE;
 
-        String best =
-                null;
+    String best =
+            null;
+
+    synchronized (
+            CANONICAL_NAMES
+    ) {
 
         for (Map.Entry<String, String> entry
                 : CANONICAL_NAMES.entrySet()) {
@@ -1078,265 +1595,240 @@ public class ArenaAdvisor {
                         entry.getValue();
             }
         }
-
-        return best;
     }
 
-    /*
-     * ============================================================
-     * HTML -> TEXT
-     * ============================================================
-     */
+    return best;
+}
 
-    private static String htmlToText(
-            String html
-    ) {
+/*
+ * ============================================================
+ * HTML -> TEXT
+ * ============================================================
+ */
 
-        if (html == null) {
-            return "";
-        }
+private static String htmlToText(
+        String html
+) {
 
-        String text =
-                html;
-
-        /*
-         * Script/style pois.
-         */
-        text =
-                text.replaceAll(
-                        "(?is)<script[^>]*>.*?</script>",
-                        "\n"
-                );
-
-        text =
-                text.replaceAll(
-                        "(?is)<style[^>]*>.*?</style>",
-                        "\n"
-                );
-
-        /*
-         * Rivinvaihtoa aiheuttavat tagit.
-         */
-        text =
-                text.replaceAll(
-                        "(?i)</(div|p|li|ul|ol|h1|h2|h3|h4|h5|h6|tr|td|th|section|article|br)>",
-                        "\n"
-                );
-
-        text =
-                text.replaceAll(
-                        "(?i)<br\\s*/?>",
-                        "\n"
-                );
-
-        /*
-         * Kaikki muut tagit pois.
-         */
-        text =
-                text.replaceAll(
-                        "(?s)<[^>]+>",
-                        " "
-                );
-
-        /*
-         * HTML-entiteetit.
-         */
-        text =
-                decodeHtmlEntities(
-                        text
-                );
-
-        /*
-         * CRLF -> LF.
-         */
-        text =
-                text.replace(
-                        "\r",
-                        ""
-                );
-
-        /*
-         * Useita välilyöntejä yhdeksi.
-         */
-        text =
-                text.replaceAll(
-                        "[\\t ]+",
-                        " "
-                );
-
-        /*
-         * Tyhjät rivit siedettäviksi.
-         */
-        text =
-                text.replaceAll(
-                        "\\n{3,}",
-                        "\n\n"
-                );
-
-        return text;
-    }
-
-    private static String decodeHtmlEntities(
-            String text
-    ) {
-
-        if (text == null) {
-            return "";
-        }
-
-        return text
-                .replace(
-                        "&nbsp;",
-                        " "
-                )
-                .replace(
-                        "&#39;",
-                        "'"
-                )
-                .replace(
-                        "&apos;",
-                        "'"
-                )
-                .replace(
-                        "&quot;",
-                        "\""
-                )
-                .replace(
-                        "&amp;",
-                        "&"
-                )
-                .replace(
-                        "&lt;",
-                        "<"
-                )
-                .replace(
-                        "&gt;",
-                        ">"
-                );
-    }
-
-    /*
-     * ============================================================
-     * CLASS HEADER
-     * ============================================================
-     */
-
-    private static String detectClassHeader(
-            String line
-    ) {
-
-        String normalized =
-                normalizeClass(
-                        line
-                );
-
-        for (String valid
-                : VALID_CLASSES) {
-
-            if (normalized.equals(
-                    valid
-            )) {
-
-                return valid;
-            }
-        }
-
+    if (html == null) {
         return "";
     }
 
-    /*
-     * ============================================================
-     * TEXT CLEANUP
-     * ============================================================
-     */
+    String text =
+            html;
 
-    private static String cleanLine(
-            String line
-    ) {
+    text =
+            text.replaceAll(
+                    "(?is)<script[^>]*>.*?</script>",
+                    "\n"
+            );
 
-        if (line == null) {
-            return "";
-        }
+    text =
+            text.replaceAll(
+                    "(?is)<style[^>]*>.*?</style>",
+                    "\n"
+            );
 
-        return line
-                .replace(
-                        "\u00A0",
-                        " "
-                )
-                .replaceAll(
-                        "\\s+",
-                        " "
-                )
-                .trim();
+    text =
+            text.replaceAll(
+                    "(?i)</(div|p|li|ul|ol|h1|h2|h3|h4|h5|h6|tr|td|th|section|article)>",
+                    "\n"
+            );
+
+    text =
+            text.replaceAll(
+                    "(?i)<br\\s*/?>",
+                    "\n"
+            );
+
+    text =
+            text.replaceAll(
+                    "(?s)<[^>]+>",
+                    " "
+            );
+
+    text =
+            decodeHtmlEntities(
+                    text
+            );
+
+    text =
+            text.replace(
+                    "\r",
+                    ""
+            );
+
+    text =
+            text.replaceAll(
+                    "[\\t ]+",
+                    " "
+            );
+
+    text =
+            text.replaceAll(
+                    "\\n{3,}",
+                    "\n\n"
+            );
+
+    return text;
+}
+
+private static String decodeHtmlEntities(
+        String text
+) {
+
+    if (text == null) {
+        return "";
     }
 
-    private static String removeRankingPrefix(
-            String line
-    ) {
+    return text
+            .replace(
+                    "&nbsp;",
+                    " "
+            )
+            .replace(
+                    "&#39;",
+                    "'"
+            )
+            .replace(
+                    "&#x27;",
+                    "'"
+            )
+            .replace(
+                    "&apos;",
+                    "'"
+            )
+            .replace(
+                    "&quot;",
+                    "\""
+            )
+            .replace(
+                    "&amp;",
+                    "&"
+            )
+            .replace(
+                    "&lt;",
+                    "<"
+            )
+            .replace(
+                    "&gt;",
+                    ">"
+            );
+}
 
-        if (line == null) {
-            return "";
+/*
+ * ============================================================
+ * CLASS HEADER
+ * ============================================================
+ */
+
+private static String detectClassHeader(
+        String line
+) {
+
+    String normalized =
+            normalizeClass(
+                    line
+            );
+
+    for (String valid
+            : VALID_CLASSES) {
+
+        if (normalized.equals(
+                valid
+        )) {
+
+            return valid;
         }
-
-        String result =
-                line.trim();
-
-        /*
-         * "1. Alter Time"
-         * "1) Alter Time"
-         * "01. Alter Time"
-         */
-        result =
-                result.replaceFirst(
-                        "^\\d+\\s*[\\.\\)]\\s*",
-                        ""
-                );
-
-        return result.trim();
     }
 
-    private static String removeTierNoise(
-            String name
-    ) {
+    return "";
+}
 
-        if (name == null) {
-            return "";
-        }
+/*
+ * ============================================================
+ * TEXT CLEANUP
+ * ============================================================
+ */
 
-        String result =
-                name.trim();
+private static String cleanLine(
+        String line
+) {
 
-        /*
-         * Jos tekstimuunnos sisältää nuolen.
-         */
-        result =
-                result.replace(
-                        "↓",
-                        ""
-                )
-                .replace(
-                        "↑",
-                        ""
-                )
-                .trim();
-
-        return result;
+    if (line == null) {
+        return "";
     }
 
-    private static boolean looksLikeCardLine(
-            String line
+    return line
+            .replace(
+                    "\u00A0",
+                    " "
+            )
+            .replaceAll(
+                    "\\s+",
+                    " "
+            )
+            .trim();
+}
+
+private static String removeRankingPrefix(
+        String line
+) {
+
+    if (line == null) {
+        return "";
+    }
+
+    String result =
+            line.trim();
+
+    result =
+            result.replaceFirst(
+                    "^\\d+\\s*[\\.\\)]\\s*",
+                    ""
+            );
+
+    return result.trim();
+}
+
+private static String removeTierNoise(
+        String name
+) {
+
+    if (name == null) {
+        return "";
+    }
+
+    return name
+            .replace(
+                    "↓",
+                    ""
+            )
+            .replace(
+                    "↑",
+                    ""
+            )
+            .trim();
+}
+
+private static boolean looksLikeCardLine(
+        String line
+) {
+
+    if (line == null ||
+            line.isEmpty()) {
+
+        return false;
+    }
+
+    String normalized =
+            normalize(
+                    line
+            );
+
+    synchronized (
+            CANONICAL_NAMES
     ) {
-
-        if (line == null ||
-                line.isEmpty()) {
-
-            return false;
-        }
-
-        String normalized =
-                normalize(
-                        line
-                );
 
         if (CANONICAL_NAMES.containsKey(
                 normalized
@@ -1344,58 +1836,52 @@ public class ArenaAdvisor {
 
             return true;
         }
-
-        if (ALIASES.containsKey(
-                normalized
-        )) {
-
-            return true;
-        }
-
-        return false;
     }
 
-    /*
-     * ============================================================
-     * OCR CORRECTION
-     * ============================================================
-     */
+    return ALIASES.containsKey(
+            normalized
+    );
+}
 
-    public static String correctOcr(
-            String detected
+/*
+ * ============================================================
+ * OCR CORRECTION
+ * ============================================================
+ */
+
+public static String correctOcr(
+        String detected
+) {
+
+    if (detected == null) {
+        return "";
+    }
+
+    String input =
+            detected.trim();
+
+    if (input.isEmpty()) {
+        return "";
+    }
+
+    String normalized =
+            normalize(
+                    input
+            );
+
+    String alias =
+            ALIASES.get(
+                    normalized
+            );
+
+    if (alias != null) {
+        return alias;
+    }
+
+    synchronized (
+            CANONICAL_NAMES
     ) {
 
-        if (detected == null) {
-            return "";
-        }
-
-        String input =
-                detected.trim();
-
-        if (input.isEmpty()) {
-            return "";
-        }
-
-        String normalized =
-                normalize(
-                        input
-                );
-
-        /*
-         * Alias ensin.
-         */
-        String alias =
-                ALIASES.get(
-                        normalized
-                );
-
-        if (alias != null) {
-            return alias;
-        }
-
-        /*
-         * Täsmälleen tunnettu kortti.
-         */
         String canonical =
                 CANONICAL_NAMES.get(
                         normalized
@@ -1405,10 +1891,6 @@ public class ArenaAdvisor {
             return canonical;
         }
 
-        /*
-         * CARD_INFO voi sisältää nimen vaikka
-         * CANONICAL_NAMES ei olisi vielä täyttynyt.
-         */
         CardInfo info =
                 CARD_INFO.get(
                         normalized
@@ -1417,30 +1899,31 @@ public class ArenaAdvisor {
         if (info != null) {
             return info.name;
         }
+    }
 
-        /*
-         * Fuzzy.
-         */
-        String best =
-                findBestOcrMatch(
-                        normalized
-                );
+    String best =
+            findBestOcrMatch(
+                    normalized
+            );
 
-        if (best != null) {
-            return best;
-        }
+    if (best != null) {
+        return best;
+    }
 
-        /*
-         * Jos verkkodata ei ole vielä ehtinyt,
-         * tarkista fallback-nimet.
-         */
-        for (String fallback
-                : FALLBACK_SCORES.keySet()) {
+    /*
+     * Fallback-nimet.
+     */
+    for (String fallback
+            : FALLBACK_SCORES.keySet()) {
 
-            if (levenshtein(
-                    normalized,
-                    fallback
-            ) <= 3) {
+        if (levenshtein(
+                normalized,
+                fallback
+        ) <= 3) {
+
+            synchronized (
+                    CANONICAL_NAMES
+            ) {
 
                 String fallbackName =
                         CANONICAL_NAMES.get(
@@ -1452,32 +1935,34 @@ public class ArenaAdvisor {
                 }
             }
         }
-
-        /*
-         * Palautetaan alkuperäinen nimi.
-         * Tämä on tärkeää OCR:n kannalta:
-         * emme halua muuttaa toimivaa tunnistusta
-         * väkisin.
-         */
-        return input;
     }
 
-    private static String findBestOcrMatch(
-            String normalized
+    return input;
+}
+
+private static String findBestOcrMatch(
+        String normalized
+) {
+
+    if (normalized == null ||
+            normalized.isEmpty()) {
+
+        return null;
+    }
+
+    String best =
+            null;
+
+    int bestDistance =
+            Integer.MAX_VALUE;
+
+    synchronized (
+            CANONICAL_NAMES
     ) {
 
-        if (normalized == null ||
-                normalized.isEmpty() ||
-                CANONICAL_NAMES.isEmpty()) {
-
+        if (CANONICAL_NAMES.isEmpty()) {
             return null;
         }
-
-        String best =
-                null;
-
-        int bestDistance =
-                Integer.MAX_VALUE;
 
         for (Map.Entry<String, String> entry
                 : CANONICAL_NAMES.entrySet()) {
@@ -1489,10 +1974,6 @@ public class ArenaAdvisor {
                 continue;
             }
 
-            /*
-             * Ensimmäinen merkki eri -> usein väärä
-             * kortti, jos nimet ovat pitkiä.
-             */
             if (normalized.length() >= 6 &&
                     candidate.length() >= 6 &&
                     normalized.charAt(0)
@@ -1527,165 +2008,187 @@ public class ArenaAdvisor {
                         entry.getValue();
             }
         }
-
-        return best;
     }
 
-    /*
-     * ============================================================
-     * SCORE
-     * ============================================================
-     */
+    return best;
+}
 
-    public static double score(
-            String cardName
-    ) {
+/*
+ * ============================================================
+ * SCORE
+ * ============================================================
+ */
 
-        if (cardName == null ||
-                cardName.trim().isEmpty()) {
+public static double score(
+        String cardName
+) {
 
-            return UNKNOWN_CARD_SCORE;
-        }
-
-        String corrected =
-                correctOcr(
-                        cardName
-                );
-
-        String key =
-                normalize(
-                        corrected
-                );
-
-        /*
-         * 1. Class-specific HearthArena score.
-         *
-         * TÄMÄ ON ENSISIJAINEN.
-         */
-        double classScore =
-                getClassSpecificScore(
-                        key
-                );
-
-        if (classScore >= 0) {
-
-            reason =
-                    "HearthArena "
-                            + currentClass;
-
-            return adjustForDraft(
-                    key,
-                    classScore
-            );
-        }
-
-        /*
-         * 2. Neutral HearthArena score.
-         */
-        Double neutral =
-                NEUTRAL_SCORES.get(
-                        key
-                );
-
-        if (neutral != null) {
-
-            reason =
-                    "HearthArena Neutral";
-
-            return adjustForDraft(
-                    key,
-                    neutral
-            );
-        }
-
-        /*
-         * 3. Tunnettu fallback.
-         */
-        Double fallback =
-                FALLBACK_SCORES.get(
-                        key
-                );
-
-        if (fallback != null) {
-
-            reason =
-                    "Paikallinen fallback";
-
-            return adjustForDraft(
-                    key,
-                    fallback
-            );
-        }
-
-        /*
-         * 4. Card metadata -pohjainen kevyt fallback.
-         */
-        CardInfo info =
-                CARD_INFO.get(
-                        key
-                );
-
-        if (info != null) {
-
-            double generated =
-                    generateFallbackScore(
-                            key,
-                            info
-                    );
-
-            reason =
-                    "Generoitua fallback-arvoa";
-
-            return adjustForDraft(
-                    key,
-                    generated
-            );
-        }
-
-        /*
-         * Tuntematon kortti.
-         */
-        reason =
-                "Korttia ei tunnistettu";
+    if (cardName == null ||
+            cardName.trim().isEmpty()) {
 
         return UNKNOWN_CARD_SCORE;
     }
 
+    String corrected =
+            correctOcr(
+                    cardName
+            );
+
+    String key =
+            normalize(
+                    corrected
+            );
+
     /*
-     * ============================================================
-     * GET CLASS SPECIFIC SCORE
-     * ============================================================
+     * 1. CLASS-SPECIFIC HEARTHARENA
      */
 
-    public static double getClassSpecificScore(
-            String cardName
+    double classScore =
+            getClassSpecificScore(
+                    key
+            );
+
+    if (classScore >= 0) {
+
+        reason =
+                "HearthArena "
+                        + currentClass;
+
+        return adjustForDraft(
+                key,
+                classScore
+        );
+    }
+
+    /*
+     * 2. NEUTRAL HEARTHARENA
+     */
+
+    Double neutral;
+
+    synchronized (
+            NEUTRAL_SCORES
     ) {
 
-        if (cardName == null) {
-            return -1;
-        }
+        neutral =
+                NEUTRAL_SCORES.get(
+                        key
+                );
+    }
 
-        String key =
-                normalize(
-                        correctOcr(
-                                cardName
-                        )
+    if (neutral != null) {
+
+        reason =
+                "HearthArena Neutral";
+
+        return adjustForDraft(
+                key,
+                neutral
+        );
+    }
+
+    /*
+     * 3. FALLBACK
+     */
+
+    Double fallback =
+            FALLBACK_SCORES.get(
+                    key
+            );
+
+    if (fallback != null) {
+
+        reason =
+                "Paikallinen fallback";
+
+        return adjustForDraft(
+                key,
+                fallback
+        );
+    }
+
+    /*
+     * 4. GENEROITU FALLBACK
+     *
+     * Tämä on tarkoituksella viimeisenä.
+     */
+
+    CardInfo info;
+
+    synchronized (
+            CARD_INFO
+    ) {
+
+        info =
+                CARD_INFO.get(
+                        key
+                );
+    }
+
+    if (info != null) {
+
+        double generated =
+                generateFallbackScore(
+                        key,
+                        info
                 );
 
-        if (key.isEmpty()) {
-            return -1;
-        }
+        reason =
+                "Generoitua fallback-arvoa";
 
-        String cls =
-                normalizeClass(
-                        currentClass
-                );
+        return adjustForDraft(
+                key,
+                generated
+        );
+    }
 
-        if (cls.isEmpty()) {
-            return -1;
-        }
+    reason =
+            "Korttia ei tunnistettu";
 
-        Map<String, Double> scores =
+    return UNKNOWN_CARD_SCORE;
+}
+
+/*
+ * ============================================================
+ * CLASS SPECIFIC SCORE
+ * ============================================================
+ */
+
+public static double getClassSpecificScore(
+        String cardName
+) {
+
+    if (cardName == null) {
+        return -1;
+    }
+
+    String key =
+            normalize(
+                    correctOcr(
+                            cardName
+                    )
+            );
+
+    if (key.isEmpty()) {
+        return -1;
+    }
+
+    String cls =
+            normalizeClass(
+                    currentClass
+            );
+
+    if (cls.isEmpty()) {
+        return -1;
+    }
+
+    Map<String, Double> scores;
+
+    synchronized (
+            CLASS_SCORES
+    ) {
+
+        scores =
                 CLASS_SCORES.get(
                         cls
                 );
@@ -1705,979 +2208,1036 @@ public class ArenaAdvisor {
 
         return value;
     }
+}
 
-    /*
-     * ============================================================
-     * PUBLIC SCORE DISPLAY
-     * ============================================================
-     */
+/*
+ * ============================================================
+ * PUBLIC SCORE DISPLAY
+ * ============================================================
+ */
 
-    public static String getCardScore(
-            String cardName
-    ) {
+public static String getCardScore(
+        String cardName
+) {
 
-        double value =
-                score(
-                        cardName
-                );
+    double value =
+            score(
+                    cardName
+            );
 
-        if (value <= 0) {
-            return "?";
-        }
-
-        return String.format(
-                Locale.US,
-                "%.2f",
-                value
-        );
+    if (value <= 0) {
+        return "?";
     }
 
-    public static double getCardScoreValue(
-            String cardName
-    ) {
+    return String.format(
+            Locale.US,
+            "%.2f",
+            value
+    );
+}
 
-        return score(
-                cardName
-        );
-    }
+public static double getCardScoreValue(
+        String cardName
+) {
 
-    /*
-     * ============================================================
-     * RECOMMENDATION
-     * ============================================================
-     */
+    return score(
+            cardName
+    );
+}
 
-    public static String recommend(
-            String card1,
-            String card2,
-            String card3
-    ) {
+/*
+ * ============================================================
+ * RECOMMENDATION
+ * ============================================================
+ */
 
-        double s1 =
-                score(card1);
+public static String recommend(
+        String card1,
+        String card2,
+        String card3
+) {
 
-        double s2 =
-                score(card2);
+    double s1 =
+            score(card1);
 
-        double s3 =
-                score(card3);
+    double s2 =
+            score(card2);
 
-        double best =
-                s1;
+    double s3 =
+            score(card3);
 
-        String recommendation =
+    double best =
+            s1;
+
+    String recommendation =
+            correctOcr(
+                    card1
+            );
+
+    if (s2 > best) {
+
+        best = s2;
+
+        recommendation =
                 correctOcr(
-                        card1
+                        card2
                 );
+    }
 
-        if (s2 > best) {
+    if (s3 > best) {
 
-            best = s2;
+        best = s3;
 
-            recommendation =
-                    correctOcr(
-                            card2
-                    );
-        }
+        recommendation =
+                correctOcr(
+                        card3
+                );
+    }
 
-        if (s3 > best) {
-
-            best = s3;
-
-            recommendation =
-                    correctOcr(
-                            card3
-                    );
-        }
-
-        if (best <= 0) {
-
-            reason =
-                    "Ei tunnistettavaa korttia";
-
-            return "EI TUNNISTETTAVAA";
-        }
+    if (best <= 0) {
 
         reason =
-                "Paras arvo: "
-                        + String.format(
-                        Locale.US,
-                        "%.2f",
-                        best
-                );
+                "Ei tunnistettavaa korttia";
 
-        return recommendation;
+        return "EI TUNNISTETTAVAA";
     }
 
-    /*
-     * ============================================================
-     * PICKED CARD TRACKING
-     * ============================================================
-     */
-
-    public static synchronized void recordPickedCard(
-            String cardName
-    ) {
-
-        if (cardName == null ||
-                cardName.trim().isEmpty()) {
-
-            return;
-        }
-
-        String corrected =
-                correctOcr(
-                        cardName
-                );
-
-        String key =
-                normalize(
-                        corrected
-                );
-
-        if (key.isEmpty()) {
-            return;
-        }
-
-        Integer count =
-                PICKED_CARDS.get(
-                        key
-                );
-
-        if (count == null) {
-            count = 0;
-        }
-
-        PICKED_CARDS.put(
-                key,
-                count + 1
-        );
-    }
-
-    public static synchronized void clearPickedCards() {
-        PICKED_CARDS.clear();
-    }
-
-    public static synchronized int getPickedCount(
-            String cardName
-    ) {
-
-        if (cardName == null) {
-            return 0;
-        }
-
-        String key =
-                normalize(
-                        correctOcr(
-                                cardName
-                        )
-                );
-
-        Integer count =
-                PICKED_CARDS.get(
-                        key
-                );
-
-        return count == null
-                ? 0
-                : count;
-    }
-
-    /*
-     * ============================================================
-     * DRAFT BONUS / PENALTY
-     * ============================================================
-     *
-     * HearthArena "↓" tarkoittaa, että score voi pudota
-     * ensimmäisen kopion jälkeen.
-     *
-     * Me pidetään vaikutus pienenä, jotta varsinainen
-     * HearthArena-score pysyy tärkeimpänä.
-     */
-
-    private static double adjustForDraft(
-            String key,
-            double base
-    ) {
-
-        Integer picked =
-                PICKED_CARDS.get(
-                        key
-                );
-
-        if (picked == null ||
-                picked <= 0) {
-
-            return roundScore(
-                    base
+    reason =
+            "Paras arvo: "
+                    + String.format(
+                    Locale.US,
+                    "%.2f",
+                    best
             );
-        }
 
-        /*
-         * Kolmannen+ kopion jälkeen pieni vähennys.
-         */
-        if (picked >= 2) {
+    return recommendation;
+}
 
-            base -= 0.75;
-        }
+/*
+ * ============================================================
+ * PICKED CARD TRACKING
+ * ============================================================
+ */
+
+public static synchronized void recordPickedCard(
+        String cardName
+) {
+
+    if (cardName == null ||
+            cardName.trim().isEmpty()) {
+
+        return;
+    }
+
+    String corrected =
+            correctOcr(
+                    cardName
+            );
+
+    String key =
+            normalize(
+                    corrected
+            );
+
+    if (key.isEmpty()) {
+        return;
+    }
+
+    Integer count =
+            PICKED_CARDS.get(
+                    key
+            );
+
+    if (count == null) {
+        count = 0;
+    }
+
+    PICKED_CARDS.put(
+            key,
+            count + 1
+    );
+}
+
+public static synchronized void clearPickedCards() {
+    PICKED_CARDS.clear();
+}
+
+public static synchronized int getPickedCount(
+        String cardName
+) {
+
+    if (cardName == null) {
+        return 0;
+    }
+
+    String key =
+            normalize(
+                    correctOcr(
+                            cardName
+                    )
+            );
+
+    Integer count =
+            PICKED_CARDS.get(
+                    key
+            );
+
+    return count == null
+            ? 0
+            : count;
+}
+
+/*
+ * ============================================================
+ * DRAFT ADJUSTMENT
+ * ============================================================
+ */
+
+private static double adjustForDraft(
+        String key,
+        double base
+) {
+
+    Integer picked =
+            PICKED_CARDS.get(
+                    key
+            );
+
+    if (picked == null ||
+            picked <= 0) {
 
         return roundScore(
                 base
         );
     }
 
-    /*
-     * ============================================================
-     * FALLBACK SCORE GENERATOR
-     * ============================================================
-     */
+    if (picked >= 2) {
 
-    private static double generateFallbackScore(
-            String key,
-            CardInfo info
-    ) {
-
-        /*
-         * Erityiset tunnetut kortit.
-         */
-        Double known =
-                FALLBACK_SCORES.get(
-                        key
-                );
-
-        if (known != null) {
-            return known;
-        }
-
-        /*
-         * Tuntemattomalle mutta oikealle kortille
-         * neutraali keskitaso.
-         *
-         * Tämä ei saa voittaa oikeaa HearthArena-arvoa.
-         */
-        double value =
-                5.00;
-
-        String name =
-                info.name.toLowerCase(
-                        Locale.US
-                );
-
-        /*
-         * Kevyet tekstipohjaiset heuristiikat.
-         */
-        if (name.contains("legend")) {
-            value += 0.15;
-        }
-
-        if (name.contains("dragon")) {
-            value += 0.05;
-        }
-
-        if (name.contains("knight")) {
-            value += 0.05;
-        }
-
-        if (name.contains("champion")) {
-            value += 0.05;
-        }
-
-        return clamp(
-                value,
-                0.1,
-                9.0
-        );
+        base -= 0.75;
     }
 
-    /*
-     * ============================================================
-     * CLASS DETECTION
-     * ============================================================
-     */
+    return roundScore(
+            base
+    );
+}
 
-    public static synchronized void detectClassFromCards(
-            String card1,
-            String card2,
-            String card3
-    ) {
+/*
+ * ============================================================
+ * FALLBACK SCORE GENERATOR
+ * ============================================================
+ */
 
-        if (!currentClass.isEmpty()) {
-            return;
-        }
+private static double generateFallbackScore(
+        String key,
+        CardInfo info
+) {
 
-        String detected =
-                getFirstClassFromCards(
-                        card1,
-                        card2,
-                        card3
-                );
-
-        if (detected.isEmpty()) {
-            return;
-        }
-
-        /*
-         * Jos saman tarjouksen korteista löytyy
-         * kaksi eri classia, ensimmäistä ei lukita.
-         */
-        String second =
-                getSecondDifferentClass(
-                        detected,
-                        card1,
-                        card2,
-                        card3
-                );
-
-        if (!second.isEmpty()) {
-
-            candidateClass = "";
-            candidateClassCount = 0;
-
-            return;
-        }
-
-        if (detected.equals(
-                candidateClass
-        )) {
-
-            candidateClassCount++;
-
-        } else {
-
-            candidateClass =
-                    detected;
-
-            candidateClassCount = 1;
-        }
-
-        if (candidateClassCount
-                >= CLASS_CONFIRMATIONS) {
-
-            currentClass =
-                    candidateClass;
-
-            status =
-                    "Luokka tunnistettu: "
-                            + currentClass;
-
-            Log.d(
-                    TAG,
-                    "Class locked: "
-                            + currentClass
+    Double known =
+            FALLBACK_SCORES.get(
+                    key
             );
-        }
+
+    if (known != null) {
+        return known;
     }
 
-    private static String getFirstClassFromCards(
-            String card1,
-            String card2,
-            String card3
-    ) {
+    double value =
+            5.00;
 
-        String[] cards = {
-                card1,
-                card2,
-                card3
-        };
+    String name =
+            info.name.toLowerCase(
+                    Locale.US
+            );
 
-        for (String card : cards) {
-
-            String cls =
-                    getClassForCard(
-                            card
-                    );
-
-            if (!cls.isEmpty()) {
-                return cls;
-            }
-        }
-
-        return "";
+    if (name.contains("legend")) {
+        value += 0.15;
     }
 
-    private static String getSecondDifferentClass(
-            String first,
-            String card1,
-            String card2,
-            String card3
-    ) {
-
-        String[] cards = {
-                card1,
-                card2,
-                card3
-        };
-
-        for (String card : cards) {
-
-            String cls =
-                    getClassForCard(
-                            card
-                    );
-
-            if (!cls.isEmpty() &&
-                    !cls.equals(first)) {
-
-                return cls;
-            }
-        }
-
-        return "";
+    if (name.contains("dragon")) {
+        value += 0.05;
     }
 
-    public static String getClassForCard(
-            String cardName
-    ) {
-
-        if (cardName == null ||
-                cardName.trim().isEmpty()) {
-
-            return "";
-        }
-
-        String corrected =
-                correctOcr(
-                        cardName
-                );
-
-        String key =
-                normalize(
-                        corrected
-                );
-
-        CardInfo info =
-                CARD_INFO.get(
-                        key
-                );
-
-        if (info == null) {
-            return "";
-        }
-
-        String cls =
-                normalizeClass(
-                        info.className
-                );
-
-        /*
-         * Neutral ei kerro pelaajan luokkaa.
-         */
-        if (cls.equals("NEUTRAL") ||
-                cls.equals("INVALID") ||
-                cls.isEmpty()) {
-
-            return "";
-        }
-
-        return cls;
+    if (name.contains("knight")) {
+        value += 0.05;
     }
 
-    /*
-     * ============================================================
-     * CLASS API
-     * ============================================================
-     */
-
-    public static String getCurrentClass() {
-
-        if (currentClass == null ||
-                currentClass.isEmpty()) {
-
-            return "EI TUNNISTETTU";
-        }
-
-        return currentClass;
+    if (name.contains("champion")) {
+        value += 0.05;
     }
 
-    public static String getCurrentClassRaw() {
-        return currentClass;
+    return clamp(
+            value,
+            0.1,
+            9.0
+    );
+}
+
+/*
+ * ============================================================
+ * CLASS DETECTION
+ * ============================================================
+ */
+
+public static synchronized void detectClassFromCards(
+        String card1,
+        String card2,
+        String card3
+) {
+
+    if (!currentClass.isEmpty()) {
+        return;
     }
 
-    public static boolean isClassDetected() {
-        return currentClass != null &&
-                !currentClass.isEmpty();
+    String detected =
+            getFirstClassFromCards(
+                    card1,
+                    card2,
+                    card3
+            );
+
+    if (detected.isEmpty()) {
+        return;
     }
 
-    public static synchronized void resetClassDetection() {
+    String second =
+            getSecondDifferentClass(
+                    detected,
+                    card1,
+                    card2,
+                    card3
+            );
 
-        currentClass = "";
+    if (!second.isEmpty()) {
+
         candidateClass = "";
         candidateClassCount = 0;
 
-        status =
-                "Luokka nollattu";
+        return;
     }
 
-    /*
-     * ============================================================
-     * MANUAL CLASS SCORE API
-     * ============================================================
-     */
+    if (detected.equals(
+            candidateClass
+    )) {
 
-    public static synchronized void setClassScore(
-            String cardName,
-            String className,
-            double score
-    ) {
+        candidateClassCount++;
 
-        if (cardName == null ||
-                className == null) {
+    } else {
 
-            return;
-        }
+        candidateClass =
+                detected;
 
-        String cardKey =
-                normalize(
-                        correctOcr(
-                                cardName
-                        )
-                );
+        candidateClassCount = 1;
+    }
+
+    if (candidateClassCount
+            >= CLASS_CONFIRMATIONS) {
+
+        currentClass =
+                candidateClass;
+
+        status =
+                "Luokka tunnistettu: "
+                        + currentClass;
+
+        Log.d(
+                TAG,
+                "Class locked: "
+                        + currentClass
+        );
+    }
+}
+
+private static String getFirstClassFromCards(
+        String card1,
+        String card2,
+        String card3
+) {
+
+    String[] cards = {
+            card1,
+            card2,
+            card3
+    };
+
+    for (String card : cards) {
 
         String cls =
-                normalizeClass(
-                        className
+                getClassForCard(
+                        card
                 );
 
-        if (cardKey.isEmpty() ||
-                cls.isEmpty()) {
-
-            return;
+        if (!cls.isEmpty()) {
+            return cls;
         }
+    }
 
-        Map<String, Double> scores =
-                CLASS_SCORES.get(
-                        cls
+    return "";
+}
+
+private static String getSecondDifferentClass(
+        String first,
+        String card1,
+        String card2,
+        String card3
+) {
+
+    String[] cards = {
+            card1,
+            card2,
+            card3
+    };
+
+    for (String card : cards) {
+
+        String cls =
+                getClassForCard(
+                        card
                 );
 
-        if (scores == null) {
+        if (!cls.isEmpty() &&
+                !cls.equals(first)) {
 
-            scores =
-                    new HashMap<>();
+            return cls;
+        }
+    }
 
-            CLASS_SCORES.put(
-                    cls,
-                    scores
+    return "";
+}
+
+public static String getClassForCard(
+        String cardName
+) {
+
+    if (cardName == null ||
+            cardName.trim().isEmpty()) {
+
+        return "";
+    }
+
+    String corrected =
+            correctOcr(
+                    cardName
             );
-        }
 
-        scores.put(
-                cardKey,
-                score
+    String key =
+            normalize(
+                    corrected
+            );
+
+    CardInfo info;
+
+    synchronized (
+            CARD_INFO
+    ) {
+
+        info =
+                CARD_INFO.get(
+                        key
+                );
+    }
+
+    if (info == null) {
+        return "";
+    }
+
+    String cls =
+            normalizeClass(
+                    info.className
+            );
+
+    if (cls.equals("NEUTRAL") ||
+            cls.equals("INVALID") ||
+            cls.isEmpty()) {
+
+        return "";
+    }
+
+    return cls;
+}
+
+/*
+ * ============================================================
+ * CLASS API
+ * ============================================================
+ */
+
+public static String getCurrentClass() {
+
+    if (currentClass == null ||
+            currentClass.isEmpty()) {
+
+        return "EI TUNNISTETTU";
+    }
+
+    return currentClass;
+}
+
+public static String getCurrentClassRaw() {
+    return currentClass;
+}
+
+public static boolean isClassDetected() {
+    return currentClass != null &&
+            !currentClass.isEmpty();
+}
+
+public static synchronized void resetClassDetection() {
+
+    currentClass = "";
+    candidateClass = "";
+    candidateClassCount = 0;
+
+    status =
+            "Luokka nollattu";
+}
+
+/*
+ * ============================================================
+ * MANUAL CLASS SCORE API
+ * ============================================================
+ */
+
+public static synchronized void setClassScore(
+        String cardName,
+        String className,
+        double score
+) {
+
+    if (cardName == null ||
+            className == null) {
+
+        return;
+    }
+
+    String cardKey =
+            normalize(
+                    correctOcr(
+                            cardName
+                    )
+            );
+
+    String cls =
+            normalizeClass(
+                    className
+            );
+
+    if (cardKey.isEmpty() ||
+            cls.isEmpty()) {
+
+        return;
+    }
+
+    Map<String, Double> scores =
+            CLASS_SCORES.get(
+                    cls
+            );
+
+    if (scores == null) {
+
+        scores =
+                new HashMap<>();
+
+        CLASS_SCORES.put(
+                cls,
+                scores
         );
     }
 
-    public static synchronized void clearClassScores() {
+    scores.put(
+            cardKey,
+            score
+    );
+}
 
-        for (Map<String, Double> map
-                : CLASS_SCORES.values()) {
+public static synchronized void clearClassScores() {
 
-            map.clear();
-        }
+    for (Map<String, Double> map
+            : CLASS_SCORES.values()) {
 
-        NEUTRAL_SCORES.clear();
-
-        hearthArenaLoaded = false;
+        map.clear();
     }
 
-    public static int getClassScoreCount() {
+    NEUTRAL_SCORES.clear();
 
-        int total = 0;
+    hearthArenaLoaded = false;
+}
+
+public static int getClassScoreCount() {
+
+    int total = 0;
+
+    synchronized (
+            CLASS_SCORES
+    ) {
 
         for (Map<String, Double> map
                 : CLASS_SCORES.values()) {
 
             total += map.size();
         }
+    }
+
+    synchronized (
+            NEUTRAL_SCORES
+    ) {
 
         total +=
                 NEUTRAL_SCORES.size();
-
-        return total;
     }
 
-    /*
-     * ============================================================
-     * CARD DATA API
-     * ============================================================
-     */
+    return total;
+}
 
-    public static CardData getCardData(
-            String cardName
+/*
+ * ============================================================
+ * CARD DATA API
+ * ============================================================
+ */
+
+public static CardData getCardData(
+        String cardName
+) {
+
+    if (cardName == null) {
+        return null;
+    }
+
+    String key =
+            normalize(
+                    correctOcr(
+                            cardName
+                    )
+            );
+
+    synchronized (
+            CARDS
     ) {
-
-        if (cardName == null) {
-            return null;
-        }
-
-        String key =
-                normalize(
-                        correctOcr(
-                                cardName
-                        )
-                );
 
         return CARDS.get(
                 key
         );
     }
+}
 
-    /*
-     * ============================================================
-     * STATUS API
-     * ============================================================
-     */
+/*
+ * ============================================================
+ * STATUS API
+ * ============================================================
+ */
 
-    public static String getStatus() {
-        return status;
-    }
+public static String getStatus() {
+    return status;
+}
 
-    public static String getReason() {
-        return reason;
-    }
+public static String getReason() {
+    return reason;
+}
 
-    public static boolean isOnlineLoaded() {
-        return onlineLoaded;
-    }
+public static boolean isOnlineLoaded() {
+    return onlineLoaded;
+}
 
-    public static boolean isHearthArenaLoaded() {
-        return hearthArenaLoaded;
-    }
+public static boolean isHearthArenaLoaded() {
+    return hearthArenaLoaded;
+}
 
-    public static boolean isHearthArenaLoading() {
-        return hearthArenaLoading;
-    }
+public static boolean isHearthArenaLoading() {
+    return hearthArenaLoading;
+}
 
-    /*
-     * ============================================================
-     * NORMALIZATION
-     * ============================================================
-     */
+/*
+ * ============================================================
+ * DEBUG
+ * ============================================================
+ */
 
-    private static String normalize(
-            String value
+private static void logKnownScore(
+        String cardName
+) {
+
+    String key =
+            normalize(
+                    cardName
+            );
+
+    Double neutral;
+
+    synchronized (
+            NEUTRAL_SCORES
     ) {
 
-        if (value == null) {
-            return "";
-        }
-
-        String result =
-                value
-                        .toLowerCase(
-                                Locale.US
-                        )
-                        .trim();
-
-        /*
-         * Yhdistetään OCR:n erottamat
-         * välilyönnit.
-         */
-        result =
-                result.replaceAll(
-                        "[^a-z0-9]+",
-                        " "
+        neutral =
+                NEUTRAL_SCORES.get(
+                        key
                 );
-
-        result =
-                result.replaceAll(
-                        "\\s+",
-                        " "
-                )
-                .trim();
-
-        return result;
     }
 
-    private static String normalizeClass(
-            String value
-    ) {
+    Log.d(
+            TAG,
+            "DEBUG "
+                    + cardName
+                    + " neutral="
+                    + neutral
+    );
 
-        if (value == null) {
-            return "";
+    for (String cls
+            : VALID_CLASSES) {
+
+        Double value;
+
+        synchronized (
+                CLASS_SCORES
+        ) {
+
+            Map<String, Double> map =
+                    CLASS_SCORES.get(
+                            cls
+                    );
+
+            value =
+                    map == null
+                            ? null
+                            : map.get(key);
         }
 
-        String result =
-                value
-                        .trim()
-                        .toUpperCase(
-                                Locale.US
-                        );
+        if (value != null) {
 
-        result =
-                result.replace(
-                        "_",
-                        " "
-                );
-
-        result =
-                result.replace(
-                        "-",
-                        " "
-                );
-
-        result =
-                result.replaceAll(
-                        "\\s+",
-                        " "
-                );
-
-        /*
-         * HearthstoneJSON voi käyttää:
-         * DEATHKNIGHT
-         * DEMONHUNTER
-         */
-        if (result.equals(
-                "DEATHKNIGHT"
-        )) {
-
-            return "DEATH KNIGHT";
+            Log.d(
+                    TAG,
+                    "DEBUG "
+                            + cardName
+                            + " "
+                            + cls
+                            + "="
+                            + value
+            );
         }
+    }
+}
 
-        if (result.equals(
-                "DEMONHUNTER"
-        )) {
+/*
+ * ============================================================
+ * NORMALIZATION
+ * ============================================================
+ */
 
-            return "DEMON HUNTER";
-        }
+private static String normalize(
+        String value
+) {
 
-        if (result.equals(
-                "DEATH KNIGHT"
-        )) {
-
-            return "DEATH KNIGHT";
-        }
-
-        if (result.equals(
-                "DEMON HUNTER"
-        )) {
-
-            return "DEMON HUNTER";
-        }
-
-        for (String valid
-                : VALID_CLASSES) {
-
-            if (result.equals(
-                    valid
-            )) {
-
-                return valid;
-            }
-        }
-
-        if (result.equals(
-                "NEUTRAL"
-        )) {
-
-            return "NEUTRAL";
-        }
-
-        return result;
+    if (value == null) {
+        return "";
     }
 
-    /*
-     * ============================================================
-     * LEVENSHTEIN
-     * ============================================================
-     */
+    String result =
+            value
+                    .toLowerCase(
+                            Locale.US
+                    )
+                    .trim();
 
-    private static int levenshtein(
-            String a,
-            String b
-    ) {
+    result =
+            result.replaceAll(
+                    "[^a-z0-9]+",
+                    " "
+            );
 
-        if (a == null) {
-            return b == null
-                    ? 0
-                    : b.length();
+    result =
+            result.replaceAll(
+                    "\\s+",
+                    " "
+            )
+            .trim();
+
+    return result;
+}
+
+private static String normalizeClass(
+        String value
+) {
+
+    if (value == null) {
+        return "";
+    }
+
+    String result =
+            value
+                    .trim()
+                    .toUpperCase(
+                            Locale.US
+                    );
+
+    result =
+            result.replace(
+                    "_",
+                    " "
+            );
+
+    result =
+            result.replace(
+                    "-",
+                    " "
+            );
+
+    result =
+            result.replaceAll(
+                    "\\s+",
+                    " "
+            );
+
+    if (result.equals(
+            "DEATHKNIGHT"
+    )) {
+
+        return "DEATH KNIGHT";
+    }
+
+    if (result.equals(
+            "DEMONHUNTER"
+    )) {
+
+        return "DEMON HUNTER";
+    }
+
+    if (result.equals(
+            "DEATH KNIGHT"
+    )) {
+
+        return "DEATH KNIGHT";
+    }
+
+    if (result.equals(
+            "DEMON HUNTER"
+    )) {
+
+        return "DEMON HUNTER";
+    }
+
+    for (String valid
+            : VALID_CLASSES) {
+
+        if (result.equals(
+                valid
+        )) {
+
+            return valid;
         }
+    }
 
-        if (b == null) {
-            return a.length();
-        }
+    if (result.equals(
+            "NEUTRAL"
+    )) {
 
-        int[] previous =
-                new int[b.length() + 1];
+        return "NEUTRAL";
+    }
 
-        int[] current =
-                new int[b.length() + 1];
+    return result;
+}
 
-        for (int j = 0;
+/*
+ * ============================================================
+ * LEVENSHTEIN
+ * ============================================================
+ */
+
+private static int levenshtein(
+        String a,
+        String b
+) {
+
+    if (a == null) {
+        return b == null
+                ? 0
+                : b.length();
+    }
+
+    if (b == null) {
+        return a.length();
+    }
+
+    int[] previous =
+            new int[b.length() + 1];
+
+    int[] current =
+            new int[b.length() + 1];
+
+    for (int j = 0;
+         j <= b.length();
+         j++) {
+
+        previous[j] = j;
+    }
+
+    for (int i = 1;
+         i <= a.length();
+         i++) {
+
+        current[0] = i;
+
+        for (int j = 1;
              j <= b.length();
              j++) {
 
-            previous[j] = j;
+            int cost =
+                    a.charAt(i - 1)
+                            == b.charAt(j - 1)
+                            ? 0
+                            : 1;
+
+            current[j] =
+                    Math.min(
+                            Math.min(
+                                    current[j - 1] + 1,
+                                    previous[j] + 1
+                            ),
+                            previous[j - 1] + cost
+                    );
         }
 
-        for (int i = 1;
-             i <= a.length();
-             i++) {
+        int[] tmp =
+                previous;
 
-            current[0] = i;
+        previous =
+                current;
 
-            for (int j = 1;
-                 j <= b.length();
-                 j++) {
-
-                int cost =
-                        a.charAt(i - 1)
-                                == b.charAt(j - 1)
-                                ? 0
-                                : 1;
-
-                current[j] =
-                        Math.min(
-                                Math.min(
-                                        current[j - 1] + 1,
-                                        previous[j] + 1
-                                ),
-                                previous[j - 1] + cost
-                        );
-            }
-
-            int[] tmp =
-                    previous;
-
-            previous =
-                    current;
-
-            current =
-                    tmp;
-        }
-
-        return previous[b.length()];
+        current =
+                tmp;
     }
 
-    /*
-     * ============================================================
-     * UTILITIES
-     * ============================================================
-     */
+    return previous[b.length()];
+}
 
-    private static double clamp(
-            double value,
-            double min,
-            double max
+/*
+ * ============================================================
+ * UTILITIES
+ * ============================================================
+ */
+
+private static double clamp(
+        double value,
+        double min,
+        double max
+) {
+
+    if (value < min) {
+        return min;
+    }
+
+    if (value > max) {
+        return max;
+    }
+
+    return value;
+}
+
+private static double roundScore(
+        double value
+) {
+
+    return Math.round(
+            value * 100.0
+    ) / 100.0;
+}
+
+private static String readStream(
+        InputStream input
+) throws Exception {
+
+    StringBuilder builder =
+            new StringBuilder();
+
+    BufferedReader reader =
+            new BufferedReader(
+                    new InputStreamReader(
+                            input,
+                            StandardCharsets.UTF_8
+                    )
+            );
+
+    String line;
+
+    while ((line =
+            reader.readLine()) != null) {
+
+        builder
+                .append(line)
+                .append('\n');
+    }
+
+    reader.close();
+
+    return builder.toString();
+}
+
+/*
+ * ============================================================
+ * CARD DATA CLASSES
+ * ============================================================
+ */
+
+public static class CardData {
+
+    public final String name;
+    public final String cardClass;
+    public final String type;
+    public final String rarity;
+    public final String id;
+
+    public CardData(
+            String name,
+            String cardClass,
+            String type,
+            String rarity,
+            String id
     ) {
 
-        if (value < min) {
-            return min;
-        }
+        this.name =
+                name == null
+                        ? ""
+                        : name;
 
-        if (value > max) {
-            return max;
-        }
+        this.cardClass =
+                cardClass == null
+                        ? ""
+                        : cardClass;
 
-        return value;
+        this.type =
+                type == null
+                        ? ""
+                        : type;
+
+        this.rarity =
+                rarity == null
+                        ? ""
+                        : rarity;
+
+        this.id =
+                id == null
+                        ? ""
+                        : id;
     }
+}
 
-    private static double roundScore(
-            double value
+public static class CardInfo {
+
+    public final String name;
+    public final String className;
+
+    public CardInfo(
+            String name,
+            String className
     ) {
 
-        return Math.round(
-                value * 100.0
-        ) / 100.0;
+        this.name =
+                name == null
+                        ? ""
+                        : name;
+
+        this.className =
+                className == null
+                        ? ""
+                        : className;
     }
+}
 
-    private static String readStream(
-            InputStream input
-    ) throws Exception {
-
-        StringBuilder builder =
-                new StringBuilder();
-
-        BufferedReader reader =
-                new BufferedReader(
-                        new InputStreamReader(
-                                input,
-                                StandardCharsets.UTF_8
-                        )
-                );
-
-        String line;
-
-        while ((line =
-                reader.readLine()) != null) {
-
-            builder
-                    .append(line)
-                    .append('\n');
-        }
-
-        reader.close();
-
-        return builder.toString();
-    }
-
-    /*
-     * ============================================================
-     * CARD DATA CLASSES
-     * ============================================================
-     */
-
-    public static class CardData {
-
-        public final String name;
-        public final String cardClass;
-        public final String type;
-        public final String rarity;
-        public final String id;
-
-        public CardData(
-                String name,
-                String cardClass,
-                String type,
-                String rarity,
-                String id
-        ) {
-
-            this.name =
-                    name == null
-                            ? ""
-                            : name;
-
-            this.cardClass =
-                    cardClass == null
-                            ? ""
-                            : cardClass;
-
-            this.type =
-                    type == null
-                            ? ""
-                            : type;
-
-            this.rarity =
-                    rarity == null
-                            ? ""
-                            : rarity;
-
-            this.id =
-                    id == null
-                            ? ""
-                            : id;
-        }
-    }
-
-    public static class CardInfo {
-
-        public final String name;
-        public final String className;
-
-        public CardInfo(
-                String name,
-                String className
-        ) {
-
-            this.name =
-                    name == null
-                            ? ""
-                            : name;
-
-            this.className =
-                    className == null
-                            ? ""
-                            : className;
-        }
-    }
 }
