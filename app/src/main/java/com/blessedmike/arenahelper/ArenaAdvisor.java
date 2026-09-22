@@ -32,49 +32,25 @@ public class ArenaAdvisor {
     private static final String HEARTHARENA_URL =
             "https://www.heartharena.com/tierlist";
 
-    /*
-     * Yleiset korttiarvot.
-     *
-     * Näitä käytetään vain jos oikeaa
-     * HearthArena-arvoa ei löydy.
-     */
     private static final Map<String, Double> CARDS =
             new HashMap<>();
 
-    /*
-     * HearthstoneJSON:n oikeat korttinimet.
-     */
     private static final Map<String, String> CANONICAL_NAMES =
             new HashMap<>();
 
-    /*
-     * OCR-aliaset.
-     */
     private static final Map<String, String> ALIASES =
             new HashMap<>();
 
-    /*
-     * HearthstoneJSON-korttitiedot.
-     */
     private static final Map<String, CardInfo> CARD_INFO =
             new HashMap<>();
 
     /*
-     * Oikeat class-kohtaiset HearthArena-arvot.
-     *
-     * kortin nimi -> class -> arvo
-     *
-     * Esimerkiksi:
-     *
-     * Bitter End -> MAGE -> 78
+     * card -> class -> score
      */
     private static final Map<String, Map<String, Double>>
             CLASS_SCORES =
             new HashMap<>();
 
-    /*
-     * Draftatut kortit.
-     */
     private static final Set<String> PICKED_CARDS =
             new HashSet<>();
 
@@ -96,9 +72,6 @@ public class ArenaAdvisor {
     private static volatile String reason =
             "";
 
-    /*
-     * Nykyinen Arena-class.
-     */
     private static volatile String currentClass =
             "";
 
@@ -125,11 +98,6 @@ public class ArenaAdvisor {
             "WARRIOR"
     };
 
-    /*
-     * Tunnetut testiarvot.
-     *
-     * Näitä käytetään vain fallbackina.
-     */
     static {
 
         addKnownScore(
@@ -162,9 +130,6 @@ public class ArenaAdvisor {
                 4.60
         );
 
-        /*
-         * OCR-aliaset.
-         */
         addAlias(
                 "temporalconstruct",
                 "Temporal Construct"
@@ -211,9 +176,6 @@ public class ArenaAdvisor {
         );
     }
 
-    /*
-     * Kortin tietorakenne.
-     */
     public static class CardInfo {
 
         public final String name;
@@ -272,9 +234,6 @@ public class ArenaAdvisor {
         }
     }
 
-    /*
-     * Lisää yleinen fallback-arvo.
-     */
     private static void addKnownScore(
             String name,
             double score
@@ -302,9 +261,6 @@ public class ArenaAdvisor {
         );
     }
 
-    /*
-     * Lisää OCR-alias.
-     */
     private static void addAlias(
             String alias,
             String canonical
@@ -322,9 +278,6 @@ public class ArenaAdvisor {
         );
     }
 
-    /*
-     * OCR-korjaus.
-     */
     public static String correctOcr(
             String input
     ) {
@@ -416,15 +369,6 @@ public class ArenaAdvisor {
         return cleaned;
     }
 
-    /*
-     * Kortin piste.
-     *
-     * Järjestys:
-     *
-     * 1. HearthArena class-kohtainen arvo
-     * 2. tunnettu fallback
-     * 3. HearthstoneJSON fallback
-     */
     private static double score(
             String cardName
     ) {
@@ -447,7 +391,7 @@ public class ArenaAdvisor {
         }
 
         /*
-         * 1. Oikea class-kohtainen Arena-arvo.
+         * 1. HearthArena class-kohtainen arvo.
          */
         String detectedClass =
                 currentClass;
@@ -468,7 +412,7 @@ public class ArenaAdvisor {
         }
 
         /*
-         * 2. Yleinen tunnettu fallback.
+         * 2. Tunnettu fallback.
          */
         String normalized =
                 normalize(
@@ -485,7 +429,7 @@ public class ArenaAdvisor {
         }
 
         /*
-         * 3. Kompakti fallback-haku.
+         * 3. Compact fallback.
          */
         String compact =
                 normalizeCompact(
@@ -558,9 +502,6 @@ public class ArenaAdvisor {
         return 0.0;
     }
 
-    /*
-     * Hakee class-kohtaisen HearthArena-arvon.
-     */
     private static Double getClassSpecificScore(
             String cardName,
             String className
@@ -610,9 +551,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * Compact-haku.
-         */
         String compact =
                 normalizeCompact(
                         corrected
@@ -641,9 +579,6 @@ public class ArenaAdvisor {
         return null;
     }
 
-    /*
-     * Julkinen class-score API.
-     */
     public static void setClassScore(
             String cardName,
             String className,
@@ -701,9 +636,6 @@ public class ArenaAdvisor {
         );
     }
 
-    /*
-     * Poista class-kohtaiset arvot.
-     */
     public static void clearClassScores() {
 
         synchronized (CLASS_SCORES) {
@@ -715,9 +647,6 @@ public class ArenaAdvisor {
                 false;
     }
 
-    /*
-     * Kortin piste tekstinä.
-     */
     public static String getCardScore(
             String cardName
     ) {
@@ -734,9 +663,6 @@ public class ArenaAdvisor {
         );
     }
 
-    /*
-     * Numeerinen piste.
-     */
     public static double getCardScoreValue(
             String cardName
     ) {
@@ -746,9 +672,6 @@ public class ArenaAdvisor {
         );
     }
 
-    /*
-     * Overload.
-     */
     public static String getCardScore(
             double value
     ) {
@@ -760,9 +683,6 @@ public class ArenaAdvisor {
         );
     }
 
-    /*
-     * Suositus kolmesta kortista.
-     */
     public static String recommend(
             String card1,
             String card2,
@@ -830,9 +750,6 @@ public class ArenaAdvisor {
         return best;
     }
 
-    /*
-     * Draftatun kortin tallennus.
-     */
     public static void recordPickedCard(
             String cardName
     ) {
@@ -870,9 +787,6 @@ public class ArenaAdvisor {
         );
     }
 
-    /*
-     * Onko kortti jo valittu?
-     */
     public static boolean wasPicked(
             String cardName
     ) {
@@ -910,9 +824,6 @@ public class ArenaAdvisor {
         }
     }
 
-    /*
-     * Class-tunnistus.
-     */
     public static synchronized void detectClassFromCards(
             String card1,
             String card2,
@@ -1006,18 +917,10 @@ public class ArenaAdvisor {
                             + currentClass
             );
 
-            /*
-             * Kun class on tunnistettu,
-             * varmistetaan että HearthArena-data
-             * on latautumassa.
-             */
             loadHearthArenaScores();
         }
     }
 
-    /*
-     * Selvittää kortin classin.
-     */
     private static String getClassForCard(
             String cardName
     ) {
@@ -1051,9 +954,6 @@ public class ArenaAdvisor {
         );
     }
 
-    /*
-     * Nykyinen class.
-     */
     public static String getCurrentClass() {
 
         String value =
@@ -1093,9 +993,6 @@ public class ArenaAdvisor {
                 0;
     }
 
-    /*
-     * Lataa HearthstoneJSON.
-     */
     public static void loadCards() {
 
         if (onlineLoaded) {
@@ -1238,9 +1135,6 @@ public class ArenaAdvisor {
         });
     }
 
-    /*
-     * Parsii HearthstoneJSON:n.
-     */
     private static synchronized void parseCards(
             String json
     ) {
@@ -1377,19 +1271,6 @@ public class ArenaAdvisor {
      * ============================================================
      * HEARTHARENA
      * ============================================================
-     *
-     * HearthArena ei tarjoa virallista julkista API:a.
-     *
-     * Tämä hakee tierlist-sivun ja etsii sen tekstistä
-     * class-kohtaisia:
-     *
-     * Card Name
-     * score
-     *
-     * pareja.
-     *
-     * Jos sivu ei ole saatavilla tai anti-bot estää pyynnön,
-     * sovellus jatkaa vanhalla fallbackilla.
      */
 
     public static void loadHearthArenaScores() {
@@ -1436,22 +1317,31 @@ public class ArenaAdvisor {
                         20000
                 );
 
+                connection.setUseCaches(
+                        false
+                );
+
                 connection.setRequestProperty(
                         "User-Agent",
                         "Mozilla/5.0 (Linux; Android 16) "
                                 + "AppleWebKit/537.36 "
                                 + "(KHTML, like Gecko) "
-                                + "Chrome Mobile Safari/537.36"
+                                + "Chrome/140.0 Mobile Safari/537.36"
                 );
 
                 connection.setRequestProperty(
                         "Accept",
-                        "text/html,application/xhtml+xml"
+                        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
                 );
 
                 connection.setRequestProperty(
                         "Accept-Language",
                         "en-US,en;q=0.9"
+                );
+
+                connection.setRequestProperty(
+                        "Cache-Control",
+                        "no-cache"
                 );
 
                 int responseCode =
@@ -1494,11 +1384,20 @@ public class ArenaAdvisor {
 
                 reader.close();
 
+                String page =
+                        html.toString();
+
+                Log.d(
+                        TAG,
+                        "HearthArena HTML pituus: "
+                                + page.length()
+                );
+
                 int before =
                         getClassScoreCount();
 
                 parseHearthArenaPage(
-                        html.toString()
+                        page
                 );
 
                 int after =
@@ -1526,8 +1425,8 @@ public class ArenaAdvisor {
 
                     Log.w(
                             TAG,
-                            "HearthArena-sivulta ei löytynyt "
-                                    + "class-kohtaisia arvoja"
+                            "HearthArena HTML saatiin, "
+                                    + "mutta korttiarvoja ei löytynyt"
                     );
                 }
 
@@ -1555,11 +1454,18 @@ public class ArenaAdvisor {
     }
 
     /*
-     * Parsii HearthArena HTML:n.
+     * UUSI PARSER:
      *
-     * Tärkeä periaate:
-     * emme korvaa vanhaa dataa ennen kuin uusia arvoja
-     * todella löytyi.
+     * HearthArenan tierlistin rakenne on käytännössä:
+     *
+     * Class
+     * Card name
+     * score
+     * Card name
+     * score
+     *
+     * HTML:n otsikoista otetaan ensin jokaisen classin
+     * todellinen osio.
      */
     private static synchronized void parseHearthArenaPage(
             String html
@@ -1571,16 +1477,11 @@ public class ArenaAdvisor {
             return;
         }
 
+        /*
+         * Dekoodataan yleisimmät HTML-entiteetit.
+         */
         String page =
                 html
-                        .replace(
-                                "\\u003c",
-                                "<"
-                        )
-                        .replace(
-                                "\\u003e",
-                                ">"
-                        )
                         .replace(
                                 "&nbsp;",
                                 " "
@@ -1596,260 +1497,645 @@ public class ArenaAdvisor {
                         .replace(
                                 "&quot;",
                                 "\""
+                        )
+                        .replace(
+                                "&lt;",
+                                "<"
+                        )
+                        .replace(
+                                "&gt;",
+                                ">"
                         );
 
         /*
-         * Yritetään ensin tunnistaa class-osioita.
+         * Ensisijainen parseri:
+         * etsitään oikea H2/H3 class-otsikko.
          */
+        boolean foundSections =
+                false;
+
         for (String className :
                 VALID_CLASSES) {
 
-            parseHearthArenaClassSection(
-                    page,
-                    className
-            );
+            int added =
+                    parseHtmlClassSection(
+                            page,
+                            className
+                    );
+
+            if (added > 0) {
+                foundSections = true;
+            }
         }
 
         /*
-         * Tämän lisäksi luetaan suoraan HearthArena-sivun
-         * tunnettu taulukkomuoto:
+         * Toissijainen parseri:
+         * koko sivun näkyvä tekstisisältö.
          *
-         * Mage | Card | Mage | 86 | 78
-         *
-         * Käytetään viimeistä score-arvoa.
+         * Tämä toimii myös silloin, jos HearthArena
+         * muuttaa hieman HTML-tagien rakennetta.
          */
-        parseHearthArenaRows(
-                page
+        String visibleText =
+                stripHtml(
+                        page
+                );
+
+        visibleText =
+                visibleText
+                        .replaceAll(
+                                "\\s+",
+                                " "
+                        )
+                        .trim();
+
+        int fallbackAdded =
+                parseVisibleTierlistText(
+                        visibleText
+                );
+
+        if (fallbackAdded > 0) {
+            foundSections = true;
+        }
+
+        Log.d(
+                TAG,
+                "HearthArena parser: sections="
+                        + foundSections
+                        + " scores="
+                        + getClassScoreCount()
         );
     }
 
     /*
-     * Etsii class-kohtaisia osioita.
+     * Parsii yhden classin HTML-osion.
+     *
+     * Otsikkoa ei haeta pelkällä "Mage"-tekstillä,
+     * koska sana voi esiintyä muuallakin.
+     *
+     * Haetaan ensin heading-tagista.
      */
-    private static void parseHearthArenaClassSection(
+    private static int parseHtmlClassSection(
             String html,
             String className
     ) {
 
-        String escapedClass =
-                Pattern.quote(
-                        className
-                );
+        if (html == null ||
+                className == null) {
+
+            return 0;
+        }
+
+        String headingRegex =
+                "(?is)<h[1-6][^>]*>\\s*"
+                        + Pattern.quote(className)
+                        + "\\s*</h[1-6]>";
 
         Pattern headingPattern =
                 Pattern.compile(
-                        "(?is)"
-                                + escapedClass
-                                + ".{0,1500}?"
-                                + "(?="
-                                + "DEATH\\s+KNIGHT"
-                                + "|DEMON\\s+HUNTER"
-                                + "|DRUID"
-                                + "|HUNTER"
-                                + "|MAGE"
-                                + "|PALADIN"
-                                + "|PRIEST"
-                                + "|ROGUE"
-                                + "|SHAMAN"
-                                + "|WARLOCK"
-                                + "|WARRIOR"
-                                + "|$)",
-                        Pattern.CASE_INSENSITIVE
+                        headingRegex
                 );
 
-        Matcher sectionMatcher =
+        Matcher headingMatcher =
                 headingPattern.matcher(
                         html
                 );
 
-        while (sectionMatcher.find()) {
+        int totalAdded =
+                0;
 
-            String section =
-                    sectionMatcher.group();
+        while (headingMatcher.find()) {
 
-            if (section == null ||
-                    section.isEmpty()) {
+            int start =
+                    headingMatcher.end();
 
-                continue;
+            int end =
+                    findNextClassHeading(
+                            html,
+                            start
+                    );
+
+            if (end <= start) {
+                end = html.length();
             }
 
-            parseScorePairs(
-                    section,
-                    className
-            );
+            String section =
+                    html.substring(
+                            start,
+                            end
+                    );
+
+            int added =
+                    parseTierlistSectionText(
+                            section,
+                            className
+                    );
+
+            totalAdded +=
+                    added;
         }
+
+        /*
+         * Joissakin versioissa heading voi olla
+         * esimerkiksi div-elementti. Yritetään vielä
+         * otsikkotekstin ympäriltä.
+         */
+        if (totalAdded == 0) {
+
+            Pattern looseHeading =
+                    Pattern.compile(
+                            "(?is)"
+                                    + "(?:<div[^>]*>|<section[^>]*>)"
+                                    + "\\s*"
+                                    + Pattern.quote(className)
+                                    + "\\s*"
+                                    + "(?:</div>|</section>)"
+                    );
+
+            Matcher looseMatcher =
+                    looseHeading.matcher(
+                            html
+                    );
+
+            while (looseMatcher.find()) {
+
+                int start =
+                        looseMatcher.end();
+
+                int end =
+                        findNextClassHeading(
+                                html,
+                                start
+                        );
+
+                if (end <= start) {
+                    end = html.length();
+                }
+
+                String section =
+                        html.substring(
+                                start,
+                                end
+                        );
+
+                totalAdded +=
+                        parseTierlistSectionText(
+                                section,
+                                className
+                        );
+            }
+        }
+
+        return totalAdded;
     }
 
     /*
-     * Etsii kortin ja numeron pareja.
-     *
-     * Tämä on tarkoituksella varovainen:
-     * arvo hyväksytään vain kun se on 0-140.
+     * Etsii seuraavan class-headingin.
      */
-    private static void parseScorePairs(
+    private static int findNextClassHeading(
+            String html,
+            int from
+    ) {
+
+        int best =
+                html.length();
+
+        for (String className :
+                VALID_CLASSES) {
+
+            Pattern pattern =
+                    Pattern.compile(
+                            "(?is)<h[1-6][^>]*>\\s*"
+                                    + Pattern.quote(className)
+                                    + "\\s*</h[1-6]>"
+                    );
+
+            Matcher matcher =
+                    pattern.matcher(
+                            html
+                    );
+
+            matcher.region(
+                    Math.max(
+                            0,
+                            from
+                    ),
+                    html.length()
+            );
+
+            if (matcher.find()) {
+
+                if (matcher.start() < best) {
+
+                    best =
+                            matcher.start();
+                }
+            }
+        }
+
+        return best;
+    }
+
+    /*
+     * Parsii yhden classin näkyvän tekstin.
+     */
+    private static int parseTierlistSectionText(
             String section,
             String className
     ) {
 
-        String clean =
-                stripHtml(
-                        section
-                );
+        if (section == null ||
+                section.trim().isEmpty()) {
 
-        clean =
-                clean.replaceAll(
-                        "\\s+",
-                        " "
-                );
-
-        /*
-         * Tunnettu HearthArena-rivin muoto:
-         *
-         * 1. Card Name 78
-         *
-         * Yritetään ensin rivipohjaisesti.
-         */
-        String[] parts =
-                clean.split(
-                        "(?=\\d+\\.\\s+)"
-                );
-
-        for (String part :
-                parts) {
-
-            if (part == null) {
-                continue;
-            }
-
-            Matcher matcher =
-                    Pattern.compile(
-                            "(?s)"
-                                    + "\\d+\\.\\s+"
-                                    + "(.{2,100}?)"
-                                    + "\\s+"
-                                    + "(\\d{1,3})(?:\\s|$)"
-                    ).matcher(
-                            part
-                    );
-
-            if (!matcher.find()) {
-                continue;
-            }
-
-            String name =
-                    cleanupCardName(
-                            matcher.group(1)
-                    );
-
-            int value;
-
-            try {
-
-                value =
-                        Integer.parseInt(
-                                matcher.group(2)
-                        );
-
-            } catch (Exception e) {
-
-                continue;
-            }
-
-            addHearthArenaScore(
-                    name,
-                    className,
-                    value
-            );
+            return 0;
         }
-    }
-
-    /*
-     * Parsii taulukkomuotoisia rivejä.
-     */
-    private static void parseHearthArenaRows(
-            String html
-    ) {
 
         String text =
                 stripHtml(
-                        html
+                        section
                 );
 
         text =
                 text.replaceAll(
                         "\\s+",
                         " "
-                );
+                )
+                .trim();
+
+        if (text.isEmpty()) {
+            return 0;
+        }
+
+        int added =
+                0;
 
         /*
-         * Esimerkiksi:
+         * HearthArena käyttää muotoa:
          *
-         * Mage | Bitter End | Neutral | 86 | 78
+         * 1. Card Name 115
+         * 2. Card Name 115
          *
-         * Viimeinen numero on nykyinen arvo.
+         * Muutetaan tämä turvallisesti osioiksi
+         * ranking-numeron perusteella.
          */
-        Pattern pattern =
+        Pattern rankPattern =
                 Pattern.compile(
-                        "(?i)"
-                                + "(Death Knight|"
-                                + "Demon Hunter|"
-                                + "Druid|"
-                                + "Hunter|"
-                                + "Mage|"
-                                + "Paladin|"
-                                + "Priest|"
-                                + "Rogue|"
-                                + "Shaman|"
-                                + "Warlock|"
-                                + "Warrior)"
-                                + "\\s*\\|\\s*"
-                                + "([^|]{2,100}?)"
-                                + "\\s*\\|\\s*"
-                                + "[^|]{1,40}"
-                                + "\\s*\\|\\s*"
-                                + "\\d{1,3}"
-                                + "\\s*\\|\\s*"
-                                + "(\\d{1,3})",
-                        Pattern.CASE_INSENSITIVE
+                        "(?<!\\d)(\\d{1,2})\\.\\s+"
                 );
 
-        Matcher matcher =
-                pattern.matcher(
+        Matcher rankMatcher =
+                rankPattern.matcher(
                         text
                 );
 
-        while (matcher.find()) {
+        int lastEnd =
+                -1;
 
-            String className =
-                    normalizeClass(
-                            matcher.group(1)
-                    );
+        while (rankMatcher.find()) {
 
-            String cardName =
-                    cleanupCardName(
-                            matcher.group(2)
-                    );
+            if (lastEnd >= 0) {
 
-            int score;
-
-            try {
-
-                score =
-                        Integer.parseInt(
-                                matcher.group(3)
+                String item =
+                        text.substring(
+                                lastEnd,
+                                rankMatcher.start()
                         );
 
-            } catch (Exception e) {
-
-                continue;
+                added +=
+                        parseOneTierItem(
+                                item,
+                                className
+                        );
             }
 
-            addHearthArenaScore(
-                    cardName,
-                    className,
-                    score
-            );
+            lastEnd =
+                    rankMatcher.start();
         }
+
+        if (lastEnd >= 0 &&
+                lastEnd < text.length()) {
+
+            String item =
+                    text.substring(
+                            lastEnd
+                    );
+
+            added +=
+                    parseOneTierItem(
+                            item,
+                            className
+                    );
+        }
+
+        return added;
+    }
+
+    /*
+     * Parsii:
+     *
+     * 1. Alter Time 97
+     *
+     * tai:
+     *
+     * 2. Merry Moonkin 69
+     */
+    private static int parseOneTierItem(
+            String item,
+            String className
+    ) {
+
+        if (item == null) {
+            return 0;
+        }
+
+        String value =
+                item.trim();
+
+        if (value.isEmpty()) {
+            return 0;
+        }
+
+        /*
+         * Poistetaan rankingnumero.
+         */
+        value =
+                value.replaceFirst(
+                        "^\\d{1,2}\\.\\s*",
+                        ""
+                );
+
+        /*
+         * Otetaan viimeinen numero pisteillä tai ilman.
+         *
+         * HearthArena nykyinen tierlist käyttää
+         * kokonaislukuarvoja.
+         */
+        Pattern scorePattern =
+                Pattern.compile(
+                        "(?s)^(.+?)\\s+(\\d{1,3})(?:↓)?\\s*$"
+                );
+
+        Matcher matcher =
+                scorePattern.matcher(
+                        value
+                );
+
+        if (!matcher.find()) {
+            return 0;
+        }
+
+        String cardName =
+                matcher.group(1);
+
+        String scoreText =
+                matcher.group(2);
+
+        int score;
+
+        try {
+
+            score =
+                    Integer.parseInt(
+                            scoreText
+                    );
+
+        } catch (Exception e) {
+
+            return 0;
+        }
+
+        /*
+         * Tyhjät ranking-paikat eivät saa mennä
+         * kortteina läpi.
+         */
+        cardName =
+                cleanupCardName(
+                        cardName
+                );
+
+        if (cardName.isEmpty()) {
+            return 0;
+        }
+
+        /*
+         * Tarkistetaan ensin, että nimi muistuttaa
+         * oikeaa korttinimeä.
+         *
+         * Tämä estää esimerkiksi "Common Mage Cards"
+         * -tyyppisten tekstien tallentumisen.
+         */
+        String corrected =
+                correctOcr(
+                        cardName
+                );
+
+        if (corrected == null ||
+                corrected.trim().isEmpty()) {
+
+            return 0;
+        }
+
+        /*
+         * Jos HearthstoneJSON tuntee kortin,
+         * käytetään canonical-nimeä.
+         */
+        CardInfo info =
+                getCardInfo(
+                        corrected
+                );
+
+        if (info != null) {
+
+            cardName =
+                    info.name;
+
+        } else {
+
+            /*
+             * Jos nimeä ei tunneta, hyväksytään vain
+             * kohtuullisen varmasti kortin näköinen nimi.
+             */
+            if (cardName.length() < 2 ||
+                    cardName.length() > 100) {
+
+                return 0;
+            }
+        }
+
+        if (score < 0 ||
+                score > 140) {
+
+            return 0;
+        }
+
+        addHearthArenaScore(
+                cardName,
+                className,
+                score
+        );
+
+        return 1;
+    }
+
+    /*
+     * Fallback koko näkyvälle tierlistille.
+     *
+     * Tämä käyttää class-otsikoiden jälkeistä
+     * kortti -> score rakennetta.
+     */
+    private static int parseVisibleTierlistText(
+            String text
+    ) {
+
+        if (text == null ||
+                text.isEmpty()) {
+
+            return 0;
+        }
+
+        int total =
+                0;
+
+        for (String className :
+                VALID_CLASSES) {
+
+            String lower =
+                    text.toLowerCase(
+                            Locale.US
+                    );
+
+            String marker =
+                    className.toLowerCase(
+                            Locale.US
+                    );
+
+            int searchFrom =
+                    0;
+
+            while (true) {
+
+                int position =
+                        lower.indexOf(
+                                marker,
+                                searchFrom
+                        );
+
+                if (position < 0) {
+                    break;
+                }
+
+                /*
+                 * Tarkistetaan, että tämä näyttää otsikolta.
+                 *
+                 * Seuraavien noin 80 merkin sisällä pitäisi
+                 * esiintyä "Common X Cards".
+                 */
+                int previewEnd =
+                        Math.min(
+                                lower.length(),
+                                position + 120
+                        );
+
+                String preview =
+                        lower.substring(
+                                position,
+                                previewEnd
+                        );
+
+                boolean likelyHeading =
+                        preview.contains(
+                                "common "
+                                        + marker
+                                        + " cards"
+                        )
+                        ||
+                        preview.contains(
+                                "rare "
+                                        + marker
+                                        + " cards"
+                        )
+                        ||
+                        preview.contains(
+                                "epic "
+                                        + marker
+                                        + " cards"
+                        )
+                        ||
+                        preview.contains(
+                                "legendary "
+                                        + marker
+                                        + " cards"
+                        );
+
+                if (!likelyHeading) {
+
+                    searchFrom =
+                            position
+                                    + marker.length();
+
+                    continue;
+                }
+
+                int end =
+                        findNextVisibleClass(
+                                lower,
+                                position
+                        );
+
+                if (end <= position) {
+                    end = lower.length();
+                }
+
+                String section =
+                        text.substring(
+                                position,
+                                end
+                        );
+
+                total +=
+                        parseTierlistSectionText(
+                                section,
+                                className
+                        );
+
+                searchFrom =
+                        end;
+            }
+        }
+
+        return total;
+    }
+
+    private static int findNextVisibleClass(
+            String lower,
+            int from
+    ) {
+
+        int best =
+                lower.length();
+
+        for (String className :
+                VALID_CLASSES) {
+
+            String marker =
+                    className.toLowerCase(
+                            Locale.US
+                    );
+
+            int position =
+                    lower.indexOf(
+                            marker,
+                            from + 1
+                    );
+
+            if (position >= 0 &&
+                    position < best) {
+
+                best =
+                        position;
+            }
+        }
+
+        return best;
     }
 
     /*
@@ -1927,18 +2213,22 @@ public class ArenaAdvisor {
                 (double) score
         );
 
-        /*
-         * Varmistetaan että canonical-nimi tunnetaan.
-         */
         CANONICAL_NAMES.put(
                 key,
                 corrected
         );
+
+        Log.d(
+                TAG,
+                "HA SCORE: "
+                        + normalizedClass
+                        + " / "
+                        + corrected
+                        + " = "
+                        + score
+        );
     }
 
-    /*
-     * Poistaa HTML-tagit.
-     */
     private static String stripHtml(
             String html
     ) {
@@ -1962,6 +2252,11 @@ public class ArenaAdvisor {
                         " "
                 );
 
+        /*
+         * Tärkeä ero vanhaan:
+         * jokainen HTML-tag poistetaan tilaksi,
+         * jotta kortin nimi ja score eivät liimaudu.
+         */
         value =
                 value.replaceAll(
                         "(?s)<[^>]+>",
@@ -1992,12 +2287,21 @@ public class ArenaAdvisor {
                         "\""
                 );
 
+        value =
+                value.replace(
+                        "&lt;",
+                        "<"
+                );
+
+        value =
+                value.replace(
+                        "&gt;",
+                        ">"
+                );
+
         return value;
     }
 
-    /*
-     * Kortin nimen siivous.
-     */
     private static String cleanupCardName(
             String value
     ) {
@@ -2023,7 +2327,7 @@ public class ArenaAdvisor {
 
         name =
                 name.replaceAll(
-                        "\\s+\\d{1,3}$",
+                        "\\s+\\d{1,3}(?:↓)?$",
                         ""
                 );
 
@@ -2042,9 +2346,6 @@ public class ArenaAdvisor {
         return name.trim();
     }
 
-    /*
-     * Fallback score.
-     */
     private static double generateFallbackScore(
             CardInfo info
     ) {
@@ -2179,9 +2480,6 @@ public class ArenaAdvisor {
         return score;
     }
 
-    /*
-     * OCR-erikoiskorjaukset.
-     */
     private static String correctSpecialNames(
             String text
     ) {
@@ -2246,9 +2544,6 @@ public class ArenaAdvisor {
         return text;
     }
 
-    /*
-     * Fuzzy-haku.
-     */
     private static String findFuzzyCanonical(
             String input
     ) {
@@ -2345,9 +2640,6 @@ public class ArenaAdvisor {
         return bestName;
     }
 
-    /*
-     * Kortin tiedot.
-     */
     private static CardInfo getCardInfo(
             String cardName
     ) {
@@ -2396,9 +2688,6 @@ public class ArenaAdvisor {
         return null;
     }
 
-    /*
-     * Normalisointi.
-     */
     private static String normalize(
             String text
     ) {
@@ -2428,9 +2717,6 @@ public class ArenaAdvisor {
         return value.trim();
     }
 
-    /*
-     * Kompakti normalisointi.
-     */
     private static String normalizeCompact(
             String text
     ) {
@@ -2452,9 +2738,6 @@ public class ArenaAdvisor {
                 );
     }
 
-    /*
-     * OCR-tekstin puhdistus.
-     */
     private static String cleanName(
             String text
     ) {
@@ -2499,9 +2782,6 @@ public class ArenaAdvisor {
         return value.trim();
     }
 
-    /*
-     * Class-normalisointi.
-     */
     private static String normalizeClass(
             String className
     ) {
@@ -2563,9 +2843,6 @@ public class ArenaAdvisor {
         return "";
     }
 
-    /*
-     * Levenshtein.
-     */
     private static int levenshtein(
             String a,
             String b
@@ -2648,9 +2925,6 @@ public class ArenaAdvisor {
         ];
     }
 
-    /*
-     * Status.
-     */
     public static boolean isOnlineLoaded() {
 
         return onlineLoaded;
@@ -2671,10 +2945,6 @@ public class ArenaAdvisor {
         return reason;
     }
 
-    /*
-     * Kuinka monta oikeaa class-kohtaista
-     * HearthArena-arvoa on ladattu.
-     */
     public static int getClassScoreCount() {
 
         int count =
@@ -2714,9 +2984,6 @@ public class ArenaAdvisor {
         );
     }
 
-    /*
-     * Käynnistetään molemmat datalataukset.
-     */
     static {
 
         loadCards();
