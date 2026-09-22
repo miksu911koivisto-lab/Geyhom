@@ -43,12 +43,6 @@ public class CaptureService extends Service {
     private static final int CARD_CONFIRMATIONS = 2;
     private static final int OFFER_CONFIRMATIONS = 2;
 
-    /*
-     * Jos OCR jostain syystä jää odottamaan,
-     * processing vapautetaan tämän ajan jälkeen.
-     */
-    private static final long OCR_TIMEOUT = 6000;
-
     private WindowManager windowManager;
     private TextView overlayView;
 
@@ -77,16 +71,6 @@ public class CaptureService extends Service {
     private static int projectionResultCode;
     private static Intent projectionData;
 
-    /*
-     * Tämän OCR-kierroksen tulokset.
-     */
-    private final String[] currentResults =
-            new String[]{"", "", ""};
-
-    private int currentCardIndex = 0;
-
-    private Runnable ocrTimeoutRunnable;
-
     public static void setProjectionData(
             int resultCode,
             Intent data
@@ -96,7 +80,6 @@ public class CaptureService extends Service {
     }
 
     private static class CardStability {
-
         String stable = "";
         String candidate = "";
         int candidateCount = 0;
@@ -111,9 +94,6 @@ public class CaptureService extends Service {
     private final CardStability card3Stability =
             new CardStability();
 
-    /*
-     * MediaProjection callback.
-     */
     private final MediaProjection.Callback
             mediaProjectionCallback =
             new MediaProjection.Callback() {
@@ -122,21 +102,17 @@ public class CaptureService extends Service {
                 public void onStop() {
 
                     if (virtualDisplay != null) {
-
                         try {
                             virtualDisplay.release();
-                        } catch (Exception ignored) {
-                        }
+                        } catch (Exception ignored) {}
 
                         virtualDisplay = null;
                     }
 
                     if (imageReader != null) {
-
                         try {
                             imageReader.close();
-                        } catch (Exception ignored) {
-                        }
+                        } catch (Exception ignored) {}
 
                         imageReader = null;
                     }
@@ -147,7 +123,6 @@ public class CaptureService extends Service {
 
     @Override
     public void onCreate() {
-
         super.onCreate();
 
         createNotificationChannel();
@@ -157,12 +132,8 @@ public class CaptureService extends Service {
                         this,
                         CHANNEL_ID
                 )
-                        .setContentTitle(
-                                "Arena Helper"
-                        )
-                        .setContentText(
-                                "Avustaja aktiivinen"
-                        )
+                        .setContentTitle("Arena Helper")
+                        .setContentText("Avustaja aktiivinen")
                         .setSmallIcon(
                                 android.R.drawable
                                         .ic_menu_info_details
@@ -177,11 +148,11 @@ public class CaptureService extends Service {
 
         recognizer =
                 TextRecognition.getClient(
-                        TextRecognizerOptions.DEFAULT_OPTIONS
+                        TextRecognizerOptions
+                                .DEFAULT_OPTIONS
                 );
 
         createOverlay();
-
         startCapture();
     }
 
@@ -205,7 +176,6 @@ public class CaptureService extends Service {
                             );
 
             if (manager != null) {
-
                 manager.createNotificationChannel(
                         channel
                 );
@@ -230,7 +200,10 @@ public class CaptureService extends Service {
         );
 
         overlayView.setTextSize(13);
-        overlayView.setTextColor(0xFFFFFFFF);
+
+        overlayView.setTextColor(
+                0xFFFFFFFF
+        );
 
         overlayView.setBackgroundColor(
                 0xCC000000
@@ -250,12 +223,17 @@ public class CaptureService extends Service {
 
             params =
                     new WindowManager.LayoutParams(
-                            WindowManager.LayoutParams.WRAP_CONTENT,
-                            WindowManager.LayoutParams.WRAP_CONTENT,
-                            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            WindowManager.LayoutParams
+                                    .WRAP_CONTENT,
+                            WindowManager.LayoutParams
+                                    .WRAP_CONTENT,
+                            WindowManager.LayoutParams
+                                    .TYPE_APPLICATION_OVERLAY,
+                            WindowManager.LayoutParams
+                                    .FLAG_NOT_FOCUSABLE
                                     |
-                                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                                    WindowManager.LayoutParams
+                                            .FLAG_NOT_TOUCHABLE,
                             PixelFormat.TRANSLUCENT
                     );
 
@@ -263,12 +241,17 @@ public class CaptureService extends Service {
 
             params =
                     new WindowManager.LayoutParams(
-                            WindowManager.LayoutParams.WRAP_CONTENT,
-                            WindowManager.LayoutParams.WRAP_CONTENT,
-                            WindowManager.LayoutParams.TYPE_PHONE,
-                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            WindowManager.LayoutParams
+                                    .WRAP_CONTENT,
+                            WindowManager.LayoutParams
+                                    .WRAP_CONTENT,
+                            WindowManager.LayoutParams
+                                    .TYPE_PHONE,
+                            WindowManager.LayoutParams
+                                    .FLAG_NOT_FOCUSABLE
                                     |
-                                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                                    WindowManager.LayoutParams
+                                            .FLAG_NOT_TOUCHABLE,
                             PixelFormat.TRANSLUCENT
                     );
         }
@@ -342,7 +325,8 @@ public class CaptureService extends Service {
 
         /*
          * TÄRKEÄ:
-         * Listener asetetaan ENNEN virtual displayä.
+         * Listener asetetaan ennen VirtualDisplayä,
+         * jotta ensimmäisiä frameja ei menetetä.
          */
         imageReader.setOnImageAvailableListener(
                 reader ->
@@ -370,11 +354,11 @@ public class CaptureService extends Service {
 
         if (processing) {
 
-            Image skipped =
+            Image image =
                     reader.acquireLatestImage();
 
-            if (skipped != null) {
-                skipped.close();
+            if (image != null) {
+                image.close();
             }
 
             return;
@@ -397,7 +381,6 @@ public class CaptureService extends Service {
             image.close();
 
             if (bitmap == null) {
-
                 processing = false;
                 return;
             }
@@ -408,8 +391,7 @@ public class CaptureService extends Service {
 
             try {
                 image.close();
-            } catch (Exception ignored) {
-            }
+            } catch (Exception ignored) {}
 
             processing = false;
         }
@@ -497,6 +479,10 @@ public class CaptureService extends Service {
                 (int)
                         (height * 0.55f);
 
+        /*
+         * Kortti 1:
+         * alkuperäinen toimiva alue.
+         */
         Bitmap card1 =
                 cropCard(
                         source,
@@ -508,17 +494,26 @@ public class CaptureService extends Service {
                         nameBottom
                 );
 
+        /*
+         * Kortti 2:
+         * loppu nyt tasan 60 %:iin,
+         * jotta kortti 2 ja 3 eivät mene päällekkäin.
+         */
         Bitmap card2 =
                 cropCard(
                         source,
                         (int)
                                 (width * 0.355f),
                         (int)
-                                (width * 0.645f),
+                                (width * 0.60f),
                         nameTop,
                         nameBottom
                 );
 
+        /*
+         * Kortti 3:
+         * alkaa samasta kohdasta kuin kortti 2 loppuu.
+         */
         Bitmap card3 =
                 cropCard(
                         source,
@@ -532,230 +527,26 @@ public class CaptureService extends Service {
 
         source.recycle();
 
-        currentResults[0] = "";
-        currentResults[1] = "";
-        currentResults[2] = "";
+        final String[] results =
+                new String[3];
 
-        currentCardIndex = 0;
-
-        /*
-         * OCR tehdään nyt järjestyksessä:
-         *
-         * kortti 1 -> kortti 2 -> kortti 3
-         *
-         * Näin yhden OCR-kierroksen valmistuminen
-         * ei riipu kolmesta samanaikaisesta callbackista.
-         */
-
-        recognizeCardSequentially(
-                card1,
-                card2,
-                card3
-        );
-    }
-
-    private void recognizeCardSequentially(
-            Bitmap card1,
-            Bitmap card2,
-            Bitmap card3
-    ) {
-
-        recognizeCardAtIndex(
+        recognizeNormalCard(
                 card1,
                 0,
+                results
+        );
+
+        recognizeNormalCard(
                 card2,
-                card3
-        );
-    }
-
-    private void recognizeCardAtIndex(
-            Bitmap bitmap,
-            int index,
-            Bitmap nextCard2,
-            Bitmap nextCard3
-    ) {
-
-        currentCardIndex = index;
-
-        /*
-         * Varmistetaan ettei OCR jää ikuisesti
-         * processing-tilaan.
-         */
-        startOCRTimeout();
-
-        if (bitmap == null) {
-
-            currentResults[index] =
-                    getStableCard(index);
-
-            finishOrContinueOCR(
-                    index,
-                    nextCard2,
-                    nextCard3
-            );
-
-            return;
-        }
-
-        InputImage image;
-
-        try {
-
-            image =
-                    InputImage.fromBitmap(
-                            bitmap,
-                            0
-                    );
-
-        } catch (Exception e) {
-
-            try {
-                bitmap.recycle();
-            } catch (Exception ignored) {
-            }
-
-            currentResults[index] =
-                    getStableCard(index);
-
-            finishOrContinueOCR(
-                    index,
-                    nextCard2,
-                    nextCard3
-            );
-
-            return;
-        }
-
-        recognizer.process(image)
-                .addOnSuccessListener(
-                        text -> {
-
-                            String cleaned =
-                                    cleanCardName(text);
-
-                            currentResults[index] =
-                                    stabilizeCard(
-                                            cleaned,
-                                            index
-                                    );
-
-                            try {
-                                bitmap.recycle();
-                            } catch (Exception ignored) {
-                            }
-
-                            finishOrContinueOCR(
-                                    index,
-                                    nextCard2,
-                                    nextCard3
-                            );
-                        }
-                )
-                .addOnFailureListener(
-                        e -> {
-
-                            currentResults[index] =
-                                    getStableCard(index);
-
-                            try {
-                                bitmap.recycle();
-                            } catch (Exception ignored) {
-                            }
-
-                            finishOrContinueOCR(
-                                    index,
-                                    nextCard2,
-                                    nextCard3
-                            );
-                        }
-                );
-    }
-
-    private void finishOrContinueOCR(
-            int index,
-            Bitmap nextCard2,
-            Bitmap nextCard3
-    ) {
-
-        cancelOCRTimeout();
-
-        if (index == 0) {
-
-            recognizeCardAtIndex(
-                    nextCard2,
-                    1,
-                    nextCard3,
-                    null
-            );
-
-            return;
-        }
-
-        if (index == 1) {
-
-            recognizeCardAtIndex(
-                    nextCard3,
-                    2,
-                    null,
-                    null
-            );
-
-            return;
-        }
-
-        /*
-         * Kaikki kolme valmiit.
-         */
-        updateCards(
-                currentResults[0],
-                currentResults[1],
-                currentResults[2]
+                1,
+                results
         );
 
-        processing = false;
-    }
-
-    private void startOCRTimeout() {
-
-        cancelOCRTimeout();
-
-        ocrTimeoutRunnable =
-                () -> {
-
-                    processing = false;
-
-                    currentResults[0] =
-                            getStableCard(0);
-
-                    currentResults[1] =
-                            getStableCard(1);
-
-                    currentResults[2] =
-                            getStableCard(2);
-
-                    updateCards(
-                            currentResults[0],
-                            currentResults[1],
-                            currentResults[2]
-                    );
-                };
-
-        handler.postDelayed(
-                ocrTimeoutRunnable,
-                OCR_TIMEOUT
+        recognizeNormalCard(
+                card3,
+                2,
+                results
         );
-    }
-
-    private void cancelOCRTimeout() {
-
-        if (ocrTimeoutRunnable != null) {
-
-            handler.removeCallbacks(
-                    ocrTimeoutRunnable
-            );
-
-            ocrTimeoutRunnable = null;
-        }
     }
 
     private Bitmap cropCard(
@@ -766,8 +557,17 @@ public class CaptureService extends Service {
             int bottom
     ) {
 
-        left = Math.max(0, left);
-        top = Math.max(0, top);
+        left =
+                Math.max(
+                        0,
+                        left
+                );
+
+        top =
+                Math.max(
+                        0,
+                        top
+                );
 
         right =
                 Math.min(
@@ -796,7 +596,9 @@ public class CaptureService extends Service {
                         bottom - top
                 );
 
-        return enlargeForOCR(cropped);
+        return enlargeForOCR(
+                cropped
+        );
     }
 
     private Bitmap enlargeForOCR(
@@ -818,6 +620,81 @@ public class CaptureService extends Service {
         bitmap.recycle();
 
         return enlarged;
+    }
+
+    private void recognizeNormalCard(
+            Bitmap bitmap,
+            int index,
+            String[] results
+    ) {
+
+        if (bitmap == null) {
+
+            results[index] =
+                    getStableCard(index);
+
+            checkOCRFinished(
+                    results
+            );
+
+            return;
+        }
+
+        InputImage image =
+                InputImage.fromBitmap(
+                        bitmap,
+                        0
+                );
+
+        recognizer.process(image)
+                .addOnSuccessListener(text -> {
+
+                    String cleaned =
+                            cleanCardName(text);
+
+                    results[index] =
+                            stabilizeCard(
+                                    cleaned,
+                                    index
+                            );
+
+                    bitmap.recycle();
+
+                    checkOCRFinished(
+                            results
+                    );
+                })
+                .addOnFailureListener(e -> {
+
+                    results[index] =
+                            getStableCard(index);
+
+                    bitmap.recycle();
+
+                    checkOCRFinished(
+                            results
+                    );
+                });
+    }
+
+    private void checkOCRFinished(
+            String[] results
+    ) {
+
+        if (results[0] == null ||
+                results[1] == null ||
+                results[2] == null) {
+
+            return;
+        }
+
+        updateCards(
+                results[0],
+                results[1],
+                results[2]
+        );
+
+        processing = false;
     }
 
     private String getStableCard(
@@ -997,8 +874,7 @@ public class CaptureService extends Service {
                         corrected.trim();
             }
 
-        } catch (Exception ignored) {
-        }
+        } catch (Exception ignored) {}
 
         text =
                 text.replace(
@@ -1053,6 +929,7 @@ public class CaptureService extends Service {
                 if (Character.isLetter(
                         line.charAt(i)
                 )) {
+
                     letters++;
                 }
             }
@@ -1110,7 +987,8 @@ public class CaptureService extends Service {
                     Character.toUpperCase(
                             best.charAt(0)
                     )
-                    + best.substring(1);
+                    +
+                    best.substring(1);
         }
 
         return best;
@@ -1136,18 +1014,22 @@ public class CaptureService extends Service {
         if (normalized.contains(
                 "soldierofinfinite"
         )
-                || normalized.contains(
-                "so1dierofinfinite"
-        )
-                || normalized.contains(
-                "sotdierofinfinite"
-        )
-                || normalized.contains(
-                "soldierofihfinite"
-        )
-                || normalized.contains(
-                "soldierofihfini"
-        )) {
+                ||
+                normalized.contains(
+                        "so1dierofinfinite"
+                )
+                ||
+                normalized.contains(
+                        "sotdierofinfinite"
+                )
+                ||
+                normalized.contains(
+                        "soldierofihfinite"
+                )
+                ||
+                normalized.contains(
+                        "soldierofihfini"
+                )) {
 
             return "Soldier of the Infinite";
         }
@@ -1185,6 +1067,7 @@ public class CaptureService extends Service {
 
         if (a == null ||
                 b == null) {
+
             return false;
         }
 
@@ -1212,6 +1095,7 @@ public class CaptureService extends Service {
 
         if (aa.contains(bb) ||
                 bb.contains(aa)) {
+
             return true;
         }
 
@@ -1369,6 +1253,7 @@ public class CaptureService extends Service {
 
         if (pendingOfferCount <
                 OFFER_CONFIRMATIONS) {
+
             return;
         }
 
@@ -1444,16 +1329,19 @@ public class CaptureService extends Service {
         String missing = "";
 
         if (!old1Exists) {
+
             missingCount++;
             missing = old1;
         }
 
         if (!old2Exists) {
+
             missingCount++;
             missing = old2;
         }
 
         if (!old3Exists) {
+
             missingCount++;
             missing = old3;
         }
@@ -1529,24 +1417,20 @@ public class CaptureService extends Service {
 
         processing = false;
 
-        cancelOCRTimeout();
-
         if (mediaProjection != null) {
 
             try {
                 mediaProjection.unregisterCallback(
                         mediaProjectionCallback
                 );
-            } catch (Exception ignored) {
-            }
+            } catch (Exception ignored) {}
         }
 
         if (imageReader != null) {
 
             try {
                 imageReader.close();
-            } catch (Exception ignored) {
-            }
+            } catch (Exception ignored) {}
 
             imageReader = null;
         }
@@ -1555,8 +1439,7 @@ public class CaptureService extends Service {
 
             try {
                 virtualDisplay.release();
-            } catch (Exception ignored) {
-            }
+            } catch (Exception ignored) {}
 
             virtualDisplay = null;
         }
@@ -1565,8 +1448,7 @@ public class CaptureService extends Service {
 
             try {
                 mediaProjection.stop();
-            } catch (Exception ignored) {
-            }
+            } catch (Exception ignored) {}
 
             mediaProjection = null;
         }
@@ -1575,8 +1457,7 @@ public class CaptureService extends Service {
 
             try {
                 recognizer.close();
-            } catch (Exception ignored) {
-            }
+            } catch (Exception ignored) {}
 
             recognizer = null;
         }
@@ -1588,8 +1469,7 @@ public class CaptureService extends Service {
                 windowManager.removeView(
                         overlayView
                 );
-            } catch (Exception ignored) {
-            }
+            } catch (Exception ignored) {}
 
             overlayView = null;
         }
