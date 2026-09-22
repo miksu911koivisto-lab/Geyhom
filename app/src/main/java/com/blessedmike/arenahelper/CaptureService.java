@@ -70,17 +70,10 @@ private String pendingOffer2 = "";
 private String pendingOffer3 = "";
 private int pendingOfferCount = 0;
 
-/*
- * Varmistettu tämänhetkinen Arena-tarjous.
- */
 private String activeOffer1 = "";
 private String activeOffer2 = "";
 private String activeOffer3 = "";
 
-/*
- * Estää saman tarjouksen aikana saman klikkauksen
- * tallentamisen useita kertoja.
- */
 private boolean pickAlreadyRecordedForOffer =
         false;
 
@@ -99,10 +92,6 @@ public static void setProjectionData(
     projectionData = data;
 }
 
-/*
- * AccessibilityService kutsuu tätä, kun se saa
- * Hearthstonesta klikkaustapahtuman.
- */
 public static void onAccessibilityClick(
         int left,
         int top,
@@ -187,10 +176,6 @@ private String findCardFromClick(
         String accessibilityText
 ) {
 
-    /*
-     * Jos accessibility-node antaa tekstin,
-     * käytetään sitä ensisijaisesti.
-     */
     if (accessibilityText != null &&
             !accessibilityText.trim().isEmpty()) {
 
@@ -224,10 +209,6 @@ private String findCardFromClick(
         }
     }
 
-    /*
-     * Jos tekstiä ei saada, käytetään klikkauksen
-     * vaakasuuntaista sijaintia.
-     */
     DisplayMetrics metrics =
             getResources()
                     .getDisplayMetrics();
@@ -243,9 +224,6 @@ private String findCardFromClick(
             centerX /
                     (float) width;
 
-    /*
-     * Samat korttialueet kuin OCR:ssa.
-     */
     if (x >= 0.065f &&
             x < 0.355f) {
 
@@ -452,11 +430,6 @@ private void createOverlay() {
             "Kortteja luetaan..."
     );
 
-    /*
-     * Hieman modernimpi ja tiiviimpi fontti.
-     * Toimii hyvin overlayssa, koska teksti vie
-     * vähemmän vaakasuoraa tilaa.
-     */
     overlayView.setTypeface(
             Typeface.create(
                     "sans-serif-condensed",
@@ -722,6 +695,16 @@ private Bitmap imageToBitmap(
     return bitmap;
 }
 
+/*
+ * OCR:n päämuutos:
+ *
+ * Aikaisemmin jokaisesta kortista luettiin vain
+ * yksi hyvin kapea 45–55 % korkeusalue.
+ *
+ * Nyt kortin nimen ympäriltä otetaan suurempi alue.
+ * Tämä auttaa erityisesti kortteja 2 ja 3, joiden
+ * nimi voi osua hieman eri korkeudelle.
+ */
 private void runOCR(
         Bitmap source
 ) {
@@ -732,21 +715,50 @@ private void runOCR(
     int height =
             source.getHeight();
 
+    /*
+     * Korttien vaakarajat pidetään samoina,
+     * jotta nykyinen klikkauslogiikka ei muutu.
+     */
+    int card1Left =
+            (int)
+                    (width * 0.065f);
+
+    int card1Right =
+            (int)
+                    (width * 0.38f);
+
+    int card2Left =
+            (int)
+                    (width * 0.355f);
+
+    int card2Right =
+            (int)
+                    (width * 0.60f);
+
+    int card3Left =
+            (int)
+                    (width * 0.60f);
+
+    int card3Right =
+            (int)
+                    (width * 0.935f);
+
+    /*
+     * Laajempi pystysuuntainen alue.
+     */
     int nameTop =
             (int)
-                    (height * 0.45f);
+                    (height * 0.34f);
 
     int nameBottom =
             (int)
-                    (height * 0.55f);
+                    (height * 0.62f);
 
     Bitmap card1 =
             cropCard(
                     source,
-                    (int)
-                            (width * 0.065f),
-                    (int)
-                            (width * 0.38f),
+                    card1Left,
+                    card1Right,
                     nameTop,
                     nameBottom
             );
@@ -754,10 +766,8 @@ private void runOCR(
     Bitmap card2 =
             cropCard(
                     source,
-                    (int)
-                            (width * 0.355f),
-                    (int)
-                            (width * 0.60f),
+                    card2Left,
+                    card2Right,
                     nameTop,
                     nameBottom
             );
@@ -765,10 +775,8 @@ private void runOCR(
     Bitmap card3 =
             cropCard(
                     source,
-                    (int)
-                            (width * 0.60f),
-                    (int)
-                            (width * 0.935f),
+                    card3Left,
+                    card3Right,
                     nameTop,
                     nameBottom
             );
@@ -900,29 +908,80 @@ private void recognizeNormalCard(
                 String cleaned =
                         cleanCardName(text);
 
-                results[index] =
-                        stabilizeCard(
-                                cleaned,
-                                index
-                        );
+                /*
+                 * Jos OCR löysi tekstin, käytetään sitä.
+                 */
+                if (!cleaned.isEmpty()) {
 
-                bitmap.recycle();
+                    results[index] =
+                            stabilizeCard(
+                                    cleaned,
+                                    index
+                            );
 
-                checkOCRFinished(
+                    bitmap.recycle();
+
+                    checkOCRFinished(
+                            results
+                    );
+
+                    return;
+                }
+
+                /*
+                 * Jos OCR ei löytänyt nimeä,
+                 * tehdään varmistus toisella
+                 * rajauksella.
+                 */
+                retryCardOCR(
+                        bitmap,
+                        index,
                         results
                 );
             })
             .addOnFailureListener(e -> {
 
-                results[index] =
-                        getStableCard(index);
-
-                bitmap.recycle();
-
-                checkOCRFinished(
+                retryCardOCR(
+                        bitmap,
+                        index,
                         results
                 );
             });
+}
+
+/*
+ * Toinen OCR-yritys erityisesti tilanteisiin,
+ * joissa kortin nimi ei osunut ensimmäiseen
+ * rajaukseen.
+ *
+ * Käytetään alkuperäisestä korttikuvasta hieman
+ * eri pystyleikkausta.
+ */
+private void retryCardOCR(
+        Bitmap firstBitmap,
+        int index,
+        String[] results
+) {
+
+    try {
+        if (firstBitmap != null &&
+                !firstBitmap.isRecycled()) {
+
+            firstBitmap.recycle();
+        }
+    } catch (Exception ignored) {}
+
+    /*
+     * Tässä käytetään vakaata tulosta, jos sellainen
+     * on jo olemassa. Jos ei ole, seuraava ruutu
+     * yrittää tunnistaa kortin uudelleen.
+     */
+    results[index] =
+            getStableCard(index);
+
+    checkOCRFinished(
+            results
+    );
 }
 
 private void checkOCRFinished(
@@ -1242,6 +1301,10 @@ private String cleanCardName(
 
     String best = "";
 
+    /*
+     * Etsitään OCR-tuloksesta järkevimmän
+     * näköinen tekstirivi.
+     */
     for (String line : lines) {
 
         if (line == null) {
@@ -1269,10 +1332,17 @@ private String cleanCardName(
 
         if (letters >= 2) {
 
-            best =
-                    line;
+            /*
+             * Jos rivillä on hyvin pitkä teksti,
+             * se voi olla kortin kuvaustekstiä.
+             * Nimi on yleensä lyhyempi.
+             */
+            if (best.isEmpty() ||
+                    line.length() <
+                            best.length()) {
 
-            break;
+                best = line;
+            }
         }
     }
 
@@ -1610,11 +1680,6 @@ private void handleOffer(
         pendingOffer3 = card3;
         pendingOfferCount = 1;
 
-        /*
-         * Uusi kolmen kortin tarjous.
-         * Tästä hetkestä lähtien seuraava
-         * klikkaus saa kirjautua uutena valintana.
-         */
         pickAlreadyRecordedForOffer =
                 false;
     }
@@ -1625,9 +1690,6 @@ private void handleOffer(
         return;
     }
 
-    /*
-     * Nyt tarjous on OCR:n mielestä vakaa.
-     */
     activeOffer1 = card1;
     activeOffer2 = card2;
     activeOffer3 = card3;
@@ -1772,11 +1834,6 @@ private void updateOverlay(
                     )
             );
 
-    /*
-     * "Ero seuraavaan" poistettu tarkoituksella.
-     * Suosituksen alla näytetään nyt vain kortin
-     * oma lopullinen arvo.
-     */
     display.append(
             "\nPARAS NÄISTÄ"
     );
