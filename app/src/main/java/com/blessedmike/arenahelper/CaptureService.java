@@ -40,7 +40,13 @@ public class CaptureService extends Service {
             "arena_helper_channel";
 
     private static final int OCR_INTERVAL = 1500;
+
+    /*
+     * Kuinka monta saman suuntaista OCR-tulosta tarvitaan,
+     * ennen kuin nimi hyväksytään uutena nimenä.
+     */
     private static final int CARD_CONFIRMATIONS = 2;
+
     private static final int OFFER_CONFIRMATIONS = 2;
 
     private WindowManager windowManager;
@@ -79,9 +85,22 @@ public class CaptureService extends Service {
         projectionData = data;
     }
 
+    /*
+     * Yhden korttipaikan OCR-vakaus.
+     *
+     * stable:
+     *     viimeisin varmasti tunnistettu nimi.
+     *
+     * candidate:
+     *     uusi mahdollinen nimi, jota ei vielä ole
+     *     hyväksytty stable-nimeksi.
+     */
     private static class CardStability {
+
         String stable = "";
+
         String candidate = "";
+
         int candidateCount = 0;
     }
 
@@ -102,6 +121,7 @@ public class CaptureService extends Service {
                 public void onStop() {
 
                     if (virtualDisplay != null) {
+
                         try {
                             virtualDisplay.release();
                         } catch (Exception ignored) {}
@@ -110,6 +130,7 @@ public class CaptureService extends Service {
                     }
 
                     if (imageReader != null) {
+
                         try {
                             imageReader.close();
                         } catch (Exception ignored) {}
@@ -123,6 +144,7 @@ public class CaptureService extends Service {
 
     @Override
     public void onCreate() {
+
         super.onCreate();
 
         createNotificationChannel();
@@ -132,8 +154,12 @@ public class CaptureService extends Service {
                         this,
                         CHANNEL_ID
                 )
-                        .setContentTitle("Arena Helper")
-                        .setContentText("Avustaja aktiivinen")
+                        .setContentTitle(
+                                "Arena Helper"
+                        )
+                        .setContentText(
+                                "Avustaja aktiivinen"
+                        )
                         .setSmallIcon(
                                 android.R.drawable
                                         .ic_menu_info_details
@@ -153,6 +179,7 @@ public class CaptureService extends Service {
                 );
 
         createOverlay();
+
         startCapture();
     }
 
@@ -176,6 +203,7 @@ public class CaptureService extends Service {
                             );
 
             if (manager != null) {
+
                 manager.createNotificationChannel(
                         channel
                 );
@@ -323,11 +351,6 @@ public class CaptureService extends Service {
                         2
                 );
 
-        /*
-         * TÄRKEÄ:
-         * Listener asetetaan ennen VirtualDisplayä,
-         * jotta ensimmäisiä frameja ei menetetä.
-         */
         imageReader.setOnImageAvailableListener(
                 reader ->
                         processLatestImage(reader),
@@ -381,7 +404,9 @@ public class CaptureService extends Service {
             image.close();
 
             if (bitmap == null) {
+
                 processing = false;
+
                 return;
             }
 
@@ -479,10 +504,6 @@ public class CaptureService extends Service {
                 (int)
                         (height * 0.55f);
 
-        /*
-         * Kortti 1:
-         * alkuperäinen toimiva alue.
-         */
         Bitmap card1 =
                 cropCard(
                         source,
@@ -494,11 +515,6 @@ public class CaptureService extends Service {
                         nameBottom
                 );
 
-        /*
-         * Kortti 2:
-         * loppu nyt tasan 60 %:iin,
-         * jotta kortti 2 ja 3 eivät mene päällekkäin.
-         */
         Bitmap card2 =
                 cropCard(
                         source,
@@ -510,10 +526,6 @@ public class CaptureService extends Service {
                         nameBottom
                 );
 
-        /*
-         * Kortti 3:
-         * alkaa samasta kohdasta kuin kortti 2 loppuu.
-         */
         Bitmap card3 =
                 cropCard(
                         source,
@@ -712,6 +724,21 @@ public class CaptureService extends Service {
         return card3Stability.stable;
     }
 
+    /*
+     * TÄRKEIN MUUTOS:
+     *
+     * Jos stable = "Holy Eggbearer"
+     * ja OCR antaa:
+     *
+     *     "Holy"
+     *     "Eggbearer"
+     *     "Holy Egg"
+     *     "Holy Eggbea"
+     *
+     * niitä EI enää hyväksytä stable-nimen tilalle.
+     *
+     * Vanha hyvä nimi säilytetään.
+     */
     private String stabilizeCard(
             String detected,
             int index
@@ -729,31 +756,141 @@ public class CaptureService extends Service {
                 );
 
         if (normalized.isEmpty()) {
+
             return getStableCard(index);
         }
 
-        CardStability stability;
+        CardStability stability =
+                getCardStability(index);
 
-        if (index == 0) {
+        /*
+         * Jos OCR löytää tunnetun kortin nimen,
+         * käytetään sitä mieluummin kuin epätäydellistä
+         * OCR-tulosta.
+         */
+        normalized =
+                applyKnownCardCorrections(
+                        normalized,
+                        stability.stable
+                );
 
-            stability =
-                    card1Stability;
-
-        } else if (index == 1) {
-
-            stability =
-                    card2Stability;
-
-        } else {
-
-            stability =
-                    card3Stability;
-        }
-
+        /*
+         * Ensimmäinen tunnistus.
+         */
         if (stability.stable.isEmpty()) {
 
+            if (stability.candidate.isEmpty()) {
+
+                stability.candidate =
+                        normalized;
+
+                stability.candidateCount = 1;
+
+            } else if (
+                    similarNames(
+                            stability.candidate,
+                            normalized
+                    )
+            ) {
+
+                /*
+                 * Jos toinen OCR-tulos on pidempi ja
+                 * sisältää enemmän nimestä, pidetään
+                 * pidempi ehdokkaana.
+                 */
+                stability.candidate =
+                        chooseBetterName(
+                                stability.candidate,
+                                normalized
+                        );
+
+                stability.candidateCount++;
+
+            } else {
+
+                stability.candidate =
+                        normalized;
+
+                stability.candidateCount = 1;
+            }
+
+            if (stability.candidateCount >=
+                    CARD_CONFIRMATIONS) {
+
+                stability.stable =
+                        stability.candidate;
+
+                stability.candidate = "";
+
+                stability.candidateCount = 0;
+            }
+
+            /*
+             * Näytetään ehdokas väliaikaisesti,
+             * mutta sitä ei vielä käytetä pysyvänä
+             * kortin nimenä.
+             */
+            return stability.stable.isEmpty()
+                    ? normalized
+                    : stability.stable;
+        }
+
+        /*
+         * Jos uusi OCR-tulos on käytännössä sama nimi,
+         * EI vaihdeta stable-nimeä lyhyempään muotoon.
+         */
+        if (sameCardName(
+                stability.stable,
+                normalized
+        )) {
+
+            stability.candidate = "";
+
+            stability.candidateCount = 0;
+
+            return stability.stable;
+        }
+
+        /*
+         * Jos uusi tulos näyttää olevan vain osa vanhasta
+         * nimestä, IGNOROIDAAN se kokonaan.
+         *
+         * Tämä estää esimerkiksi:
+         *
+         * Holy Eggbearer
+         *       ↓
+         * Holy
+         *
+         * ja:
+         *
+         * Holy Eggbearer
+         *       ↓
+         * Eggbearer
+         */
+        if (isPartialOf(
+                normalized,
+                stability.stable
+        )) {
+
+            stability.candidate = "";
+
+            stability.candidateCount = 0;
+
+            return stability.stable;
+        }
+
+        /*
+         * Jos uusi OCR-tulos on vanhaa nimeä pidempi
+         * mutta selvästi sama nimi, voidaan käyttää
+         * sitä paremman OCR-tuloksen ehdokkaana.
+         */
+        if (isExpandedVersion(
+                normalized,
+                stability.stable
+        )) {
+
             if (stability.candidate.isEmpty() ||
-                    !similarNames(
+                    !sameCardName(
                             stability.candidate,
                             normalized
                     )) {
@@ -772,31 +909,20 @@ public class CaptureService extends Service {
                     CARD_CONFIRMATIONS) {
 
                 stability.stable =
-                        stability.candidate;
+                        normalized;
 
                 stability.candidate = "";
+
                 stability.candidateCount = 0;
             }
-
-            return stability.stable.isEmpty()
-                    ? normalized
-                    : stability.stable;
-        }
-
-        if (similarNames(
-                stability.stable,
-                normalized
-        )) {
-
-            stability.stable =
-                    normalized;
-
-            stability.candidate = "";
-            stability.candidateCount = 0;
 
             return stability.stable;
         }
 
+        /*
+         * Täysin uusi nimi.
+         * Sitä ei hyväksytä heti.
+         */
         if (stability.candidate.isEmpty() ||
                 !similarNames(
                         stability.candidate,
@@ -817,13 +943,252 @@ public class CaptureService extends Service {
                 CARD_CONFIRMATIONS) {
 
             stability.stable =
-                    stability.candidate;
+                    chooseBetterName(
+                            stability.stable,
+                            stability.candidate
+                    );
 
             stability.candidate = "";
+
             stability.candidateCount = 0;
         }
 
         return stability.stable;
+    }
+
+    private CardStability getCardStability(
+            int index
+    ) {
+
+        if (index == 0) {
+            return card1Stability;
+        }
+
+        if (index == 1) {
+            return card2Stability;
+        }
+
+        return card3Stability;
+    }
+
+    /*
+     * Tarkempi nimivertailu.
+     *
+     * "Holy Eggbearer"
+     * ja
+     * "Holy"
+     *
+     * eivät ole enää sama nimi tässä kohdassa,
+     * vaikka toinen sisältää toisen.
+     */
+    private boolean sameCardName(
+            String a,
+            String b
+    ) {
+
+        if (a == null ||
+                b == null) {
+
+            return false;
+        }
+
+        String aa =
+                normalizeForComparison(a);
+
+        String bb =
+                normalizeForComparison(b);
+
+        if (aa.equals(bb)) {
+            return true;
+        }
+
+        /*
+         * Pieni OCR-virhe hyväksytään,
+         * mutta vain jos nimet ovat suunnilleen
+         * saman pituiset.
+         */
+        int maxLength =
+                Math.max(
+                        aa.length(),
+                        bb.length()
+                );
+
+        int lengthDifference =
+                Math.abs(
+                        aa.length() -
+                                bb.length()
+                );
+
+        if (lengthDifference >
+                Math.max(
+                        2,
+                        maxLength / 5
+                )) {
+
+            return false;
+        }
+
+        int distance =
+                levenshtein(
+                        aa,
+                        bb
+                );
+
+        return distance <=
+                Math.max(
+                        2,
+                        maxLength / 5
+                );
+    }
+
+    /*
+     * Tarkistaa onko uusi OCR-tulos vain osa
+     * jo vakaasta kortin nimestä.
+     */
+    private boolean isPartialOf(
+            String possiblePart,
+            String fullName
+    ) {
+
+        if (possiblePart == null ||
+                fullName == null) {
+
+            return false;
+        }
+
+        String part =
+                normalizeForComparison(
+                        possiblePart
+                );
+
+        String full =
+                normalizeForComparison(
+                        fullName
+                );
+
+        if (part.isEmpty() ||
+                full.isEmpty()) {
+
+            return false;
+        }
+
+        if (part.equals(full)) {
+            return false;
+        }
+
+        if (part.length() >=
+                full.length()) {
+
+            return false;
+        }
+
+        /*
+         * Vain jos lyhyt tulos on oikeasti
+         * merkittävä osa koko nimeä.
+         */
+        return full.contains(part) &&
+                part.length() >= 4;
+    }
+
+    /*
+     * Tarkistaa onko uusi tulos vanhan nimen
+     * pidempi versio.
+     */
+    private boolean isExpandedVersion(
+            String possibleFull,
+            String oldName
+    ) {
+
+        if (possibleFull == null ||
+                oldName == null) {
+
+            return false;
+        }
+
+        String full =
+                normalizeForComparison(
+                        possibleFull
+                );
+
+        String old =
+                normalizeForComparison(
+                        oldName
+                );
+
+        if (full.length() <=
+                old.length()) {
+
+            return false;
+        }
+
+        if (!full.contains(old)) {
+
+            return false;
+        }
+
+        return full.length() -
+                old.length() >= 2;
+    }
+
+    private String chooseBetterName(
+            String oldName,
+            String newName
+    ) {
+
+        if (oldName == null ||
+                oldName.isEmpty()) {
+
+            return newName;
+        }
+
+        if (newName == null ||
+                newName.isEmpty()) {
+
+            return oldName;
+        }
+
+        /*
+         * Jos uusi nimi sisältää vanhan nimen,
+         * uusi pidempi nimi on yleensä parempi.
+         */
+        String old =
+                normalizeForComparison(
+                        oldName
+                );
+
+        String newer =
+                normalizeForComparison(
+                        newName
+                );
+
+        if (newer.length() >
+                old.length() &&
+                newer.contains(old)) {
+
+            return newName;
+        }
+
+        /*
+         * Muuten pidetään olemassa oleva vakaa nimi.
+         */
+        return oldName;
+    }
+
+    private String normalizeForComparison(
+            String text
+    ) {
+
+        if (text == null) {
+            return "";
+        }
+
+        return text.toLowerCase(
+                        Locale.US
+                )
+                .replaceAll(
+                        "[^a-z0-9]",
+                        ""
+                );
     }
 
     private String normalizeDetectedCardName(
@@ -845,18 +1210,17 @@ public class CaptureService extends Service {
 
         text =
                 text.replaceAll(
-                        "[\\s\\.,:;|]+$",
-                        ""
-                );
-
-        text =
-                text.replaceAll(
                         "\\s+",
                         " "
                 ).trim();
 
         text =
                 fixSoldierOfInfinite(
+                        text
+                );
+
+        text =
+                fixHolyEggbearer(
                         text
                 );
 
@@ -870,11 +1234,27 @@ public class CaptureService extends Service {
             if (corrected != null &&
                     !corrected.trim().isEmpty()) {
 
-                text =
+                String correctedText =
                         corrected.trim();
+
+                /*
+                 * Älä anna ArenaAdvisorin lyhentää
+                 * jo parempaa OCR-nimeä.
+                 */
+                if (correctedText.length() >=
+                        text.length()) {
+
+                    text =
+                            correctedText;
+                }
             }
 
         } catch (Exception ignored) {}
+
+        text =
+                fixHolyEggbearer(
+                        text
+                );
 
         text =
                 text.replace(
@@ -889,6 +1269,96 @@ public class CaptureService extends Service {
                 );
 
         return text.trim();
+    }
+
+    /*
+     * Holy Eggbearer -kortin OCR-vakautus.
+     *
+     * OCR voi lukea esimerkiksi:
+     *
+     * Holy Eggbearer
+     * Holy Eggbeaer
+     * Holy Eggbear
+     * Holy Eggbeerer
+     * Holy Egg
+     * Holy
+     *
+     * Tässä vaiheessa vain selvästi koko nimeen
+     * viittaavat muodot muutetaan oikeaksi nimeksi.
+     */
+    private String fixHolyEggbearer(
+            String text
+    ) {
+
+        if (text == null) {
+            return "";
+        }
+
+        String compact =
+                text.toLowerCase(
+                        Locale.US
+                )
+                .replaceAll(
+                        "[^a-z0-9]",
+                        ""
+                );
+
+        if (compact.equals(
+                "holyeggbearer"
+        )) {
+
+            return "Holy Eggbearer";
+        }
+
+        if (compact.equals(
+                "holyegbearer"
+        )
+                ||
+                compact.equals(
+                        "holyeggbear"
+                )
+                ||
+                compact.equals(
+                        "holyeggbearer"
+                )
+                ||
+                compact.equals(
+                        "holyegbearer"
+                )
+                ||
+                compact.equals(
+                        "holyeggbearer"
+                )
+                ||
+                compact.equals(
+                        "holyegbearer"
+                )) {
+
+            return "Holy Eggbearer";
+        }
+
+        /*
+         * OCR saattaa yhdistää kirjaimia oudosti.
+         * Jos molemmat osat löytyvät riittävän selvästi,
+         * palautetaan oikea koko nimi.
+         */
+        boolean hasHoly =
+                compact.contains("holy");
+
+        boolean hasEgg =
+                compact.contains("egg");
+
+        boolean hasBear =
+                compact.contains("bear");
+
+        if (hasHoly &&
+                hasEgg &&
+                hasBear) {
+
+            return "Holy Eggbearer";
+        }
+
+        return text;
     }
 
     private String cleanCardName(
@@ -911,6 +1381,64 @@ public class CaptureService extends Service {
 
         String best = "";
 
+        /*
+         * Ensin etsitään koko tekstistä järkevä nimi.
+         *
+         * Tämä on tärkeää tapauksissa, joissa OCR tekee:
+         *
+         * Holy
+         * Eggbearer
+         *
+         * eikä yhtenä rivinä:
+         *
+         * Holy Eggbearer
+         */
+        StringBuilder combined =
+                new StringBuilder();
+
+        for (String line : lines) {
+
+            if (line == null) {
+                continue;
+            }
+
+            line =
+                    line.trim();
+
+            if (line.isEmpty()) {
+                continue;
+            }
+
+            if (combined.length() > 0) {
+                combined.append(" ");
+            }
+
+            combined.append(line);
+        }
+
+        String combinedText =
+                combined.toString().trim();
+
+        /*
+         * Holy Eggbearer -erityistapaus
+         * tarkistetaan ennen yhden rivin valintaa.
+         */
+        String holyEgg =
+                fixHolyEggbearer(
+                        combinedText
+                );
+
+        if ("Holy Eggbearer".equals(
+                holyEgg
+        )) {
+
+            return holyEgg;
+        }
+
+        /*
+         * Valitaan normaalisti ensimmäinen
+         * järkevä tekstirivi.
+         */
         for (String line : lines) {
 
             if (line == null) {
@@ -944,7 +1472,7 @@ public class CaptureService extends Service {
         }
 
         if (best.isEmpty()) {
-            best = raw.trim();
+            best = combinedText;
         }
 
         best =
@@ -960,6 +1488,11 @@ public class CaptureService extends Service {
 
         best =
                 fixSoldierOfInfinite(
+                        best
+                );
+
+        best =
+                fixHolyEggbearer(
                         best
                 );
 
@@ -992,6 +1525,57 @@ public class CaptureService extends Service {
         }
 
         return best;
+    }
+
+    private String applyKnownCardCorrections(
+            String detected,
+            String stable
+    ) {
+
+        String corrected =
+                detected;
+
+        corrected =
+                fixHolyEggbearer(
+                        corrected
+                );
+
+        corrected =
+                fixSoldierOfInfinite(
+                        corrected
+                );
+
+        /*
+         * Jos vakaa nimi on Holy Eggbearer,
+         * kaikki sitä lyhyemmät OCR-versiot pidetään
+         * vakaana nimenä.
+         */
+        if (stable != null &&
+                !stable.isEmpty()) {
+
+            if (isPartialOf(
+                    corrected,
+                    stable
+            )) {
+
+                return stable;
+            }
+
+            /*
+             * Jos OCR on hyvin lähellä vakaata nimeä,
+             * palautetaan vakaa nimi eikä OCR:n
+             * hieman eri kirjoitusasua.
+             */
+            if (sameCardName(
+                    stable,
+                    corrected
+            )) {
+
+                return stable;
+            }
+        }
+
+        return corrected;
     }
 
     private String fixSoldierOfInfinite(
@@ -1072,27 +1656,22 @@ public class CaptureService extends Service {
         }
 
         String aa =
-                a.toLowerCase(
-                                Locale.US
-                        )
-                        .replaceAll(
-                                "[^a-z0-9]",
-                                ""
-                        );
+                normalizeForComparison(a);
 
         String bb =
-                b.toLowerCase(
-                                Locale.US
-                        )
-                        .replaceAll(
-                                "[^a-z0-9]",
-                                ""
-                        );
+                normalizeForComparison(b);
 
         if (aa.equals(bb)) {
             return true;
         }
 
+        /*
+         * Tässä käytetään edelleen contains-tarkistusta
+         * tarjouksen vaihtumisen tunnistamiseen.
+         *
+         * Itse stable-nimen päivittämisessä käytetään
+         * tarkempaa sameCardName/isPartialOf-logiikkaa.
+         */
         if (aa.contains(bb) ||
                 bb.contains(aa)) {
 
@@ -1124,8 +1703,11 @@ public class CaptureService extends Service {
     ) {
 
         int[][] dp =
-                new int[a.length() + 1]
-                        [b.length() + 1];
+                new int[
+                        a.length() + 1
+                ][
+                        b.length() + 1
+                ];
 
         for (int i = 0;
                 i <= a.length();
@@ -1168,7 +1750,11 @@ public class CaptureService extends Service {
             }
         }
 
-        return dp[a.length()][b.length()];
+        return dp[
+                a.length()
+        ][
+                b.length()
+        ];
     }
 
     private void updateCards(
@@ -1218,6 +1804,7 @@ public class CaptureService extends Service {
             pendingOffer1 = card1;
             pendingOffer2 = card2;
             pendingOffer3 = card3;
+
             pendingOfferCount = 1;
 
             return;
@@ -1248,6 +1835,7 @@ public class CaptureService extends Service {
             pendingOffer1 = card1;
             pendingOffer2 = card2;
             pendingOffer3 = card3;
+
             pendingOfferCount = 1;
         }
 
@@ -1326,23 +1914,27 @@ public class CaptureService extends Service {
                 similarNames(old3, new3);
 
         int missingCount = 0;
+
         String missing = "";
 
         if (!old1Exists) {
 
             missingCount++;
+
             missing = old1;
         }
 
         if (!old2Exists) {
 
             missingCount++;
+
             missing = old2;
         }
 
         if (!old3Exists) {
 
             missingCount++;
+
             missing = old3;
         }
 
@@ -1420,9 +2012,11 @@ public class CaptureService extends Service {
         if (mediaProjection != null) {
 
             try {
+
                 mediaProjection.unregisterCallback(
                         mediaProjectionCallback
                 );
+
             } catch (Exception ignored) {}
         }
 
@@ -1466,9 +2060,11 @@ public class CaptureService extends Service {
                 windowManager != null) {
 
             try {
+
                 windowManager.removeView(
                         overlayView
                 );
+
             } catch (Exception ignored) {}
 
             overlayView = null;
@@ -1482,6 +2078,7 @@ public class CaptureService extends Service {
     public IBinder onBind(
             Intent intent
     ) {
+
         return null;
     }
 }
