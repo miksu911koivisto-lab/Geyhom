@@ -9,8 +9,6 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
@@ -24,10 +22,6 @@ public class ArenaAdvisor {
     private static final String HEARTHARENA_URL =
             "https://www.heartharena.com/tierlist";
 
-    /*
-     * HearthArena käyttää pisteitä pääasiassa noin 0–150
-     * välillä. Sovelluksessa muutetaan ne 0–10 asteikolle.
-     */
     private static final double HEARTHARENA_SCALE = 13.0;
 
     private static final double UNKNOWN_CARD_SCORE = 0.0;
@@ -55,15 +49,19 @@ public class ArenaAdvisor {
     private static boolean onlineDataLoaded = false;
 
     /*
-     * Estetään sitä, että sama kortti päätyy useita kertoja
-     * listalle saman sivun eri luokkien takia.
-     *
-     * Jos kortti esiintyy usealla luokalla, pidämme suurimman
-     * HearthArena-arvon. Tällä hetkellä sovellus ei vielä tiedä
-     * pelaajan Arena-luokkaa, joten tämä antaa kortille käyttökelpoisen
-     * yleisarvon. Luokkakohtainen valinta voidaan lisätä myöhemmin.
+     * Kortin normalisoitu nimi -> HearthArena-piste
      */
     private static final Map<String, Integer> ONLINE_RAW_SCORES =
+            new HashMap<>();
+
+    /*
+     * Kortin normalisoitu nimi -> alkuperäinen kortin nimi
+     *
+     * TÄMÄ ON UUSI:
+     * normalisoitua nimeä käytetään hakemiseen,
+     * mutta alkuperäistä nimeä käytetään näytössä.
+     */
+    private static final Map<String, String> ONLINE_CARD_NAMES =
             new HashMap<>();
 
     private static class CardData {
@@ -86,9 +84,6 @@ public class ArenaAdvisor {
          * ---------------------------------------------------------
          * VARAKORTIT
          * ---------------------------------------------------------
-         *
-         * Nämä ovat vain varmistuksia siltä varalta, että verkkolataus
-         * ei onnistu. Varsinainen korttidata haetaan HearthArenasta.
          */
 
         addCard(
@@ -289,11 +284,6 @@ public class ArenaAdvisor {
         );
 
         addAlias(
-                "windswept pageturner",
-                "Windswept Pageturner"
-        );
-
-        addAlias(
                 "spirit gatherer",
                 "Spirit Gatherer"
         );
@@ -341,8 +331,6 @@ public class ArenaAdvisor {
 
         /*
          * Aloitetaan HearthArena-datan lataus.
-         *
-         * Tämä tapahtuu taustasäikeessä, joten sovellus ei jääty.
          */
         loadOnlineData();
     }
@@ -489,10 +477,35 @@ public class ArenaAdvisor {
                             int rawScore =
                                     entry.getValue();
 
+                            /*
+                             * TÄRKEÄ KORJAUS:
+                             *
+                             * Haetaan nyt alkuperäinen nimi
+                             * erillisestä kartasta.
+                             *
+                             * Esimerkiksi:
+                             *
+                             * sharpeyedlookout
+                             * ->
+                             * Sharp-Eyed Lookout
+                             */
                             String displayName =
-                                    findOriginalName(
+                                    ONLINE_CARD_NAMES.get(
                                             normalizedName
                                     );
+
+                            /*
+                             * Jos nimeä ei jostain syystä löydy,
+                             * käytetään vanhaa varmistusta.
+                             */
+                            if (displayName == null ||
+                                    displayName.isEmpty()) {
+
+                                displayName =
+                                        findOriginalName(
+                                                normalizedName
+                                        );
+                            }
 
                             if (displayName == null ||
                                     displayName.isEmpty()) {
@@ -505,9 +518,6 @@ public class ArenaAdvisor {
                                     rawScore /
                                             HEARTHARENA_SCALE;
 
-                            /*
-                             * Online data korvaa vanhan fallback-arvon.
-                             */
                             CARDS.put(
                                     normalizedName,
                                     new CardData(
@@ -586,10 +596,6 @@ public class ArenaAdvisor {
     /*
      * HearthArenan sivu sisältää kortin nimen ja sen jälkeen
      * numeerisen pisteen.
-     *
-     * Sivulla on paljon tyhjiä sijoituspaikkoja, joten parseri
-     * ei oleta että piste on välittömästi seuraavassa raakatekstin
-     * merkissä.
      */
     private static void parseHearthArenaPage(
             String html
@@ -640,13 +646,6 @@ public class ArenaAdvisor {
                             line
                     );
 
-            /*
-             * Piste:
-             * 115
-             * 100
-             * 79↓
-             * jne.
-             */
             String scoreLine =
                     line.replace(
                             "↓",
@@ -691,9 +690,26 @@ public class ArenaAdvisor {
                                         );
 
                                 /*
+                                 * TÄRKEÄ KORJAUS:
+                                 *
+                                 * Tallennetaan alkuperäinen
+                                 * kortin nimi ennen normalizeKey()
+                                 * -muunnosta.
+                                 */
+                                if (!ONLINE_CARD_NAMES.containsKey(
+                                        key
+                                )) {
+
+                                    ONLINE_CARD_NAMES.put(
+                                            key,
+                                            previousCard
+                                    );
+                                }
+
+                                /*
                                  * Sama kortti voi esiintyä useassa
                                  * luokkataulukossa. Otetaan korkein
-                                 * nykyinen HearthArena-arvo.
+                                 * HearthArena-arvo.
                                  */
                                 if (old == null ||
                                         integerScore > old) {
@@ -701,6 +717,16 @@ public class ArenaAdvisor {
                                     ONLINE_RAW_SCORES.put(
                                             key,
                                             integerScore
+                                    );
+
+                                    /*
+                                     * Jos parempi arvo tulee myöhemmin,
+                                     * nimi säilytetään edelleen
+                                     * alkuperäisessä muodossaan.
+                                     */
+                                    ONLINE_CARD_NAMES.put(
+                                            key,
+                                            previousCard
                                     );
                                 }
                             }
@@ -715,10 +741,6 @@ public class ArenaAdvisor {
                 continue;
             }
 
-            /*
-             * Numerorivit, otsikot ja muut sivun tekstit eivät
-             * saa muuttua korttinimiksi.
-             */
             if (isLikelyCardName(line)) {
 
                 previousCard =
@@ -742,9 +764,6 @@ public class ArenaAdvisor {
             return false;
         }
 
-        /*
-         * Otsikoita ei käsitellä kortteina.
-         */
         String lower =
                 value.toLowerCase(
                         Locale.US
@@ -842,9 +861,6 @@ public class ArenaAdvisor {
             return false;
         }
 
-        /*
-         * Tyhjät sijoituspaikat.
-         */
         if (value.matches(
                 "\\d+\\."
         )) {
@@ -852,9 +868,6 @@ public class ArenaAdvisor {
             return false;
         }
 
-        /*
-         * Pelkkä numero.
-         */
         if (value.matches(
                 "\\d+(?:\\.\\d+)?"
         )) {
@@ -862,9 +875,6 @@ public class ArenaAdvisor {
             return false;
         }
 
-        /*
-         * Varmistetaan, että tekstissä on kirjaimia.
-         */
         boolean hasLetter =
                 false;
 
@@ -885,9 +895,6 @@ public class ArenaAdvisor {
             return false;
         }
 
-        /*
-         * Liian pitkä rivi on lähes varmasti sivutekstiä.
-         */
         if (value.length() > 100) {
             return false;
         }
@@ -906,9 +913,6 @@ public class ArenaAdvisor {
         String result =
                 html;
 
-        /*
-         * Scriptit ja tyylit pois.
-         */
         result =
                 result.replaceAll(
                         "(?is)<script[^>]*>.*?</script>",
@@ -921,9 +925,6 @@ public class ArenaAdvisor {
                         "\n"
                 );
 
-        /*
-         * Rivin vaihdot säilytetään tärkeinä.
-         */
         result =
                 result.replaceAll(
                         "(?i)<br\\s*/?>",
@@ -1033,9 +1034,6 @@ public class ArenaAdvisor {
                         ">"
                 );
 
-        /*
-         * Yleinen numeerinen HTML-entiteetti.
-         */
         result =
                 result.replaceAll(
                         "&#x27;",
@@ -1081,6 +1079,24 @@ public class ArenaAdvisor {
             return "";
         }
 
+        /*
+         * Uusi ensisijainen lähde:
+         * alkuperäinen HearthArena-nimi.
+         */
+        String onlineName =
+                ONLINE_CARD_NAMES.get(
+                        normalized
+                );
+
+        if (onlineName != null &&
+                !onlineName.isEmpty()) {
+
+            return onlineName;
+        }
+
+        /*
+         * Vanha fallback.
+         */
         for (CardData card :
                 CARDS.values()) {
 
@@ -1094,10 +1110,6 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * Muutamat uudet kortit eivät ole fallback-listassa,
-         * joten muodostetaan nimi normalisoidusta arvosta.
-         */
         return restoreBasicName(
                 normalized
         );
@@ -1113,13 +1125,6 @@ public class ArenaAdvisor {
             return "";
         }
 
-        /*
-         * Tätä käytetään vain siinä tapauksessa,
-         * ettei korttia löydy valmiista nimilistasta.
-         *
-         * Useimmat HearthArena-nimet säilyvät jo alkuperäisessä
-         * muodossaan parserissa, joten tämä on viimeinen varmistus.
-         */
         return normalized
                 .replace(
                         "_",
@@ -1155,9 +1160,6 @@ public class ArenaAdvisor {
                         cleaned
                 );
 
-        /*
-         * Soldier of the Infinite - erikoiskorjaus.
-         */
         if (normalized.contains(
                 "soldierofinfinite"
         )
@@ -1181,9 +1183,6 @@ public class ArenaAdvisor {
             return "Soldier of the Infinite";
         }
 
-        /*
-         * Suora alias.
-         */
         String alias =
                 OCR_ALIASES.get(
                         normalized
@@ -1193,9 +1192,6 @@ public class ArenaAdvisor {
             return alias;
         }
 
-        /*
-         * Täsmällinen tunnettu kortti.
-         */
         CardData exact =
                 CARDS.get(
                         normalized
@@ -1205,9 +1201,6 @@ public class ArenaAdvisor {
             return exact.name;
         }
 
-        /*
-         * Fuzzy matching.
-         */
         String bestName =
                 "";
 
@@ -1427,10 +1420,6 @@ public class ArenaAdvisor {
                         key
                 );
 
-        /*
-         * Jos online-data on ladattu, yritetään myös
-         * suoraan online-nimilistaa.
-         */
         if (card == null &&
                 onlineDataLoaded) {
 
@@ -1461,9 +1450,6 @@ public class ArenaAdvisor {
         double result =
                 card.score;
 
-        /*
-         * Pieni synergy-bonus jo valittujen korttien perusteella.
-         */
         result +=
                 synergyBonus(
                         card.name
@@ -1697,10 +1683,6 @@ public class ArenaAdvisor {
 
         int count = 0;
 
-        /*
-         * Nykyinen rakenne pitää yksinkertaista settiä.
-         * Tämä palauttaa 1 jos kortti on jo valittu.
-         */
         if (PICKED_CARDS.contains(
                 key
         )) {
