@@ -18,6 +18,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.util.DisplayMetrics;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.TextView;
@@ -36,12 +37,18 @@ import java.util.Locale;
 
 public class CaptureService extends Service {
 
+    private static final String TAG =
+            "ArenaHelperCapture";
+
     private static final String CHANNEL_ID =
             "arena_helper_channel";
 
-    private static final int OCR_INTERVAL = 1500;
     private static final int CARD_CONFIRMATIONS = 2;
     private static final int OFFER_CONFIRMATIONS = 2;
+
+    private static final long PICK_COOLDOWN_MS = 1200L;
+
+    private static CaptureService activeInstance;
 
     private WindowManager windowManager;
     private TextView overlayView;
@@ -57,14 +64,26 @@ public class CaptureService extends Service {
 
     private boolean processing = false;
 
-    private String confirmedCard1 = "";
-    private String confirmedCard2 = "";
-    private String confirmedCard3 = "";
-
     private String pendingOffer1 = "";
     private String pendingOffer2 = "";
     private String pendingOffer3 = "";
     private int pendingOfferCount = 0;
+
+    /*
+     * Varmistettu tämänhetkinen Arena-tarjous.
+     */
+    private String activeOffer1 = "";
+    private String activeOffer2 = "";
+    private String activeOffer3 = "";
+
+    /*
+     * Estää saman tarjouksen aikana saman klikkauksen
+     * tallentamisen useita kertoja.
+     */
+    private boolean pickAlreadyRecordedForOffer =
+            false;
+
+    private long lastPickTime = 0L;
 
     private String lastRecordedPick = "";
 
@@ -77,6 +96,228 @@ public class CaptureService extends Service {
     ) {
         projectionResultCode = resultCode;
         projectionData = data;
+    }
+
+    /*
+     * AccessibilityService kutsuu tätä, kun se saa
+     * Hearthstonesta klikkaustapahtuman.
+     */
+    public static void onAccessibilityClick(
+            int left,
+            int top,
+            int right,
+            int bottom,
+            String text
+    ) {
+
+        CaptureService service =
+                activeInstance;
+
+        if (service == null) {
+            return;
+        }
+
+        service.handleAccessibilityClick(
+                left,
+                top,
+                right,
+                bottom,
+                text
+        );
+    }
+
+    private void handleAccessibilityClick(
+            int left,
+            int top,
+            int right,
+            int bottom,
+            String accessibilityText
+    ) {
+
+        if (pickAlreadyRecordedForOffer) {
+            return;
+        }
+
+        long now =
+                System.currentTimeMillis();
+
+        if (now - lastPickTime <
+                PICK_COOLDOWN_MS) {
+
+            return;
+        }
+
+        if (activeOffer1.isEmpty() ||
+                activeOffer2.isEmpty() ||
+                activeOffer3.isEmpty()) {
+
+            return;
+        }
+
+        int centerX =
+                left +
+                        ((right - left) / 2);
+
+        int centerY =
+                top +
+                        ((bottom - top) / 2);
+
+        String clickedCard =
+                findCardFromClick(
+                        centerX,
+                        centerY,
+                        accessibilityText
+                );
+
+        if (clickedCard == null ||
+                clickedCard.isEmpty()) {
+
+            return;
+        }
+
+        recordConfirmedPick(
+                clickedCard
+        );
+    }
+
+    private String findCardFromClick(
+            int centerX,
+            int centerY,
+            String accessibilityText
+    ) {
+
+        /*
+         * Jos accessibility-node antaa tekstin,
+         * käytetään sitä ensisijaisesti.
+         */
+        if (accessibilityText != null &&
+                !accessibilityText.trim().isEmpty()) {
+
+            String text =
+                    normalizeDetectedCardName(
+                            accessibilityText
+                    );
+
+            if (!text.isEmpty()) {
+
+                if (similarNames(
+                        text,
+                        activeOffer1
+                )) {
+                    return activeOffer1;
+                }
+
+                if (similarNames(
+                        text,
+                        activeOffer2
+                )) {
+                    return activeOffer2;
+                }
+
+                if (similarNames(
+                        text,
+                        activeOffer3
+                )) {
+                    return activeOffer3;
+                }
+            }
+        }
+
+        /*
+         * Jos tekstiä ei saada, käytetään klikkauksen
+         * vaakasuuntaista sijaintia.
+         */
+        DisplayMetrics metrics =
+                getResources()
+                        .getDisplayMetrics();
+
+        int width =
+                metrics.widthPixels;
+
+        if (width <= 0) {
+            return "";
+        }
+
+        float x =
+                centerX /
+                        (float) width;
+
+        /*
+         * Samat korttialueet kuin OCR:ssa.
+         */
+        if (x >= 0.065f &&
+                x < 0.355f) {
+
+            return activeOffer1;
+        }
+
+        if (x >= 0.355f &&
+                x < 0.60f) {
+
+            return activeOffer2;
+        }
+
+        if (x >= 0.60f &&
+                x <= 0.935f) {
+
+            return activeOffer3;
+        }
+
+        return "";
+    }
+
+    private void recordConfirmedPick(
+            String pickedCard
+    ) {
+
+        if (pickedCard == null ||
+                pickedCard.trim().isEmpty()) {
+
+            return;
+        }
+
+        pickedCard =
+                normalizeDetectedCardName(
+                        pickedCard
+                );
+
+        if (pickedCard.isEmpty()) {
+            return;
+        }
+
+        if (pickAlreadyRecordedForOffer) {
+            return;
+        }
+
+        try {
+
+            ArenaAdvisor.recordPickedCard(
+                    pickedCard
+            );
+
+            lastRecordedPick =
+                    pickedCard;
+
+            lastPickTime =
+                    System.currentTimeMillis();
+
+            pickAlreadyRecordedForOffer =
+                    true;
+
+            Log.d(
+                    TAG,
+                    "Arena-valinta tallennettu: "
+                            + pickedCard
+            );
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Valitun kortin tallennus epäonnistui",
+                    e
+            );
+        }
     }
 
     private static class CardStability {
@@ -128,6 +369,8 @@ public class CaptureService extends Service {
     public void onCreate() {
 
         super.onCreate();
+
+        activeInstance = this;
 
         createNotificationChannel();
 
@@ -1170,6 +1413,12 @@ public class CaptureService extends Service {
             return true;
         }
 
+        if (aa.isEmpty() ||
+                bb.isEmpty()) {
+
+            return false;
+        }
+
         if (aa.contains(bb) ||
                 bb.contains(aa)) {
 
@@ -1201,8 +1450,11 @@ public class CaptureService extends Service {
     ) {
 
         int[][] dp =
-                new int[a.length() + 1]
-                        [b.length() + 1];
+                new int[
+                        a.length() + 1
+                ][
+                        b.length() + 1
+                ];
 
         for (
                 int i = 0;
@@ -1344,6 +1596,14 @@ public class CaptureService extends Service {
             pendingOffer2 = card2;
             pendingOffer3 = card3;
             pendingOfferCount = 1;
+
+            /*
+             * Uusi kolmen kortin tarjous.
+             * Tästä hetkestä lähtien seuraava
+             * klikkaus saa kirjautua uutena valintana.
+             */
+            pickAlreadyRecordedForOffer =
+                    false;
         }
 
         if (pendingOfferCount <
@@ -1352,128 +1612,12 @@ public class CaptureService extends Service {
             return;
         }
 
-        String new1 = card1;
-        String new2 = card2;
-        String new3 = card3;
-
-        if (!confirmedCard1.isEmpty() &&
-                !confirmedCard2.isEmpty() &&
-                !confirmedCard3.isEmpty()) {
-
-            String missing =
-                    findMissingPickedCard(
-                            confirmedCard1,
-                            confirmedCard2,
-                            confirmedCard3,
-                            new1,
-                            new2,
-                            new3
-                    );
-
-            if (missing != null &&
-                    !missing.isEmpty() &&
-                    !missing.equals(
-                            lastRecordedPick
-                    )) {
-
-                ArenaAdvisor.recordPickedCard(
-                        missing
-                );
-
-                lastRecordedPick =
-                        missing;
-            }
-        }
-
-        confirmedCard1 = new1;
-        confirmedCard2 = new2;
-        confirmedCard3 = new3;
-    }
-
-    private String findMissingPickedCard(
-            String old1,
-            String old2,
-            String old3,
-            String new1,
-            String new2,
-            String new3
-    ) {
-
-        boolean old1Exists =
-                similarNames(old1, new1)
-                        ||
-                similarNames(old1, new2)
-                        ||
-                similarNames(old1, new3);
-
-        boolean old2Exists =
-                similarNames(old2, new1)
-                        ||
-                similarNames(old2, new2)
-                        ||
-                similarNames(old2, new3);
-
-        boolean old3Exists =
-                similarNames(old3, new1)
-                        ||
-                similarNames(old3, new2)
-                        ||
-                similarNames(old3, new3);
-
-        int missingCount = 0;
-        String missing = "";
-
-        if (!old1Exists) {
-
-            missingCount++;
-            missing = old1;
-        }
-
-        if (!old2Exists) {
-
-            missingCount++;
-            missing = old2;
-        }
-
-        if (!old3Exists) {
-
-            missingCount++;
-            missing = old3;
-        }
-
-        if (missingCount == 1) {
-            return missing;
-        }
-
-        return "";
-    }
-
-    private String getSafeReason(
-            String cardName
-    ) {
-
-        if (cardName == null ||
-                cardName.trim().isEmpty()) {
-
-            return "";
-        }
-
-        try {
-
-            String reason =
-                    ArenaAdvisor.getCardReason(
-                            cardName
-                    );
-
-            if (reason != null &&
-                    !reason.trim().isEmpty()) {
-
-                return reason.trim();
-            }
-
-        } catch (Exception ignored) {}
-
-        return "";
+        /*
+         * Nyt tarjous on OCR:n mielestä vakaa.
+         */
+        activeOffer1 = card1;
+        activeOffer2 = card2;
+        activeOffer3 = card3;
     }
 
     private String formatCardBlock(
@@ -1482,33 +1626,26 @@ public class CaptureService extends Service {
             String score
     ) {
 
-        String reason =
-                getSafeReason(
-                        cardName
-                );
-
         StringBuilder block =
                 new StringBuilder();
 
         block.append(title)
                 .append("\n");
 
-        block.append(cardName == null ||
-                cardName.isEmpty()
-                ? "—"
-                : cardName);
+        block.append(
+                cardName == null ||
+                        cardName.isEmpty()
+                        ? "—"
+                        : cardName
+        );
 
         block.append("\nARVO: ")
-                .append(score == null ||
-                        score.isEmpty()
-                        ? "—"
-                        : score);
-
-        if (!reason.isEmpty()) {
-
-            block.append("\n")
-                    .append(reason);
-        }
+                .append(
+                        score == null ||
+                                score.isEmpty()
+                                ? "—"
+                                : score
+                );
 
         return block.toString();
     }
@@ -1545,19 +1682,11 @@ public class CaptureService extends Service {
                         card3
                 );
 
-        /*
-         * ArenaAdvisor palauttaa nämä double-arvoina.
-         * Niitä ei siis voi sijoittaa String-muuttujaan
-         * suoraan.
-         */
         final double recommendationScore =
                 ArenaAdvisor.getRecommendationScore();
 
         final double recommendationGap =
                 ArenaAdvisor.getRecommendationGap();
-
-        final String recommendationReason =
-                ArenaAdvisor.getRecommendationReason();
 
         final String currentClass =
                 ArenaAdvisor.getCurrentClass();
@@ -1587,9 +1716,7 @@ public class CaptureService extends Service {
                 )
         );
 
-        display.append(
-                "\n\n"
-        );
+        display.append("\n\n");
 
         display.append(
                 formatCardBlock(
@@ -1599,9 +1726,7 @@ public class CaptureService extends Service {
                 )
         );
 
-        display.append(
-                "\n\n"
-        );
+        display.append("\n\n");
 
         display.append(
                 formatCardBlock(
@@ -1611,9 +1736,7 @@ public class CaptureService extends Service {
                 )
         );
 
-        display.append(
-                "\n\n"
-        );
+        display.append("\n\n");
 
         display.append(
                 "━━━━━━━━━━━━━━━━\n"
@@ -1630,9 +1753,7 @@ public class CaptureService extends Service {
                         : recommendation
         );
 
-        display.append(
-                "\nARVO "
-        )
+        display.append("\nARVO ")
                 .append(
                         String.format(
                                 Locale.US,
@@ -1652,17 +1773,6 @@ public class CaptureService extends Service {
                         )
                 );
 
-        if (recommendationReason != null &&
-                !recommendationReason.isEmpty()) {
-
-            display.append(
-                    "\n\nMIKSI?\n"
-            )
-                    .append(
-                            recommendationReason
-                    );
-        }
-
         overlayView.setText(
                 display.toString()
         );
@@ -1670,6 +1780,10 @@ public class CaptureService extends Service {
 
     @Override
     public void onDestroy() {
+
+        if (activeInstance == this) {
+            activeInstance = null;
+        }
 
         processing = false;
 
