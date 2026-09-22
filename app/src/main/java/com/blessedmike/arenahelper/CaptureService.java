@@ -80,6 +80,7 @@ public class CaptureService extends Service {
     }
 
     private static class CardStability {
+
         String stable = "";
         String candidate = "";
         int candidateCount = 0;
@@ -102,6 +103,7 @@ public class CaptureService extends Service {
                 public void onStop() {
 
                     if (virtualDisplay != null) {
+
                         try {
                             virtualDisplay.release();
                         } catch (Exception ignored) {}
@@ -110,6 +112,7 @@ public class CaptureService extends Service {
                     }
 
                     if (imageReader != null) {
+
                         try {
                             imageReader.close();
                         } catch (Exception ignored) {}
@@ -123,6 +126,7 @@ public class CaptureService extends Service {
 
     @Override
     public void onCreate() {
+
         super.onCreate();
 
         createNotificationChannel();
@@ -132,8 +136,12 @@ public class CaptureService extends Service {
                         this,
                         CHANNEL_ID
                 )
-                        .setContentTitle("Arena Helper")
-                        .setContentText("Avustaja aktiivinen")
+                        .setContentTitle(
+                                "Arena Helper"
+                        )
+                        .setContentText(
+                                "Avustaja aktiivinen"
+                        )
                         .setSmallIcon(
                                 android.R.drawable
                                         .ic_menu_info_details
@@ -176,6 +184,7 @@ public class CaptureService extends Service {
                             );
 
             if (manager != null) {
+
                 manager.createNotificationChannel(
                         channel
                 );
@@ -376,6 +385,7 @@ public class CaptureService extends Service {
             image.close();
 
             if (bitmap == null) {
+
                 processing = false;
                 return;
             }
@@ -694,25 +704,6 @@ public class CaptureService extends Service {
         return card3Stability.stable;
     }
 
-    /*
-     * TÄRKEÄ OCR-STABILOINTI
-     *
-     * Pitkää, jo vakaaksi tunnistettua nimeä ei korvata
-     * lyhyemmällä OCR-tuloksella.
-     *
-     * Esimerkiksi:
-     *
-     * Holy Eggbearer
-     * -> Holy Egg
-     * -> Holy
-     *
-     * pitää edelleen:
-     *
-     * Holy Eggbearer
-     *
-     * Jos taas nykyinen nimi on lyhyempi ja OCR löytää
-     * pidemmän nimen, pidempi nimi hyväksytään.
-     */
     private String stabilizeCard(
             String detected,
             int index
@@ -751,9 +742,6 @@ public class CaptureService extends Service {
                     card3Stability;
         }
 
-        /*
-         * Ei vielä vakaata nimeä.
-         */
         if (stability.stable.isEmpty()) {
 
             if (stability.candidate.isEmpty() ||
@@ -769,11 +757,6 @@ public class CaptureService extends Service {
 
             } else {
 
-                /*
-                 * Jos uusi OCR-tulos on pidempi ja
-                 * sisältää nykyisen ehdokkaan, käytetään
-                 * pidempää nimeä ehdokkaana.
-                 */
                 if (isLongerVersion(
                         normalized,
                         stability.candidate
@@ -801,25 +784,11 @@ public class CaptureService extends Service {
                     : stability.stable;
         }
 
-        /*
-         * Nykyinen vakaa nimi ja uusi OCR-tulos
-         * näyttävät tarkoittavan samaa korttia.
-         */
         if (similarNames(
                 stability.stable,
                 normalized
         )) {
 
-            /*
-             * ÄLÄ koskaan korvaa pitkää vakaata nimeä
-             * lyhyemmällä OCR-tuloksella.
-             *
-             * Holy Eggbearer + Holy Egg
-             * -> Holy Eggbearer
-             *
-             * Holy Eggbearer + Holy
-             * -> Holy Eggbearer
-             */
             if (isLongerVersion(
                     stability.stable,
                     normalized
@@ -831,13 +800,6 @@ public class CaptureService extends Service {
                 return stability.stable;
             }
 
-            /*
-             * Jos uusi tulos on pidempi, se voi korjata
-             * aiemmin liian lyhyen OCR-tuloksen.
-             *
-             * Holy + Holy Eggbearer
-             * -> Holy Eggbearer
-             */
             if (isLongerVersion(
                     normalized,
                     stability.stable
@@ -852,9 +814,6 @@ public class CaptureService extends Service {
                 return stability.stable;
             }
 
-            /*
-             * Samanpituinen / käytännössä sama nimi.
-             */
             stability.stable =
                     normalized;
 
@@ -864,10 +823,6 @@ public class CaptureService extends Service {
             return stability.stable;
         }
 
-        /*
-         * Täysin erilainen nimi.
-         * Vaaditaan kaksi vahvistusta ennen vaihtamista.
-         */
         if (stability.candidate.isEmpty() ||
                 !similarNames(
                         stability.candidate,
@@ -906,10 +861,6 @@ public class CaptureService extends Service {
         return stability.stable;
     }
 
-    /*
-     * Palauttaa true, jos 'longer' on oikeasti pidempi
-     * versio samasta nimestä.
-     */
     private boolean isLongerVersion(
             String longer,
             String shorter
@@ -1046,9 +997,11 @@ public class CaptureService extends Service {
 
             int letters = 0;
 
-            for (int i = 0;
+            for (
+                    int i = 0;
                     i < line.length();
-                    i++) {
+                    i++
+            ) {
 
                 if (Character.isLetter(
                         line.charAt(i)
@@ -1251,27 +1204,35 @@ public class CaptureService extends Service {
                 new int[a.length() + 1]
                         [b.length() + 1];
 
-        for (int i = 0;
+        for (
+                int i = 0;
                 i <= a.length();
-                i++) {
+                i++
+        ) {
 
             dp[i][0] = i;
         }
 
-        for (int j = 0;
+        for (
+                int j = 0;
                 j <= b.length();
-                j++) {
+                j++
+        ) {
 
             dp[0][j] = j;
         }
 
-        for (int i = 1;
+        for (
+                int i = 1;
                 i <= a.length();
-                i++) {
+                i++
+        ) {
 
-            for (int j = 1;
+            for (
+                    int j = 1;
                     j <= b.length();
-                    j++) {
+                    j++
+            ) {
 
                 int cost =
                         a.charAt(i - 1)
@@ -1292,7 +1253,11 @@ public class CaptureService extends Service {
             }
         }
 
-        return dp[a.length()][b.length()];
+        return dp[
+                a.length()
+        ][
+                b.length()
+        ];
     }
 
     private void updateCards(
@@ -1336,6 +1301,17 @@ public class CaptureService extends Service {
             String card2,
             String card3
     ) {
+
+        /*
+         * UUSI:
+         * Yritetään tunnistaa Arena class
+         * jokaisesta varmennetusta korttitarjouksesta.
+         */
+        ArenaAdvisor.detectClassFromCards(
+                card1,
+                card2,
+                card3
+        );
 
         if (pendingOffer1.isEmpty()) {
 
@@ -1509,7 +1485,19 @@ public class CaptureService extends Service {
                         card3
                 );
 
+        /*
+         * UUSI:
+         * Näytetään automaattisesti tunnistettu class.
+         */
+        final String currentClass =
+                ArenaAdvisor.getCurrentClass();
+
         String display =
+                "ARENA HELPER\n" +
+                "CLASS: " +
+                currentClass +
+                "\n\n" +
+
                 "KORTTI 1\n" +
                 card1 +
                 "\nARVO: " +
