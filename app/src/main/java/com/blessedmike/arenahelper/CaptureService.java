@@ -44,16 +44,8 @@ public class CaptureService extends Service {
     private static final String CHANNEL_ID =
             "arena_helper_channel";
 
-    /*
-     * Kortin nimi pitää näkyä OCR:ssa kaksi kertaa
-     * ennen kuin se hyväksytään vakaaksi.
-     */
     private static final int CARD_CONFIRMATIONS = 2;
 
-    /*
-     * Koko kolmen kortin tarjous pitää näkyä
-     * kaksi kertaa samana ennen hyväksymistä.
-     */
     private static final int OFFER_CONFIRMATIONS = 2;
 
     private static final long PICK_COOLDOWN_MS =
@@ -80,17 +72,10 @@ public class CaptureService extends Service {
     private String pendingOffer3 = "";
     private int pendingOfferCount = 0;
 
-    /*
-     * Varmistettu tämänhetkinen Arena-tarjous.
-     */
     private String activeOffer1 = "";
     private String activeOffer2 = "";
     private String activeOffer3 = "";
 
-    /*
-     * Estää saman tarjouksen aikana saman klikkauksen
-     * tallentamisen useita kertoja.
-     */
     private boolean pickAlreadyRecordedForOffer =
             false;
 
@@ -110,10 +95,6 @@ public class CaptureService extends Service {
         projectionData = data;
     }
 
-    /*
-     * AccessibilityService kutsuu tätä, kun Hearthstone
-     * ilmoittaa kortin klikkauksesta.
-     */
     public static void onAccessibilityClick(
             int left,
             int top,
@@ -159,10 +140,6 @@ public class CaptureService extends Service {
             return;
         }
 
-        /*
-         * Valinta voidaan hyväksyä vain jos koko tarjous
-         * on varmasti tunnistettu.
-         */
         if (activeOffer1.isEmpty() ||
                 activeOffer2.isEmpty() ||
                 activeOffer3.isEmpty()) {
@@ -202,10 +179,6 @@ public class CaptureService extends Service {
             String accessibilityText
     ) {
 
-        /*
-         * Jos Accessibility antaa tekstin, käytetään
-         * sitä ensin.
-         */
         if (accessibilityText != null &&
                 !accessibilityText.trim().isEmpty()) {
 
@@ -242,11 +215,6 @@ public class CaptureService extends Service {
             }
         }
 
-        /*
-         * Jos Accessibility-tekstistä ei saada korttia,
-         * päätellään valinta kortin vaakasuuntaisesta
-         * sijainnista.
-         */
         DisplayMetrics metrics =
                 getResources()
                         .getDisplayMetrics();
@@ -337,9 +305,6 @@ public class CaptureService extends Service {
         }
     }
 
-    /*
-     * Yhden kortin OCR-vakaus.
-     */
     private static class CardStability {
 
         String stable = "";
@@ -758,9 +723,6 @@ public class CaptureService extends Service {
         int height =
                 source.getHeight();
 
-        /*
-         * Kortin nimen OCR-alue.
-         */
         int nameTop =
                 (int)
                         (height * 0.425f);
@@ -791,6 +753,12 @@ public class CaptureService extends Service {
                         nameBottom
                 );
 
+        /*
+         * VAIN KORTTI 3:
+         *
+         * Pidetään korttien 1 ja 2 rajaukset
+         * täysin ennallaan.
+         */
         Bitmap card3 =
                 cropCard(
                         source,
@@ -927,19 +895,26 @@ public class CaptureService extends Service {
                 .addOnSuccessListener(text -> {
 
                     /*
-                     * TÄRKEÄ KORJAUS:
+                     * KORTIT 1 JA 2:
+                     * käytetään alkuperäistä OCR-käsittelyä.
                      *
-                     * Kortin nimi voi olla OCR:ssa kahdella
-                     * rivillä. Erityisesti kortti 3:n pitkät
-                     * nimet voivat katketa ensimmäisen rivin
-                     * jälkeen.
-                     *
-                     * Yhdistetään kaikki järkevät OCR-rivit
-                     * ennen kuin nimi annetaan
-                     * ArenaAdvisorille.
+                     * KORTTI 3:
+                     * käytetään erillistä käsittelyä,
+                     * joka pystyy yhdistämään nimen
+                     * useammalta OCR-riviltä.
                      */
-                    String cleaned =
-                            cleanCardName(text);
+                    String cleaned;
+
+                    if (index == 2) {
+
+                        cleaned =
+                                cleanCard3Name(text);
+
+                    } else {
+
+                        cleaned =
+                                cleanCardName(text);
+                    }
 
                     results[index] =
                             stabilizeCard(
@@ -1039,9 +1014,6 @@ public class CaptureService extends Service {
         CardStability stability =
                 getCardStability(index);
 
-        /*
-         * Ensimmäinen havainto.
-         */
         if (stability.stable.isEmpty()) {
 
             if (stability.candidate.isEmpty() ||
@@ -1069,10 +1041,6 @@ public class CaptureService extends Service {
                 stability.candidateCount++;
             }
 
-            /*
-             * Vasta kaksi saman nimistä havaintoa
-             * tekee nimestä vakaan.
-             */
             if (stability.candidateCount >=
                     CARD_CONFIRMATIONS) {
 
@@ -1089,26 +1057,11 @@ public class CaptureService extends Service {
                     : stability.stable;
         }
 
-        /*
-         * Jos uusi OCR vastaa nykyistä vakaata nimeä,
-         * pidetään nykyinen nimi.
-         */
         if (similarNames(
                 stability.stable,
                 normalized
         )) {
 
-            /*
-             * Jos uusi OCR sisältää nykyisen nimen
-             * pidempänä versiona, otetaan pidempi nimi.
-             *
-             * Esimerkiksi:
-             *
-             * Holy Egg
-             * Holy Eggbearer
-             *
-             * -> Holy Eggbearer
-             */
             if (isLongerVersion(
                     normalized,
                     stability.stable
@@ -1125,10 +1078,6 @@ public class CaptureService extends Service {
             return stability.stable;
         }
 
-        /*
-         * Uusi kortin nimi havaittu.
-         * Sitä ei hyväksytä heti.
-         */
         if (stability.candidate.isEmpty() ||
                 !similarNames(
                         stability.candidate,
@@ -1154,10 +1103,6 @@ public class CaptureService extends Service {
             stability.candidateCount++;
         }
 
-        /*
-         * Uusi nimi hyväksytään vasta kun se on nähty
-         * kaksi kertaa.
-         */
         if (stability.candidateCount >=
                 CARD_CONFIRMATIONS) {
 
@@ -1256,27 +1201,8 @@ public class CaptureService extends Service {
             if (corrected != null &&
                     !corrected.trim().isEmpty()) {
 
-                /*
-                 * Jos OCR tuotti pidemmän nimen ja
-                 * ArenaAdvisor palauttaa saman nimen
-                 * lyhyempänä, ei lyhennetä OCR-tulosta.
-                 */
-                String correctedTrimmed =
+                text =
                         corrected.trim();
-
-                if (isLongerVersion(
-                        text,
-                        correctedTrimmed
-                )) {
-
-                    text =
-                            text.trim();
-
-                } else {
-
-                    text =
-                            correctedTrimmed;
-                }
             }
 
         } catch (Exception ignored) {
@@ -1297,6 +1223,11 @@ public class CaptureService extends Service {
         return text.trim();
     }
 
+    /*
+     * ALKUPERÄINEN cleanCardName.
+     *
+     * Tätä ei muuteta korttien 1 ja 2 takia.
+     */
     private String cleanCardName(
             Text text
     ) {
@@ -1315,27 +1246,134 @@ public class CaptureService extends Service {
         String[] lines =
                 raw.split("\\r?\\n");
 
-        /*
-         * TÄRKEÄ KORJAUS:
-         *
-         * Älä ota vain ensimmäistä OCR-riviä.
-         *
-         * Pitkä kortinimi voi jakautua esimerkiksi:
-         *
-         * Holy Egg
-         * bearer
-         *
-         * jolloin vanha koodi palautti vain:
-         *
-         * Holy Egg
-         *
-         * Nyt järkevät rivit yhdistetään:
-         *
-         * Holy Eggbearer
-         */
+        String best = "";
+
+        for (String line : lines) {
+
+            if (line == null) {
+                continue;
+            }
+
+            line =
+                    line.trim();
+
+            int letters = 0;
+
+            for (
+                    int i = 0;
+                    i < line.length();
+                    i++
+            ) {
+
+                if (Character.isLetter(
+                        line.charAt(i)
+                )) {
+
+                    letters++;
+                }
+            }
+
+            if (letters >= 2) {
+
+                best =
+                        line;
+
+                break;
+            }
+        }
+
+        if (best.isEmpty()) {
+            best = raw.trim();
+        }
+
+        best =
+                best.replaceAll(
+                        "^[^A-Za-zÀ-ÿ0-9]+",
+                        ""
+                )
+                .replaceAll(
+                        "[^A-Za-zÀ-ÿ0-9'&\\-\\.\\s]+$",
+                        ""
+                )
+                .trim();
+
+        best =
+                fixSoldierOfInfinite(
+                        best
+                );
+
+        best =
+                best.replaceAll(
+                        "\\s+",
+                        " "
+                ).trim();
+
+        best =
+                best.replaceAll(
+                        "[\\s\\.,:;|]+$",
+                        ""
+                );
+
+        best =
+                best.replace(
+                        "&#039;",
+                        "'"
+                );
+
+        if (!best.isEmpty()) {
+
+            best =
+                    Character.toUpperCase(
+                            best.charAt(0)
+                    )
+                    +
+                    best.substring(1);
+        }
+
+        return best;
+    }
+
+    /*
+     * VAIN KORTTI 3:LLE.
+     *
+     * Jos ML Kit jakaa pitkän korttinimen
+     * kahdelle riville, esimerkiksi:
+     *
+     * Holy Egg
+     * bearer
+     *
+     * tästä tulee:
+     *
+     * Holy Egg bearer
+     *
+     * Korttien 1 ja 2 cleanCardName()
+     * ei muutu lainkaan.
+     */
+    private String cleanCard3Name(
+            Text text
+    ) {
+
+        if (text == null) {
+            return "";
+        }
+
+        String raw =
+                text.getText();
+
+        if (raw == null) {
+            return "";
+        }
+
+        String[] lines =
+                raw.split("\\r?\\n");
+
         StringBuilder combined =
                 new StringBuilder();
 
+        /*
+         * Kortin 3 OCR-alueelta otetaan
+         * vain järkevät tekstirivit.
+         */
         for (String line : lines) {
 
             if (line == null) {
@@ -1470,37 +1508,7 @@ public class CaptureService extends Service {
             return "Soldier of the Infinite";
         }
 
-        /*
-         * Käytetään myös kortti 3:n vakaata nimeä.
-         */
         String stable =
-                card3Stability.stable;
-
-        if (stable != null &&
-                !stable.isEmpty()) {
-
-            String stableNormalized =
-                    stable.toLowerCase(
-                                    Locale.US
-                            )
-                            .replaceAll(
-                                    "[^a-z0-9]",
-                                    ""
-                            );
-
-            if (stableNormalized.contains(
-                    "soldierofinfinite"
-            )) {
-
-                return "Soldier of the Infinite";
-            }
-        }
-
-        /*
-         * Säilytetään myös kortti 1:n aikaisempi
-         * tarkistus.
-         */
-        stable =
                 card1Stability.stable;
 
         if (stable != null &&
@@ -1706,9 +1714,6 @@ public class CaptureService extends Service {
                 card3
         );
 
-        /*
-         * Ensimmäinen havainto uudesta tarjouksesta.
-         */
         if (pendingOffer1.isEmpty()) {
 
             pendingOffer1 = card1;
@@ -1742,36 +1747,22 @@ public class CaptureService extends Service {
 
         } else {
 
-            /*
-             * Uusi tarjous alkaa.
-             */
             pendingOffer1 = card1;
             pendingOffer2 = card2;
             pendingOffer3 = card3;
 
             pendingOfferCount = 1;
 
-            /*
-             * Uudessa tarjouksessa valinta voidaan
-             * jälleen tallentaa.
-             */
             pickAlreadyRecordedForOffer =
                     false;
         }
 
-        /*
-         * Tarjousta ei vielä hyväksytä ennen kahta
-         * samanlaista OCR-kierrosta.
-         */
         if (pendingOfferCount <
                 OFFER_CONFIRMATIONS) {
 
             return;
         }
 
-        /*
-         * Nyt koko kolmen kortin tarjous on varmennettu.
-         */
         activeOffer1 =
                 pendingOffer1;
 
