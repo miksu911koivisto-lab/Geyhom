@@ -30,10 +30,6 @@ public class ArenaAdvisor {
     private static final double HEARTHARENA_SCALE = 13.0;
 
     /*
-     * TÄRKEÄ:
-     *
-     * 5.0 EI OLE ENÄÄ TUNTEMATTOMAN KORTIN ARVO.
-     *
      * Tunnistamaton kortti = 0.0.
      */
     private static final double UNKNOWN_CARD_SCORE = 0.0;
@@ -300,6 +296,40 @@ public class ArenaAdvisor {
 
         /*
          * ============================
+         * SPIRIT GATHERER
+         * ============================
+         *
+         * HearthArena: 100
+         *
+         * 100 / 13 = 7.69
+         *
+         * Näytetään sovelluksessa 7.7.
+         *
+         * Tämä fallback varmistaa, että kortti
+         * saa arvon myös silloin, kun
+         * HearthArena-sivun online-dataa ei
+         * saada ladattua tai parseri ei löydä
+         * korttia.
+         */
+
+        add(
+                "Spirit Gatherer",
+                7.69,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+        );
+
+        /*
+         * ============================
          * OCR-ALIAKSET
          * ============================
          */
@@ -360,6 +390,30 @@ public class ArenaAdvisor {
         );
 
         /*
+         * Spirit Gatherer:
+         * varmistetaan OCR:n erilaiset muodot.
+         */
+        alias(
+                "spirit gatherer",
+                "Spirit Gatherer"
+        );
+
+        alias(
+                "spirit gather",
+                "Spirit Gatherer"
+        );
+
+        alias(
+                "spirit gathere",
+                "Spirit Gatherer"
+        );
+
+        alias(
+                "spirit gatherer",
+                "Spirit Gatherer"
+        );
+
+        /*
          * Spellweaver's Brilliance:
          * apostrofi voi kadota OCR:ssä.
          */
@@ -404,11 +458,6 @@ public class ArenaAdvisor {
 
         alias(
                 "windswept pagetumer",
-                "Windswept Pageturner"
-        );
-
-        alias(
-                "windswept pageturner",
                 "Windswept Pageturner"
         );
 
@@ -1313,12 +1362,8 @@ public class ArenaAdvisor {
                 CARDS.get(key);
 
         /*
-         * TÄRKEÄ:
-         *
          * Jos korttia ei tunnistettu,
-         * EI palauteta 5.0.
-         *
-         * Palautetaan 0.0.
+         * palautetaan 0.0.
          */
         if (card == null) {
 
@@ -1422,11 +1467,6 @@ public class ArenaAdvisor {
             double value =
                     score(card);
 
-            /*
-             * Tunnistamatonta 0-arvoista korttia
-             * ei valita suositukseksi, jos yhtään
-             * oikeasti tunnistettua korttia löytyy.
-             */
             if (value > bestScore) {
 
                 bestScore =
@@ -1441,10 +1481,6 @@ public class ArenaAdvisor {
             return "Odotetaan kortteja...";
         }
 
-        /*
-         * Jos kaikki kolme ovat tunnistamattomia,
-         * ei väitetä jotain niistä parhaaksi.
-         */
         boolean anyKnown =
                 score(card1) > 0.0
                         ||
@@ -1658,17 +1694,6 @@ public class ArenaAdvisor {
                         "&apos;",
                         "'"
                 )
-                /*
-                 * Apostrofi, välilyönnit,
-                 * välimerkit jne. poistetaan.
-                 *
-                 * Näin:
-                 *
-                 * Spellweaver's
-                 * Spellweavers
-                 *
-                 * ovat sama nimi.
-                 */
                 .replaceAll(
                         "[^a-z0-9]",
                         ""
