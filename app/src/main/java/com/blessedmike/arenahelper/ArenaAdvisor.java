@@ -48,19 +48,9 @@ public class ArenaAdvisor {
 
     private static boolean onlineDataLoaded = false;
 
-    /*
-     * Kortin normalisoitu nimi -> HearthArena-piste
-     */
     private static final Map<String, Integer> ONLINE_RAW_SCORES =
             new HashMap<>();
 
-    /*
-     * Kortin normalisoitu nimi -> alkuperäinen kortin nimi
-     *
-     * TÄMÄ ON UUSI:
-     * normalisoitua nimeä käytetään hakemiseen,
-     * mutta alkuperäistä nimeä käytetään näytössä.
-     */
     private static final Map<String, String> ONLINE_CARD_NAMES =
             new HashMap<>();
 
@@ -214,11 +204,6 @@ public class ArenaAdvisor {
         );
 
         addAlias(
-                "soldier of ihfinite",
-                "Soldier of the Infinite"
-        );
-
-        addAlias(
                 "raban wand",
                 "Raban Wands"
         );
@@ -328,10 +313,6 @@ public class ArenaAdvisor {
                 "Scorching Winds"
         );
 
-
-        /*
-         * Aloitetaan HearthArena-datan lataus.
-         */
         loadOnlineData();
     }
 
@@ -380,7 +361,7 @@ public class ArenaAdvisor {
 
     /*
      * -------------------------------------------------------------
-     * ONLINE-DATA
+     * ONLINE DATA
      * -------------------------------------------------------------
      */
 
@@ -477,27 +458,11 @@ public class ArenaAdvisor {
                             int rawScore =
                                     entry.getValue();
 
-                            /*
-                             * TÄRKEÄ KORJAUS:
-                             *
-                             * Haetaan nyt alkuperäinen nimi
-                             * erillisestä kartasta.
-                             *
-                             * Esimerkiksi:
-                             *
-                             * sharpeyedlookout
-                             * ->
-                             * Sharp-Eyed Lookout
-                             */
                             String displayName =
                                     ONLINE_CARD_NAMES.get(
                                             normalizedName
                                     );
 
-                            /*
-                             * Jos nimeä ei jostain syystä löydy,
-                             * käytetään vanhaa varmistusta.
-                             */
                             if (displayName == null ||
                                     displayName.isEmpty()) {
 
@@ -577,13 +542,8 @@ public class ArenaAdvisor {
                             != null
             ) {
 
-                builder.append(
-                        line
-                );
-
-                builder.append(
-                        '\n'
-                );
+                builder.append(line);
+                builder.append('\n');
             }
 
             reader.close();
@@ -594,9 +554,11 @@ public class ArenaAdvisor {
     }
 
     /*
-     * HearthArenan sivu sisältää kortin nimen ja sen jälkeen
-     * numeerisen pisteen.
+     * -------------------------------------------------------------
+     * HEARTHARENA PARSER
+     * -------------------------------------------------------------
      */
+
     private static void parseHearthArenaPage(
             String html
     ) {
@@ -646,6 +608,53 @@ public class ArenaAdvisor {
                             line
                     );
 
+            /*
+             * HearthArena käyttää riveillä esimerkiksi:
+             *
+             * 1. Merithra of the Dream
+             * 107
+             *
+             * Poistetaan sijoitusnumerointi ennen kuin
+             * nimeä käsitellään.
+             */
+            line =
+                    removeRankingPrefix(
+                            line
+                    );
+
+            /*
+             * Jos nimi ja piste ovat samalla rivillä,
+             * esimerkiksi:
+             *
+             * Merithra of the Dream 107
+             *
+             * käsitellään se myös.
+             */
+            String[] sameLine =
+                    splitCardAndScore(
+                            line
+                    );
+
+            if (sameLine != null) {
+
+                String cardName =
+                        cleanOnlineCardName(
+                                sameLine[0]
+                        );
+
+                String scoreText =
+                        sameLine[1];
+
+                storeOnlineCard(
+                        cardName,
+                        scoreText
+                );
+
+                previousCard = "";
+
+                continue;
+            }
+
             String scoreLine =
                     line.replace(
                             "↓",
@@ -658,85 +667,13 @@ public class ArenaAdvisor {
 
                 if (!previousCard.isEmpty()) {
 
-                    try {
-
-                        double parsed =
-                                Double.parseDouble(
-                                        scoreLine
-                                );
-
-                        if (parsed >= 0 &&
-                                parsed <= 200) {
-
-                            int integerScore =
-                                    (int)
-                                            Math.round(
-                                                    parsed
-                                            );
-
-                            String key =
-                                    normalizeKey(
-                                            previousCard
-                                    );
-
-                            if (!key.isEmpty() &&
-                                    isLikelyCardName(
-                                            previousCard
-                                    )) {
-
-                                Integer old =
-                                        ONLINE_RAW_SCORES.get(
-                                                key
-                                        );
-
-                                /*
-                                 * TÄRKEÄ KORJAUS:
-                                 *
-                                 * Tallennetaan alkuperäinen
-                                 * kortin nimi ennen normalizeKey()
-                                 * -muunnosta.
-                                 */
-                                if (!ONLINE_CARD_NAMES.containsKey(
-                                        key
-                                )) {
-
-                                    ONLINE_CARD_NAMES.put(
-                                            key,
-                                            previousCard
-                                    );
-                                }
-
-                                /*
-                                 * Sama kortti voi esiintyä useassa
-                                 * luokkataulukossa. Otetaan korkein
-                                 * HearthArena-arvo.
-                                 */
-                                if (old == null ||
-                                        integerScore > old) {
-
-                                    ONLINE_RAW_SCORES.put(
-                                            key,
-                                            integerScore
-                                    );
-
-                                    /*
-                                     * Jos parempi arvo tulee myöhemmin,
-                                     * nimi säilytetään edelleen
-                                     * alkuperäisessä muodossaan.
-                                     */
-                                    ONLINE_CARD_NAMES.put(
-                                            key,
-                                            previousCard
-                                    );
-                                }
-                            }
-                        }
-
-                    } catch (Exception ignored) {}
+                    storeOnlineCard(
+                            previousCard,
+                            scoreLine
+                    );
                 }
 
-                previousCard =
-                        "";
+                previousCard = "";
 
                 continue;
             }
@@ -744,9 +681,233 @@ public class ArenaAdvisor {
             if (isLikelyCardName(line)) {
 
                 previousCard =
-                        line;
+                        cleanOnlineCardName(
+                                line
+                        );
             }
         }
+    }
+
+    /*
+     * Poistaa esimerkiksi:
+     *
+     * 1. Card Name
+     * 12. Card Name
+     * 123. Card Name
+     */
+    private static String removeRankingPrefix(
+            String text
+    ) {
+
+        if (text == null) {
+            return "";
+        }
+
+        return text.replaceFirst(
+                "^\\s*\\d+\\.\\s+",
+                ""
+        ).trim();
+    }
+
+    /*
+     * Tunnistaa rivin:
+     *
+     * Card Name 107
+     *
+     * tai:
+     *
+     * Card Name 107↓
+     */
+    private static String[] splitCardAndScore(
+            String line
+    ) {
+
+        if (line == null ||
+                line.trim().isEmpty()) {
+
+            return null;
+        }
+
+        String cleaned =
+                line.replace(
+                        "↓",
+                        ""
+                ).trim();
+
+        java.util.regex.Matcher matcher =
+                java.util.regex.Pattern
+                        .compile(
+                                "^(.+?)\\s+(\\d+(?:\\.\\d+)?)$"
+                        )
+                        .matcher(
+                                cleaned
+                        );
+
+        if (!matcher.matches()) {
+            return null;
+        }
+
+        String possibleName =
+                matcher.group(1);
+
+        String score =
+                matcher.group(2);
+
+        if (!isLikelyCardName(
+                possibleName
+        )) {
+
+            return null;
+        }
+
+        try {
+
+            double value =
+                    Double.parseDouble(
+                            score
+                    );
+
+            if (value < 0 ||
+                    value > 200) {
+
+                return null;
+            }
+
+        } catch (Exception e) {
+
+            return null;
+        }
+
+        return new String[] {
+                possibleName,
+                score
+        };
+    }
+
+    private static void storeOnlineCard(
+            String cardName,
+            String scoreText
+    ) {
+
+        if (cardName == null ||
+                cardName.trim().isEmpty()) {
+
+            return;
+        }
+
+        if (scoreText == null ||
+                scoreText.trim().isEmpty()) {
+
+            return;
+        }
+
+        try {
+
+            double parsed =
+                    Double.parseDouble(
+                            scoreText
+                    );
+
+            if (parsed < 0 ||
+                    parsed > 200) {
+
+                return;
+            }
+
+            int integerScore =
+                    (int)
+                            Math.round(
+                                    parsed
+                            );
+
+            String cleanedName =
+                    cleanOnlineCardName(
+                            cardName
+                    );
+
+            String key =
+                    normalizeKey(
+                            cleanedName
+                    );
+
+            if (key.isEmpty() ||
+                    !isLikelyCardName(
+                            cleanedName
+                    )) {
+
+                return;
+            }
+
+            Integer old =
+                    ONLINE_RAW_SCORES.get(
+                            key
+                    );
+
+            /*
+             * Sama kortti voi esiintyä useassa
+             * luokkataulukossa.
+             *
+             * Tällä hetkellä käytetään korkeinta
+             * löydettyä arvoa, koska sovelluksella
+             * ei vielä ole pelaajan valittua
+             * Arena-luokkaa käytettävissä.
+             */
+            if (old == null ||
+                    integerScore > old) {
+
+                ONLINE_RAW_SCORES.put(
+                        key,
+                        integerScore
+                );
+
+                ONLINE_CARD_NAMES.put(
+                        key,
+                        cleanedName
+                );
+
+            } else if (!ONLINE_CARD_NAMES.containsKey(
+                    key
+            )) {
+
+                ONLINE_CARD_NAMES.put(
+                        key,
+                        cleanedName
+                );
+            }
+
+        } catch (Exception ignored) {}
+    }
+
+    private static String cleanOnlineCardName(
+            String text
+    ) {
+
+        if (text == null) {
+            return "";
+        }
+
+        String result =
+                decodeHtml(
+                        text
+                );
+
+        result =
+                removeRankingPrefix(
+                        result
+                );
+
+        result =
+                normalizeWhitespace(
+                        result
+                );
+
+        result =
+                result.replace(
+                        "↓",
+                        ""
+                );
+
+        return result.trim();
     }
 
     private static boolean isLikelyCardName(
@@ -763,6 +924,11 @@ public class ArenaAdvisor {
         if (value.isEmpty()) {
             return false;
         }
+
+        value =
+                removeRankingPrefix(
+                        value
+                );
 
         String lower =
                 value.toLowerCase(
@@ -901,6 +1067,12 @@ public class ArenaAdvisor {
 
         return true;
     }
+
+    /*
+     * -------------------------------------------------------------
+     * HTML
+     * -------------------------------------------------------------
+     */
 
     private static String stripHtml(
             String html
@@ -1079,10 +1251,6 @@ public class ArenaAdvisor {
             return "";
         }
 
-        /*
-         * Uusi ensisijainen lähde:
-         * alkuperäinen HearthArena-nimi.
-         */
         String onlineName =
                 ONLINE_CARD_NAMES.get(
                         normalized
@@ -1094,9 +1262,6 @@ public class ArenaAdvisor {
             return onlineName;
         }
 
-        /*
-         * Vanha fallback.
-         */
         for (CardData card :
                 CARDS.values()) {
 
