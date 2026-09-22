@@ -21,6 +21,7 @@ import android.graphics.Typeface;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.View;
 import android.view.WindowManager;
 import android.widget.TextView;
 
@@ -67,6 +68,14 @@ public class CaptureService extends Service {
 
     private boolean processing = false;
 
+    /*
+     * Hearthstonen aktiivisuuden tila.
+     *
+     * Overlay näytetään vain silloin,
+     * kun Hearthstone on etualalla.
+     */
+    private boolean hearthstoneActive = false;
+
     private String pendingOffer1 = "";
     private String pendingOffer2 = "";
     private String pendingOffer3 = "";
@@ -93,6 +102,64 @@ public class CaptureService extends Service {
 
         projectionResultCode = resultCode;
         projectionData = data;
+    }
+
+    /*
+     * ArenaAccessibilityService kutsuu tätä,
+     * kun Hearthstone tulee etualalle tai poistuu
+     * etualalta.
+     */
+    public static void setHearthstoneActive(
+            boolean active
+    ) {
+
+        CaptureService service =
+                activeInstance;
+
+        if (service == null) {
+            return;
+        }
+
+        service.updateHearthstoneActive(
+                active
+        );
+    }
+
+    private void updateHearthstoneActive(
+            boolean active
+    ) {
+
+        handler.post(() -> {
+
+            hearthstoneActive = active;
+
+            if (overlayView == null) {
+                return;
+            }
+
+            if (hearthstoneActive) {
+
+                overlayView.setVisibility(
+                        View.VISIBLE
+                );
+
+                Log.d(
+                        TAG,
+                        "Hearthstone aktiivinen - overlay näkyviin"
+                );
+
+            } else {
+
+                overlayView.setVisibility(
+                        View.GONE
+                );
+
+                Log.d(
+                        TAG,
+                        "Hearthstone ei aktiivinen - overlay piiloon"
+                );
+            }
+        });
     }
 
     public static void onAccessibilityClick(
@@ -393,6 +460,20 @@ public class CaptureService extends Service {
                 );
 
         createOverlay();
+
+        /*
+         * Overlay alkaa piilotettuna.
+         * AccessibilityService näyttää sen,
+         * kun Hearthstone on aktiivinen.
+         */
+        hearthstoneActive = false;
+
+        if (overlayView != null) {
+
+            overlayView.setVisibility(
+                    View.GONE
+            );
+        }
 
         startCapture();
     }
@@ -1135,10 +1216,6 @@ public class CaptureService extends Service {
             return card3Stability.stable;
         }
 
-        /*
-         * Jos nykyinen vakaa nimi on olemassa ja OCR
-         * löytää siitä vain osan, pidetään vanha nimi.
-         */
         if (!card3Stability.stable.isEmpty() &&
                 isPartialOfStableCard3(
                         normalized,
@@ -1252,26 +1329,6 @@ public class CaptureService extends Service {
         return card3Stability.stable;
     }
 
-    /*
-     * ============================================================
-     * KORTTI 3 - OSATUNNISTUKSEN TUNNISTUS
-     * ============================================================
-     *
-     * Esimerkiksi:
-     *
-     * Vakaa:
-     * Naralex, Herald of the Flights
-     *
-     * OCR:
-     * Ald of the Flight
-     *
-     * Vaikka koko merkkijono ei ole suora substring,
-     * siinä on sama peräkkäinen sanajakso:
-     *
-     * of the flight(s)
-     *
-     * joten sitä käsitellään osittaisena OCR-tuloksena.
-     */
     private boolean isPartialOfStableCard3(
             String detected,
             String stable
@@ -1314,18 +1371,12 @@ public class CaptureService extends Service {
             return false;
         }
 
-        /*
-         * Uuden OCR-tuloksen täytyy olla lyhyempi.
-         */
         if (detectedNormalized.length() >=
                 stableNormalized.length()) {
 
             return false;
         }
 
-        /*
-         * Vanha suora substring-tarkistus.
-         */
         if (stableNormalized.contains(
                 detectedNormalized
         )) {
@@ -1333,19 +1384,6 @@ public class CaptureService extends Service {
             return true;
         }
 
-        /*
-         * UUSI KORTTI 3 -SUOJAUS:
-         *
-         * Verrataan sanoja peräkkäisinä jaksoina.
-         *
-         * Esimerkiksi:
-         *
-         * Naralex Herald of the Flights
-         *             ↓
-         *          of the Flight
-         *
-         * Flight / Flights hyväksytään samaksi sanaksi.
-         */
         String[] detectedWords =
                 detected.toLowerCase(Locale.US)
                         .replaceAll(
@@ -1411,26 +1449,10 @@ public class CaptureService extends Service {
             }
         }
 
-        /*
-         * Kolmen tai useamman peräkkäisen sanan
-         * osuma on erittäin vahva merkki siitä,
-         * että OCR on ottanut vain osan nimestä.
-         *
-         * Tämä ratkaisee esimerkiksi:
-         *
-         * "Naralex, Herald of the Flights"
-         * "Ald of the Flight"
-         */
         if (longestSequence >= 3) {
             return true;
         }
 
-        /*
-         * Kahden sanan osuma hyväksytään vain,
-         * jos havaittu nimi on hyvin lyhyt.
-         * Näin esimerkiksi "of the" ei yksinään
-         * pysty lukitsemaan suojausta pitkäksi aikaa.
-         */
         if (longestSequence >= 2 &&
                 detectedWords.length <= 3) {
 
@@ -1440,13 +1462,6 @@ public class CaptureService extends Service {
         return false;
     }
 
-    /*
-     * Kortti 3:n sanavertailu.
-     *
-     * Flight == Flights
-     * Herald == Herald
-     * etc.
-     */
     private boolean sameCard3Word(
             String a,
             String b
@@ -1472,9 +1487,6 @@ public class CaptureService extends Service {
             return true;
         }
 
-        /*
-         * Yksinkertainen yksikkö/monikko-suojaus.
-         */
         if (a.length() > 3 &&
                 b.length() > 3) {
 
@@ -2287,6 +2299,7 @@ public class CaptureService extends Service {
         }
 
         processing = false;
+        hearthstoneActive = false;
 
         if (mediaProjection != null) {
 
