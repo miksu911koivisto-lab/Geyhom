@@ -754,10 +754,10 @@ public class CaptureService extends Service {
                 );
 
         /*
-         * VAIN KORTTI 3:
+         * KORTTI 3
          *
-         * Pidetään korttien 1 ja 2 rajaukset
-         * täysin ennallaan.
+         * Sama rajaus kuin edellisessä toimivassa
+         * versiossa.
          */
         Bitmap card3 =
                 cropCard(
@@ -894,33 +894,47 @@ public class CaptureService extends Service {
         recognizer.process(image)
                 .addOnSuccessListener(text -> {
 
-                    /*
-                     * KORTIT 1 JA 2:
-                     * käytetään alkuperäistä OCR-käsittelyä.
-                     *
-                     * KORTTI 3:
-                     * käytetään erillistä käsittelyä,
-                     * joka pystyy yhdistämään nimen
-                     * useammalta OCR-riviltä.
-                     */
                     String cleaned;
 
                     if (index == 2) {
 
+                        /*
+                         * Kortti 3 käyttää edelleen omaa
+                         * pitkän nimen OCR-käsittelyä.
+                         */
                         cleaned =
                                 cleanCard3Name(text);
 
                     } else {
 
+                        /*
+                         * Kortit 1 ja 2 ennallaan.
+                         */
                         cleaned =
                                 cleanCardName(text);
                     }
 
-                    results[index] =
-                            stabilizeCard(
-                                    cleaned,
-                                    index
-                            );
+                    /*
+                     * TÄRKEÄ:
+                     *
+                     * Kortille 3 käytetään erillistä
+                     * vakauskäsittelyä.
+                     */
+                    if (index == 2) {
+
+                        results[index] =
+                                stabilizeCard3(
+                                        cleaned
+                                );
+
+                    } else {
+
+                        results[index] =
+                                stabilizeCard(
+                                        cleaned,
+                                        index
+                                );
+                    }
 
                     bitmap.recycle();
 
@@ -1117,6 +1131,274 @@ public class CaptureService extends Service {
         return stability.stable;
     }
 
+    /*
+     * ============================================================
+     * KORTTI 3:N ERILLINEN VAKAUS
+     * ============================================================
+     *
+     * Tämä on ainoa uusi suojaus.
+     *
+     * Jos vakaa nimi on esimerkiksi:
+     *
+     *     Toreth the Unbreaking
+     *
+     * ja OCR löytää vain:
+     *
+     *     the Unbreaking
+     *
+     * sitä EI hyväksytä uudeksi nimeksi.
+     *
+     * Sama koskee mitä tahansa lyhyempää tekstipätkää,
+     * joka on osa nykyistä vakaata nimeä.
+     */
+    private String stabilizeCard3(
+            String detected
+    ) {
+
+        if (detected == null ||
+                detected.trim().isEmpty()) {
+
+            return card3Stability.stable;
+        }
+
+        String normalized =
+                normalizeDetectedCardName(
+                        detected
+                );
+
+        if (normalized.isEmpty()) {
+            return card3Stability.stable;
+        }
+
+        /*
+         * Jos meillä on jo vakaa kortti ja uusi OCR-tulos
+         * on vain sen osa, pidetään vanha nimi.
+         */
+        if (!card3Stability.stable.isEmpty() &&
+                isPartialOfStableCard3(
+                        normalized,
+                        card3Stability.stable
+                )) {
+
+            /*
+             * Osittainen OCR ei saa edes muodostaa
+             * ehdokasta uudeksi kortiksi.
+             */
+            card3Stability.candidate = "";
+            card3Stability.candidateCount = 0;
+
+            return card3Stability.stable;
+        }
+
+        /*
+         * Normaali vakaan nimen vastaavuus.
+         */
+        if (!card3Stability.stable.isEmpty() &&
+                similarNames(
+                        card3Stability.stable,
+                        normalized
+                )) {
+
+            /*
+             * Jos OCR löysi tällä kertaa pidemmän
+             * version samasta nimestä, voidaan käyttää
+             * pidempää versiota.
+             */
+            if (isLongerVersion(
+                    normalized,
+                    card3Stability.stable
+            )) {
+
+                card3Stability.stable =
+                        normalized;
+            }
+
+            card3Stability.candidate = "";
+            card3Stability.candidateCount = 0;
+
+            return card3Stability.stable;
+        }
+
+        /*
+         * Ei vielä vakaata nimeä.
+         * Käytetään normaalia kahden havainnon
+         * varmistusta.
+         */
+        if (card3Stability.stable.isEmpty()) {
+
+            if (card3Stability.candidate.isEmpty() ||
+                    !similarNames(
+                            card3Stability.candidate,
+                            normalized
+                    )) {
+
+                card3Stability.candidate =
+                        normalized;
+
+                card3Stability.candidateCount = 1;
+
+            } else {
+
+                if (isLongerVersion(
+                        normalized,
+                        card3Stability.candidate
+                )) {
+
+                    card3Stability.candidate =
+                            normalized;
+                }
+
+                card3Stability.candidateCount++;
+            }
+
+            if (card3Stability.candidateCount >=
+                    CARD_CONFIRMATIONS) {
+
+                card3Stability.stable =
+                        card3Stability.candidate;
+
+                card3Stability.candidate = "";
+
+                card3Stability.candidateCount = 0;
+            }
+
+            return card3Stability.stable.isEmpty()
+                    ? normalized
+                    : card3Stability.stable;
+        }
+
+        /*
+         * Tässä ollaan vain, jos OCR näyttää kokonaan
+         * uuden kortin eikä kyseessä ole nykyisen nimen
+         * osittainen havainto.
+         */
+        if (card3Stability.candidate.isEmpty() ||
+                !similarNames(
+                        card3Stability.candidate,
+                        normalized
+                )) {
+
+            card3Stability.candidate =
+                    normalized;
+
+            card3Stability.candidateCount = 1;
+
+        } else {
+
+            if (isLongerVersion(
+                    normalized,
+                    card3Stability.candidate
+            )) {
+
+                card3Stability.candidate =
+                        normalized;
+            }
+
+            card3Stability.candidateCount++;
+        }
+
+        if (card3Stability.candidateCount >=
+                CARD_CONFIRMATIONS) {
+
+            card3Stability.stable =
+                    card3Stability.candidate;
+
+            card3Stability.candidate = "";
+
+            card3Stability.candidateCount = 0;
+        }
+
+        return card3Stability.stable;
+    }
+
+    /*
+     * Tarkistaa, onko uusi OCR-tulos vain osa nykyisestä
+     * vakaasta kortinimestä.
+     *
+     * Esimerkki:
+     *
+     * stable:
+     * Toreth the Unbreaking
+     *
+     * detected:
+     * the Unbreaking
+     *
+     * => true
+     *
+     * Myös:
+     *
+     * stable:
+     * Holy Eggbearer
+     *
+     * detected:
+     * Eggbearer
+     *
+     * => true
+     */
+    private boolean isPartialOfStableCard3(
+            String detected,
+            String stable
+    ) {
+
+        if (detected == null ||
+                stable == null) {
+
+            return false;
+        }
+
+        String detectedNormalized =
+                detected.toLowerCase(
+                                Locale.US
+                        )
+                        .replaceAll(
+                                "[^a-z0-9]",
+                                ""
+                        );
+
+        String stableNormalized =
+                stable.toLowerCase(
+                                Locale.US
+                        )
+                        .replaceAll(
+                                "[^a-z0-9]",
+                                ""
+                        );
+
+        if (detectedNormalized.isEmpty() ||
+                stableNormalized.isEmpty()) {
+
+            return false;
+        }
+
+        /*
+         * Täsmälleen sama nimi ei ole osittainen.
+         */
+        if (detectedNormalized.equals(
+                stableNormalized
+        )) {
+
+            return false;
+        }
+
+        /*
+         * Jos uusi OCR-tulos on lyhyempi ja löytyy
+         * kokonaisena nykyisestä nimestä, se on
+         * erittäin todennäköisesti vain OCR:n leikkaama
+         * osa pitkästä nimestä.
+         */
+        if (detectedNormalized.length() <
+                stableNormalized.length()
+                &&
+                stableNormalized.contains(
+                        detectedNormalized
+                )) {
+
+            return true;
+        }
+
+        return false;
+    }
+
     private boolean isLongerVersion(
             String longer,
             String shorter
@@ -1224,9 +1506,7 @@ public class CaptureService extends Service {
     }
 
     /*
-     * ALKUPERÄINEN cleanCardName.
-     *
-     * Tätä ei muuteta korttien 1 ja 2 takia.
+     * Korttien 1 ja 2 alkuperäinen käsittely.
      */
     private String cleanCardName(
             Text text
@@ -1334,20 +1614,17 @@ public class CaptureService extends Service {
     }
 
     /*
-     * VAIN KORTTI 3:LLE.
+     * Kortti 3:n pitkien nimien OCR.
      *
-     * Jos ML Kit jakaa pitkän korttinimen
-     * kahdelle riville, esimerkiksi:
+     * Jos ML Kit jakaa nimen kahdelle riville,
+     * esimerkiksi:
      *
      * Holy Egg
      * bearer
      *
-     * tästä tulee:
+     * tulokseksi saadaan:
      *
      * Holy Egg bearer
-     *
-     * Korttien 1 ja 2 cleanCardName()
-     * ei muutu lainkaan.
      */
     private String cleanCard3Name(
             Text text
@@ -1370,10 +1647,6 @@ public class CaptureService extends Service {
         StringBuilder combined =
                 new StringBuilder();
 
-        /*
-         * Kortin 3 OCR-alueelta otetaan
-         * vain järkevät tekstirivit.
-         */
         for (String line : lines) {
 
             if (line == null) {
