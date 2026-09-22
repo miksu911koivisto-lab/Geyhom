@@ -23,10 +23,6 @@ public class ArenaAdvisor {
     private static final String HEARTHARENA_URL =
             "https://www.heartharena.com/tierlist";
 
-    /*
-     * HearthArena käyttää tierlistassa noin 0–120 pisteen
-     * asteikkoa. Sovellus käyttää 0–10 asteikkoa.
-     */
     private static final double HEARTHARENA_SCALE = 13.0;
 
     private static final double UNKNOWN_CARD_SCORE = 5.0;
@@ -86,20 +82,12 @@ public class ArenaAdvisor {
                 String name,
                 double baseScore
         ) {
-
             this.name = name;
             this.baseScore = baseScore;
         }
     }
 
     static {
-
-        /*
-         * Tunnetut kortit / varakortit.
-         *
-         * Näitä käytetään heti, vaikka verkkolistan lataus
-         * ei olisi vielä valmis.
-         */
 
         add(
                 "Soldier of the Infinite",
@@ -261,10 +249,6 @@ public class ArenaAdvisor {
                 false
         );
 
-        /*
-         * OCR:n yleisiä virhetulkintoja.
-         */
-
         alias(
                 "soldier of ihfinite",
                 "Soldier of the Infinite"
@@ -315,9 +299,6 @@ public class ArenaAdvisor {
                 "Surge Needle"
         );
 
-        /*
-         * Aloitetaan HearthArena-listan lataus taustalla.
-         */
         loadOnlineTierList();
     }
 
@@ -435,10 +416,8 @@ public class ArenaAdvisor {
             } catch (Exception ignored) {
 
                 /*
-                 * Verkkolistan epäonnistuminen ei saa
-                 * rikkoa sovellusta.
-                 *
-                 * Fallback-kortit toimivat edelleen.
+                 * Jos verkkolistan lataus epäonnistuu,
+                 * fallback-kortit toimivat edelleen.
                  */
 
             } finally {
@@ -489,15 +468,6 @@ public class ArenaAdvisor {
             return;
         }
 
-        /*
-         * HearthArena-listan sisältää kortin nimen
-         * ja sen pistemäärän HTML:n sisällä.
-         *
-         * Poimitaan tunnettu rakenne mahdollisimman
-         * varovaisesti, jotta muut sivun numerot eivät
-         * päädy korteiksi.
-         */
-
         String cleaned =
                 html
                         .replace("&amp;", "&")
@@ -509,18 +479,7 @@ public class ArenaAdvisor {
                         .replace("&gt;", ">")
                         .replace("&nbsp;", " ");
 
-        /*
-         * Ensimmäinen parseri:
-         * HTML-elementtien välistä tekstiä.
-         */
-
         parseTierRows(cleaned);
-
-        /*
-         * Jos verkkosivun rakenne muuttuu, yritetään
-         * vielä löytää nimi + numero -pareja tekstistä.
-         */
-
         parseLooseCardScores(cleaned);
     }
 
@@ -552,10 +511,6 @@ public class ArenaAdvisor {
             line =
                     decodeEntities(line);
 
-            /*
-             * Jos rivillä on selvästi kortin nimi,
-             * talletetaan se odottamaan seuraavaa numeroa.
-             */
             if (looksLikeCardName(line)) {
 
                 previousName =
@@ -564,9 +519,6 @@ public class ArenaAdvisor {
                 continue;
             }
 
-            /*
-             * Seuraava numero voi olla HearthArena-score.
-             */
             if (!previousName.isEmpty() &&
                     line.matches(
                             "^(?:\\d{1,3})(?:\\.\\d+)?$"
@@ -677,9 +629,6 @@ public class ArenaAdvisor {
                 hearthArenaScore /
                         HEARTHARENA_SCALE;
 
-        /*
-         * Pidetään sovelluksen asteikko välillä 0–10.
-         */
         converted =
                 Math.max(
                         0.0,
@@ -694,9 +643,6 @@ public class ArenaAdvisor {
                         normalize(name)
                 );
 
-        /*
-         * Verkkodata saa päivittää fallback-arvon.
-         */
         if (existing == null) {
 
             CardData data =
@@ -896,9 +842,6 @@ public class ArenaAdvisor {
         String normalized =
                 normalize(cleaned);
 
-        /*
-         * Tarkka OCR-alias.
-         */
         String alias =
                 OCR_ALIASES.get(
                         normalized
@@ -908,9 +851,6 @@ public class ArenaAdvisor {
             return alias;
         }
 
-        /*
-         * Tarkka korttinimi.
-         */
         CardData exact =
                 CARDS.get(
                         normalized
@@ -920,9 +860,6 @@ public class ArenaAdvisor {
             return exact.name;
         }
 
-        /*
-         * Erityinen Soldier-korjaus.
-         */
         String soldier =
                 fixSoldierOfInfinite(
                         cleaned
@@ -932,9 +869,6 @@ public class ArenaAdvisor {
             return soldier;
         }
 
-        /*
-         * Fuzzy match.
-         */
         String bestName = "";
         int bestDistance = Integer.MAX_VALUE;
 
@@ -1027,12 +961,22 @@ public class ArenaAdvisor {
         return text;
     }
 
+    /*
+     * CaptureService käyttää tätä.
+     * Palautetaan STRING, esimerkiksi "8.2".
+     */
     public static String getCardScore(
-        String cardName
-) {
-    return formatScore(score(cardName));
-}
+            String cardName
+    ) {
 
+        return formatScore(
+                score(cardName)
+        );
+    }
+
+    /*
+     * Sisäinen numeerinen pistelaskenta.
+     */
     public static double score(
             String cardName
     ) {
@@ -1055,23 +999,11 @@ public class ArenaAdvisor {
 
         if (card == null) {
 
-            /*
-             * Kortin nimeä ei löytynyt vielä.
-             * Pidetään nykyinen toimiva fallback.
-             */
             return UNKNOWN_CARD_SCORE;
         }
 
         double value =
                 card.baseScore;
-
-        /*
-         * Pienet ominaisuusbonukset.
-         *
-         * Nämä eivät ohita HearthArena-perusarvoa,
-         * vaan toimivat vain fallback-korteille,
-         * joille ominaisuustietoa on määritelty.
-         */
 
         if (card.removal) {
             value += 0.20;
@@ -1105,9 +1037,6 @@ public class ArenaAdvisor {
             value += 0.10;
         }
 
-        /*
-         * Synergia aiemmin valittujen korttien kanssa.
-         */
         value += synergyBonus(
                 card
         );
@@ -1127,12 +1056,6 @@ public class ArenaAdvisor {
             return 0.0;
         }
 
-        /*
-         * Tässä vaiheessa pidetään bonus tarkoituksella
-         * pienenä, jotta kortin perusarvo ratkaisee
-         * edelleen suurimman osan suosituksesta.
-         */
-
         int copies =
                 PICKED_CARDS.getOrDefault(
                         normalize(card.name),
@@ -1143,9 +1066,6 @@ public class ArenaAdvisor {
             return 0.0;
         }
 
-        /*
-         * Toisen saman kortin jälkeen pieni bonus.
-         */
         if (copies == 1) {
             return 0.05;
         }
@@ -1292,19 +1212,12 @@ public class ArenaAdvisor {
             return false;
         }
 
-        /*
-         * Tunnettu kortti.
-         */
         if (CARDS.containsKey(
                 normalized
         )) {
             return true;
         }
 
-        /*
-         * Jos OCR tuotti järkevän sanan,
-         * annetaan correctOcr:n yrittää.
-         */
         String corrected =
                 correctOcr(
                         cardName
@@ -1496,15 +1409,17 @@ public class ArenaAdvisor {
     }
 
     /*
-     * Yhteensopivuus vanhan CaptureService-koodin
-     * kanssa.
+     * Yhteensopivuus vanhan koodin kanssa.
+     *
+     * TÄSSÄ EI enää kutsuta formatScore(getCardScore()),
+     * koska getCardScore palauttaa jo Stringin.
      */
     public static String getCardScoreText(
             String cardName
     ) {
 
-        return formatScore(
-                getCardScore(cardName)
+        return getCardScore(
+                cardName
         );
     }
 
