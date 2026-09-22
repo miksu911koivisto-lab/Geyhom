@@ -24,453 +24,195 @@ import java.util.concurrent.Executors;
 public class ArenaAdvisor {
 
     private static final String TAG = "ArenaAdvisor";
-
-    private static final String CARDS_URL =
-            "https://api.hearthstonejson.com/v1/latest/enUS/cards.collectible.json";
-
-    private static final String HEARTHARENA_URL =
-            "https://www.heartharena.com/tierlist";
-
+    private static final String CARDS_URL = "https://api.hearthstonejson.com/v1/latest/enUS/cards.collectible.json";
+    private static final String HEARTHARENA_URL = "https://www.heartharena.com/tierlist";
     private static final double UNKNOWN_CARD_SCORE = 0.0;
+    private static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(2);
 
-    private static final ExecutorService EXECUTOR =
-            Executors.newFixedThreadPool(2);
-
-    private static final Map<String, CardData> CARDS =
-            new HashMap<>();
-
-    private static final Map<String, String> CANONICAL_NAMES =
-            new HashMap<>();
-
-    private static final Map<String, String> ALIASES =
-            new HashMap<>();
-
-    private static final Map<String, CardInfo> CARD_INFO =
-            new HashMap<>();
-
-    private static final Map<String, Map<String, Double>> CLASS_SCORES =
-            new HashMap<>();
-
-    private static final Map<String, Double> NEUTRAL_SCORES =
-            new HashMap<>();
-
-    private static final Map<String, Integer> PICKED_CARDS =
-            new HashMap<>();
-
-    private static final Map<String, Double> FALLBACK_SCORES =
-            new HashMap<>();
-
-    private static final Map<String, DraftAnalysis> LAST_ANALYSES =
-            new HashMap<>();
+    private static final Map<String, CardData> CARDS = new HashMap<>();
+    private static final Map<String, String> CANONICAL_NAMES = new HashMap<>();
+    private static final Map<String, String> ALIASES = new HashMap<>();
+    private static final Map<String, CardInfo> CARD_INFO = new HashMap<>();
+    private static final Map<String, Map<String, Double>> CLASS_SCORES = new HashMap<>();
+    private static final Map<String, Double> NEUTRAL_SCORES = new HashMap<>();
+    private static final Map<String, Integer> PICKED_CARDS = new HashMap<>();
+    private static final Map<String, Double> FALLBACK_SCORES = new HashMap<>();
+    private static final Map<String, DraftAnalysis> LAST_ANALYSES = new HashMap<>();
 
     private static volatile boolean onlineLoaded = false;
-
     private static volatile boolean hearthArenaLoaded = false;
-
     private static volatile boolean hearthArenaLoading = false;
+    private static volatile String status = "Käynnistetään...";
+    private static volatile String reason = "";
+    private static volatile String currentClass = "";
+    private static volatile String lastRecommendation = "";
+    private static volatile double lastRecommendationScore = 0.0;
+    private static volatile double lastRecommendationGap = 0.0;
+    private static volatile String lastRecommendationReason = "";
 
-    private static volatile String status =
-            "Käynnistetään...";
-
-    private static volatile String reason =
-            "";
-
-    private static volatile String currentClass =
-            "";
-
-    private static volatile String lastRecommendation =
-            "";
-
-    private static volatile double lastRecommendationScore =
-            0.0;
-
-    private static volatile double lastRecommendationGap =
-            0.0;
-
-    private static volatile String lastRecommendationReason =
-            "";
-
-    private static String candidateClass =
-            "";
-
-    private static int candidateClassCount =
-            0;
-
-    private static final int CLASS_CONFIRMATIONS =
-            2;
+    private static String candidateClass = "";
+    private static int candidateClassCount = 0;
+    private static final int CLASS_CONFIRMATIONS = 2;
 
     private static final String[] VALID_CLASSES = {
-
-            "DEATH KNIGHT",
-            "DEMON HUNTER",
-            "DRUID",
-            "HUNTER",
-            "MAGE",
-            "PALADIN",
-            "PRIEST",
-            "ROGUE",
-            "SHAMAN",
-            "WARLOCK",
-            "WARRIOR"
+            "DEATH KNIGHT", "DEMON HUNTER", "DRUID", "HUNTER", "MAGE",
+            "PALADIN", "PRIEST", "ROGUE", "SHAMAN", "WARLOCK", "WARRIOR"
     };
 
-    private static final double CURVE_MAX_BONUS =
-            0.45;
-
-    private static final double TYPE_MAX_BONUS =
-            0.25;
-
-    private static final double SYNERGY_MAX_BONUS =
-            0.60;
-
-    private static final double DECK_FIT_MAX_BONUS =
-            0.45;
-
-    private static final double REMOVAL_TEMPO_MAX_BONUS =
-            0.55;
-
-    private static final double DUPLICATE_PENALTY =
-            0.15;
-
-    private static final int MAX_MANA_COST =
-            10;
+    private static final double CURVE_MAX_BONUS = 0.45;
+    private static final double TYPE_MAX_BONUS = 0.25;
+    private static final double SYNERGY_MAX_BONUS = 0.60;
+    private static final double DECK_FIT_MAX_BONUS = 0.45;
+    private static final double REMOVAL_TEMPO_MAX_BONUS = 0.55;
+    private static final double DUPLICATE_PENALTY = 0.15;
+    private static final int MAX_MANA_COST = 10;
 
     static {
-
         initializeClassMaps();
-
         initializeFallbackScores();
-
         initializeAliases();
-
         loadCards();
     }
 
     private static void initializeClassMaps() {
-
         for (String cls : VALID_CLASSES) {
-
-            CLASS_SCORES.put(
-                    cls,
-                    new HashMap<>()
-            );
+            CLASS_SCORES.put(cls, new HashMap<>());
         }
     }
 
-    /*
-     * ============================================================
-     * FALLBACK SCORES
-     * ============================================================
-     */
-
     private static void initializeFallbackScores() {
+        FALLBACK_SCORES.put(normalize("Temporal Construct"), 5.54);
+        FALLBACK_SCORES.put(normalize("Bitter End"), 6.62);
+        FALLBACK_SCORES.put(normalize("Sealed Lancer"), 5.56);
+        FALLBACK_SCORES.put(normalize("Scaled Lancer"), 5.56);
+        FALLBACK_SCORES.put(normalize("Soldier of the Infinite"), 5.80);
+        FALLBACK_SCORES.put(normalize("Soldier of the Bronze"), 4.60);
 
-        FALLBACK_SCORES.put(
-                normalize("Temporal Construct"),
-                5.54
-        );
-
-        FALLBACK_SCORES.put(
-                normalize("Bitter End"),
-                6.62
-        );
-
-        FALLBACK_SCORES.put(
-                normalize("Sealed Lancer"),
-                5.56
-        );
-
-        FALLBACK_SCORES.put(
-                normalize("Scaled Lancer"),
-                5.56
-        );
-
-        FALLBACK_SCORES.put(
-                normalize("Soldier of the Infinite"),
-                5.80
-        );
-
-        FALLBACK_SCORES.put(
-                normalize("Soldier of the Bronze"),
-                4.60
-        );
-
-        /*
-         * Turvallisuusarvot tämänhetkisille korteille.
-         * Online HearthArena-arvo menee näiden edelle,
-         * jos online-lista saadaan ladattua.
-         */
-
-        FALLBACK_SCORES.put(
-                normalize("Toreth the Unbreaking"),
-                7.60
-        );
-
-        FALLBACK_SCORES.put(
-                normalize("Chromatus"),
-                10.10
-        );
-
-        FALLBACK_SCORES.put(
-                normalize("Naralex, Herald of the Flights"),
-                6.60
-        );
+        FALLBACK_SCORES.put(normalize("Toreth the Unbreaking"), 7.60);
+        FALLBACK_SCORES.put(normalize("Chromatus"), 10.10);
+        FALLBACK_SCORES.put(normalize("Naralex, Herald of the Flights"), 6.60);
     }
-
-    /*
-     * ============================================================
-     * ALIASES
-     * ============================================================
-     */
 
     private static void initializeAliases() {
+        addAlias("soldier of ihfini", "Soldier of the Infinite");
+        addAlias("sotdier of infinite", "Soldier of the Infinite");
+        addAlias("so1dier of infinite", "Soldier of the Infinite");
+        addAlias("soldier of the infinite", "Soldier of the Infinite");
+        addAlias("soldieroftheinfinite", "Soldier of the Infinite");
+        addAlias("soldier of ihfinite", "Soldier of the Infinite");
 
-        addAlias(
-                "soldier of ihfini",
-                "Soldier of the Infinite"
-        );
+        addAlias("soldier of bronze", "Soldier of the Bronze");
+        addAlias("soldierofthebronze", "Soldier of the Bronze");
 
-        addAlias(
-                "sotdier of infinite",
-                "Soldier of the Infinite"
-        );
+        addAlias("temporalconstruct", "Temporal Construct");
+        addAlias("temporal construct", "Temporal Construct");
 
-        addAlias(
-                "so1dier of infinite",
-                "Soldier of the Infinite"
-        );
+        addAlias("bitterend", "Bitter End");
+        addAlias("bitter end", "Bitter End");
 
-        addAlias(
-                "soldier of the infinite",
-                "Soldier of the Infinite"
-        );
+        addAlias("sealedlancer", "Sealed Lancer");
+        addAlias("sealed lancer", "Sealed Lancer");
 
-        addAlias(
-                "soldieroftheinfinite",
-                "Soldier of the Infinite"
-        );
+        addAlias("scaledlancer", "Scaled Lancer");
+        addAlias("scaled lancer", "Scaled Lancer");
 
-        addAlias(
-                "soldier of ihfinite",
-                "Soldier of the Infinite"
-        );
+        // OCR variants from the Arena legendary-group screen.
+        addAlias("unbreakin", "Toreth the Unbreaking");
+        addAlias("toreth the unbreakin", "Toreth the Unbreaking");
 
-        addAlias(
-                "soldier of bronze",
-                "Soldier of the Bronze"
-        );
+        addAlias("matus", "Chromatus");
+        addAlias("chromatu", "Chromatus");
 
-        addAlias(
-                "soldierofthebronze",
-                "Soldier of the Bronze"
-        );
-
-        addAlias(
-                "temporalconstruct",
-                "Temporal Construct"
-        );
-
-        addAlias(
-                "temporal construct",
-                "Temporal Construct"
-        );
-
-        addAlias(
-                "bitterend",
-                "Bitter End"
-        );
-
-        addAlias(
-                "bitter end",
-                "Bitter End"
-        );
-
-        addAlias(
-                "sealedlancer",
-                "Sealed Lancer"
-        );
-
-        addAlias(
-                "sealed lancer",
-                "Sealed Lancer"
-        );
-
-        addAlias(
-                "scaledlancer",
-                "Scaled Lancer"
-        );
-
-        addAlias(
-                "scaled lancer",
-                "Scaled Lancer"
-        );
+        addAlias("ald of the flighte", "Naralex, Herald of the Flights");
+        addAlias("herald of the flighte", "Naralex, Herald of the Flights");
     }
 
-    private static void addAlias(
-            String bad,
-            String correct
-    ) {
-
-        ALIASES.put(
-                normalize(bad),
-                correct
-        );
+    private static void addAlias(String bad, String correct) {
+        ALIASES.put(normalize(bad), correct);
     }
-
-    /*
-     * ============================================================
-     * LOAD HEARTHSTONE CARD DATABASE
-     * ============================================================
-     */
 
     private static void loadCards() {
-
         EXECUTOR.execute(() -> {
-
-            HttpURLConnection connection =
-                    null;
+            HttpURLConnection connection = null;
 
             try {
+                status = "Ladataan korttitietoja...";
 
-                status =
-                        "Ladataan korttitietoja...";
+                connection = (HttpURLConnection)
+                        new URL(CARDS_URL).openConnection();
 
-                connection =
-                        (HttpURLConnection)
-                                new URL(CARDS_URL)
-                                        .openConnection();
-
-                connection.setRequestMethod(
-                        "GET"
-                );
-
-                connection.setConnectTimeout(
-                        12000
-                );
-
-                connection.setReadTimeout(
-                        12000
-                );
-
+                connection.setRequestMethod("GET");
+                connection.setConnectTimeout(12000);
+                connection.setReadTimeout(12000);
                 connection.setRequestProperty(
                         "User-Agent",
                         "ArenaHelper/1.0"
                 );
 
-                int code =
-                        connection.getResponseCode();
+                int code = connection.getResponseCode();
 
-                if (code !=
-                        HttpURLConnection.HTTP_OK) {
-
-                    throw new Exception(
-                            "HTTP " + code
-                    );
+                if (code != HttpURLConnection.HTTP_OK) {
+                    throw new Exception("HTTP " + code);
                 }
 
                 JSONArray array =
-                        new JSONArray(
-                                readStream(
-                                        connection
-                                                .getInputStream()
-                                )
-                        );
+                        new JSONArray(readStream(connection.getInputStream()));
 
                 CARDS.clear();
-
                 CANONICAL_NAMES.clear();
-
                 CARD_INFO.clear();
 
                 int count = 0;
 
-                for (int i = 0;
-                     i < array.length();
-                     i++) {
+                for (int i = 0; i < array.length(); i++) {
 
-                    JSONObject o =
-                            array.optJSONObject(i);
+                    JSONObject o = array.optJSONObject(i);
 
                     if (o == null) {
                         continue;
                     }
 
                     String name =
-                            o.optString(
-                                    "name",
-                                    ""
-                            ).trim();
+                            o.optString("name", "").trim();
 
                     if (name.isEmpty()) {
                         continue;
                     }
 
                     String cardClass =
-                            o.optString(
-                                    "cardClass",
-                                    ""
-                            ).trim();
+                            o.optString("cardClass", "").trim();
 
                     String type =
-                            o.optString(
-                                    "type",
-                                    ""
-                            ).trim();
+                            o.optString("type", "").trim();
 
                     String rarity =
-                            o.optString(
-                                    "rarity",
-                                    ""
-                            ).trim();
+                            o.optString("rarity", "").trim();
 
                     String id =
-                            o.optString(
-                                    "id",
-                                    ""
-                            ).trim();
+                            o.optString("id", "").trim();
 
                     String text =
-                            o.optString(
-                                    "text",
-                                    ""
-                            ).trim();
+                            o.optString("text", "").trim();
 
                     String race =
-                            o.optString(
-                                    "race",
-                                    ""
-                            ).trim();
+                            o.optString("race", "").trim();
 
                     String school =
-                            o.optString(
-                                    "spellSchool",
-                                    ""
-                            ).trim();
+                            o.optString("spellSchool", "").trim();
 
                     String mechanics =
                             jsonArrayToText(
-                                    o.optJSONArray(
-                                            "mechanics"
-                                    )
+                                    o.optJSONArray("mechanics")
                             );
 
                     int cost =
-                            o.optInt(
-                                    "cost",
-                                    0
-                            );
+                            o.optInt("cost", 0);
 
                     int attack =
-                            o.optInt(
-                                    "attack",
-                                    0
-                            );
+                            o.optInt("attack", 0);
 
                     int health =
-                            o.optInt(
-                                    "health",
-                                    0
-                            );
+                            o.optInt("health", 0);
 
                     CardData data =
                             new CardData(
@@ -491,50 +233,35 @@ public class ArenaAdvisor {
                     String key =
                             normalize(name);
 
-                    CARDS.put(
-                            key,
-                            data
-                    );
-
-                    CANONICAL_NAMES.put(
-                            key,
-                            name
-                    );
+                    CARDS.put(key, data);
+                    CANONICAL_NAMES.put(key, name);
 
                     CARD_INFO.put(
                             key,
                             new CardInfo(
                                     name,
-                                    normalizeClass(
-                                            cardClass
-                                    )
+                                    normalizeClass(cardClass)
                             )
                     );
 
                     count++;
                 }
 
-                onlineLoaded =
-                        count > 0;
+                onlineLoaded = count > 0;
 
                 if (!onlineLoaded) {
-
-                    status =
-                            "Korttitietokanta tyhjä";
-
+                    status = "Korttitietokanta tyhjä";
                     return;
                 }
 
                 status =
-                        "Korttitiedot ladattu: "
-                                + count;
+                        "Korttitiedot ladattu: " + count;
 
                 loadHearthArenaScores();
 
             } catch (Exception e) {
 
-                onlineLoaded =
-                        false;
+                onlineLoaded = false;
 
                 Log.e(
                         TAG,
@@ -554,28 +281,19 @@ public class ArenaAdvisor {
         });
     }
 
-    private static String jsonArrayToText(
-            JSONArray array
-    ) {
+    private static String jsonArrayToText(JSONArray array) {
 
-        if (array == null ||
-                array.length() == 0) {
-
+        if (array == null || array.length() == 0) {
             return "";
         }
 
         StringBuilder b =
                 new StringBuilder();
 
-        for (int i = 0;
-             i < array.length();
-             i++) {
+        for (int i = 0; i < array.length(); i++) {
 
             String v =
-                    array.optString(
-                            i,
-                            ""
-                    );
+                    array.optString(i, "");
 
             if (v.isEmpty()) {
                 continue;
@@ -591,28 +309,18 @@ public class ArenaAdvisor {
         return b.toString();
     }
 
-    /*
-     * ============================================================
-     * HEARTHARENA
-     * ============================================================
-     */
-
-    private static synchronized void
-    loadHearthArenaScores() {
+    private static synchronized void loadHearthArenaScores() {
 
         if (hearthArenaLoading ||
                 CANONICAL_NAMES.isEmpty()) {
-
             return;
         }
 
-        hearthArenaLoading =
-                true;
+        hearthArenaLoading = true;
 
         EXECUTOR.execute(() -> {
 
-            HttpURLConnection connection =
-                    null;
+            HttpURLConnection connection = null;
 
             try {
 
@@ -625,33 +333,19 @@ public class ArenaAdvisor {
                                         HEARTHARENA_URL
                                 ).openConnection();
 
-                connection.setRequestMethod(
-                        "GET"
-                );
-
-                connection.setConnectTimeout(
-                        15000
-                );
-
-                connection.setReadTimeout(
-                        20000
-                );
-
-                connection.setInstanceFollowRedirects(
-                        true
-                );
+                connection.setRequestMethod("GET");
+                connection.setConnectTimeout(15000);
+                connection.setReadTimeout(20000);
+                connection.setInstanceFollowRedirects(true);
 
                 connection.setRequestProperty(
                         "User-Agent",
-                        "Mozilla/5.0 (Linux; Android 16) "
-                                + "AppleWebKit/537.36 "
-                                + "Chrome/140.0 Mobile Safari/537.36"
+                        "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36"
                 );
 
                 connection.setRequestProperty(
                         "Accept",
-                        "text/html,application/xhtml+xml,"
-                                + "application/xml;q=0.9,*/*;q=0.8"
+                        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
                 );
 
                 connection.setRequestProperty(
@@ -662,24 +356,19 @@ public class ArenaAdvisor {
                 int code =
                         connection.getResponseCode();
 
-                if (code !=
-                        HttpURLConnection.HTTP_OK) {
-
+                if (code != HttpURLConnection.HTTP_OK) {
                     throw new Exception(
-                            "HearthArena HTTP "
-                                    + code
+                            "HearthArena HTTP " + code
                     );
                 }
 
                 String html =
                         readStream(
-                                connection
-                                        .getInputStream()
+                                connection.getInputStream()
                         );
 
                 if (html == null ||
                         html.length() < 1000) {
-
                     throw new Exception(
                             "HearthArena response empty"
                     );
@@ -688,9 +377,7 @@ public class ArenaAdvisor {
                 clearHearthArenaMapsOnly();
 
                 int parsed =
-                        parseHearthArenaHtml(
-                                html
-                        );
+                        parseHearthArenaHtml(html);
 
                 if (parsed < 5) {
 
@@ -703,14 +390,12 @@ public class ArenaAdvisor {
                 }
 
                 if (parsed <= 0) {
-
                     throw new Exception(
                             "HearthArena parser found 0 scores"
                     );
                 }
 
-                hearthArenaLoaded =
-                        true;
+                hearthArenaLoaded = true;
 
                 status =
                         "HearthArena ladattu: "
@@ -725,24 +410,20 @@ public class ArenaAdvisor {
 
             } catch (Exception e) {
 
-                hearthArenaLoaded =
-                        false;
+                hearthArenaLoaded = false;
 
                 Log.e(
                         TAG,
-                        "HearthArena loading failed; "
-                                + "local fallback remains active",
+                        "HearthArena loading failed; local fallback remains active",
                         e
                 );
 
                 status =
-                        "HearthArena ei latautunut – "
-                                + "fallback käytössä";
+                        "HearthArena ei latautunut – fallback käytössä";
 
             } finally {
 
-                hearthArenaLoading =
-                        false;
+                hearthArenaLoading = false;
 
                 if (connection != null) {
                     connection.disconnect();
@@ -751,83 +432,57 @@ public class ArenaAdvisor {
         });
     }
 
-    private static synchronized void
-    clearHearthArenaMapsOnly() {
+    private static synchronized void clearHearthArenaMapsOnly() {
 
         for (Map<String, Double> map :
                 CLASS_SCORES.values()) {
-
             map.clear();
         }
 
         NEUTRAL_SCORES.clear();
-
-        hearthArenaLoaded =
-                false;
+        hearthArenaLoaded = false;
     }
 
-    private static int parseHearthArenaHtml(
-            String html
-    ) {
-
+    private static int parseHearthArenaHtml(String html) {
         return parseHearthArenaText(
                 htmlToText(html)
         );
     }
 
-    private static int parseHearthArenaText(
-            String input
-    ) {
+    private static int parseHearthArenaText(String input) {
 
-        if (input == null ||
-                input.isEmpty()) {
-
+        if (input == null || input.isEmpty()) {
             return 0;
         }
 
         String[] lines =
                 input.split("\\r?\\n");
 
-        String activeClass =
-                "";
-
-        int parsed =
-                0;
+        String activeClass = "";
+        int parsed = 0;
 
         Set<String> seen =
                 new HashSet<>();
 
-        for (int i = 0;
-             i < lines.length;
-             i++) {
+        for (int i = 0; i < lines.length; i++) {
 
             String line =
-                    cleanLine(
-                            lines[i]
-                    );
+                    cleanLine(lines[i]);
 
             if (line.isEmpty()) {
                 continue;
             }
 
             String detectedClass =
-                    detectClassHeader(
-                            line
-                    );
+                    detectClassHeader(line);
 
             if (!detectedClass.isEmpty()) {
-
-                activeClass =
-                        detectedClass;
-
+                activeClass = detectedClass;
                 continue;
             }
 
             if (isNeutralHeader(line)) {
-
-                activeClass =
-                        "NEUTRAL";
-
+                activeClass = "NEUTRAL";
                 continue;
             }
 
@@ -837,15 +492,12 @@ public class ArenaAdvisor {
 
             String possibleName =
                     removeTierNoise(
-                            removeRankingPrefix(
-                                    line
-                            )
+                            removeRankingPrefix(line)
                     );
 
             if (possibleName.isEmpty() ||
                     parseScore(possibleName) != null ||
                     isTierOnlyLine(possibleName)) {
-
                 continue;
             }
 
@@ -855,7 +507,6 @@ public class ArenaAdvisor {
                     );
 
             if (canonical == null) {
-
                 canonical =
                         findCardNameInsideLine(
                                 possibleName
@@ -873,7 +524,6 @@ public class ArenaAdvisor {
                     );
 
             if (raw == null) {
-
                 raw =
                         findFollowingScore(
                                 lines,
@@ -884,27 +534,17 @@ public class ArenaAdvisor {
             if (raw == null ||
                     raw < 0 ||
                     raw > 200) {
-
                 continue;
             }
 
-            /*
-             * HearthArena käyttää suurempaa asteikkoa,
-             * kun taas Arena Helper käyttää 0–10 asteikkoa.
-             */
-
             double score =
-                    normalizeHearthArenaScore(
-                            raw
-                    );
+                    normalizeHearthArenaScore(raw);
 
             String key =
                     normalize(canonical);
 
             String seenKey =
-                    activeClass
-                            + "|"
-                            + key;
+                    activeClass + "|" + key;
 
             if (seen.contains(seenKey)) {
                 continue;
@@ -912,9 +552,7 @@ public class ArenaAdvisor {
 
             seen.add(seenKey);
 
-            if ("NEUTRAL".equals(
-                    activeClass
-            )) {
+            if ("NEUTRAL".equals(activeClass)) {
 
                 NEUTRAL_SCORES.put(
                         key,
@@ -924,25 +562,17 @@ public class ArenaAdvisor {
             } else {
 
                 Map<String, Double> map =
-                        CLASS_SCORES.get(
-                                activeClass
-                        );
+                        CLASS_SCORES.get(activeClass);
 
                 if (map == null) {
-
-                    map =
-                            new HashMap<>();
-
+                    map = new HashMap<>();
                     CLASS_SCORES.put(
                             activeClass,
                             map
                     );
                 }
 
-                map.put(
-                        key,
-                        score
-                );
+                map.put(key, score);
             }
 
             parsed++;
@@ -951,50 +581,28 @@ public class ArenaAdvisor {
         return parsed;
     }
 
-    /*
-     * ============================================================
-     * HEARTHARENA SCORE NORMALIZATION
-     * ============================================================
-     */
-
     private static double normalizeHearthArenaScore(
-            double raw
-    ) {
+            double raw) {
 
         if (raw > 10.0) {
-
-            return roundScore(
-                    raw / 10.0
-            );
+            return roundScore(raw / 10.0);
         }
 
         return roundScore(raw);
     }
 
-    /*
-     * ============================================================
-     * CARD NAME SEARCH
-     * ============================================================
-     */
-
     private static String findCardNameInsideLine(
-            String line
-    ) {
+            String line) {
 
-        if (line == null ||
-                line.isEmpty()) {
-
+        if (line == null || line.isEmpty()) {
             return null;
         }
 
         String n =
                 normalize(line);
 
-        String best =
-                null;
-
-        int bestLength =
-                -1;
+        String best = null;
+        int bestLength = -1;
 
         for (Map.Entry<String, String> e :
                 CANONICAL_NAMES.entrySet()) {
@@ -1008,18 +616,9 @@ public class ArenaAdvisor {
 
             boolean found =
                     n.equals(card)
-                            ||
-                    n.startsWith(
-                            card + " "
-                    )
-                            ||
-                    n.endsWith(
-                            " " + card
-                    )
-                            ||
-                    n.contains(
-                            " " + card + " "
-                    );
+                            || n.startsWith(card + " ")
+                            || n.endsWith(" " + card)
+                            || n.contains(" " + card + " ");
 
             if (found &&
                     card.length() > bestLength) {
@@ -1043,18 +642,9 @@ public class ArenaAdvisor {
                     e.getKey();
 
             if (n.equals(alias)
-                    ||
-                    n.contains(
-                            " " + alias + " "
-                    )
-                    ||
-                    n.startsWith(
-                            alias + " "
-                    )
-                    ||
-                    n.endsWith(
-                            " " + alias
-                    )) {
+                    || n.contains(" " + alias + " ")
+                    || n.startsWith(alias + " ")
+                    || n.endsWith(" " + alias)) {
 
                 return e.getValue();
             }
@@ -1065,12 +655,10 @@ public class ArenaAdvisor {
 
     private static Double findScoreOnSameLine(
             String line,
-            String canonical
-    ) {
+            String canonical) {
 
         if (line == null ||
                 canonical == null) {
-
             return null;
         }
 
@@ -1096,11 +684,8 @@ public class ArenaAdvisor {
             return null;
         }
 
-        String[] parts =
-                after.split("\\s+");
-
         for (String part :
-                parts) {
+                after.split("\\s+")) {
 
             Double s =
                     parseScore(part);
@@ -1115,8 +700,7 @@ public class ArenaAdvisor {
 
     private static Double findFollowingScore(
             String[] lines,
-            int start
-    ) {
+            int start) {
 
         int max =
                 Math.min(
@@ -1129,25 +713,19 @@ public class ArenaAdvisor {
              i++) {
 
             String value =
-                    cleanLine(
-                            lines[i]
-                    );
+                    cleanLine(lines[i]);
 
             if (value.isEmpty()) {
                 continue;
             }
 
             if (!detectClassHeader(value).isEmpty()
-                    ||
-                    isNeutralHeader(value)) {
-
+                    || isNeutralHeader(value)) {
                 return null;
             }
 
             String next =
-                    removeRankingPrefix(
-                            value
-                    );
+                    removeRankingPrefix(value);
 
             if (looksLikeCardLine(next)) {
                 return null;
@@ -1176,18 +754,15 @@ public class ArenaAdvisor {
     }
 
     private static Double findAnyScoreInLine(
-            String line
-    ) {
+            String line) {
 
         if (line == null ||
                 line.isEmpty()) {
-
             return null;
         }
 
         String cleaned =
-                line
-                        .replace("↓", " ")
+                line.replace("↓", " ")
                         .replace("↑", " ")
                         .replace(":", " ");
 
@@ -1205,60 +780,39 @@ public class ArenaAdvisor {
         return null;
     }
 
-    private static Double parseScore(
-            String text
-    ) {
+    private static Double parseScore(String text) {
 
         if (text == null) {
             return null;
         }
 
         String value =
-                text
-                        .trim()
+                text.trim()
                         .replace("↓", "")
                         .replace("↑", "")
                         .replace(",", ".");
 
-        if (value.matches(
-                "\\d+\\."
-        )) {
-
+        if (value.matches("\\d+\\.")) {
             return null;
         }
 
         if (!value.matches(
-                "\\d+(?:\\.\\d+)?"
-        )) {
-
+                "\\d+(?:\\.\\d+)?")) {
             return null;
         }
 
         try {
-
-            return Double.parseDouble(
-                    value
-            );
-
+            return Double.parseDouble(value);
         } catch (Exception e) {
-
             return null;
         }
     }
 
-    /*
-     * ============================================================
-     * CANONICAL MATCHING
-     * ============================================================
-     */
-
     private static String findCanonicalCardName(
-            String input
-    ) {
+            String input) {
 
         if (input == null ||
                 input.isEmpty()) {
-
             return null;
         }
 
@@ -1266,18 +820,14 @@ public class ArenaAdvisor {
                 normalize(input);
 
         String exact =
-                CANONICAL_NAMES.get(
-                        normalized
-                );
+                CANONICAL_NAMES.get(normalized);
 
         if (exact != null) {
             return exact;
         }
 
         String alias =
-                ALIASES.get(
-                        normalized
-                );
+                ALIASES.get(normalized);
 
         if (alias != null) {
             return alias;
@@ -1285,10 +835,7 @@ public class ArenaAdvisor {
 
         String withoutNew =
                 normalized
-                        .replace(
-                                " new",
-                                ""
-                        )
+                        .replace(" new", "")
                         .trim();
 
         exact =
@@ -1303,8 +850,7 @@ public class ArenaAdvisor {
         int bestDistance =
                 Integer.MAX_VALUE;
 
-        String best =
-                null;
+        String best = null;
 
         for (Map.Entry<String, String> e :
                 CANONICAL_NAMES.entrySet()) {
@@ -1325,11 +871,9 @@ public class ArenaAdvisor {
             int allowed =
                     normalized.length() <= 8
                             ? 1
-                            : (
-                            normalized.length() <= 15
-                                    ? 2
-                                    : 3
-                    );
+                            : (normalized.length() <= 15
+                            ? 2
+                            : 3);
 
             if (distance <= allowed &&
                     distance < bestDistance) {
@@ -1345,63 +889,42 @@ public class ArenaAdvisor {
         return best;
     }
 
-    /*
-     * ============================================================
-     * HTML
-     * ============================================================
-     */
-
-    private static String htmlToText(
-            String html
-    ) {
+    private static String htmlToText(String html) {
 
         if (html == null) {
             return "";
         }
 
-        String text =
-                html;
+        String text = html;
+
+        text = text.replaceAll(
+                "(?is)<script[^>]*>.*?</script>",
+                "\\n"
+        );
+
+        text = text.replaceAll(
+                "(?is)<style[^>]*>.*?</style>",
+                "\\n"
+        );
+
+        text = text.replaceAll(
+                "(?i)</(div|p|li|ul|ol|h1|h2|h3|h4|h5|h6|tr|td|th|section|article)>",
+                "\\n"
+        );
+
+        text = text.replaceAll(
+                "(?i)<br\\s*/?>",
+                "\\n"
+        );
+
+        text = text.replaceAll(
+                "(?s)<[^>]+>",
+                " "
+        );
 
         text =
-                text.replaceAll(
-                        "(?is)<script[^>]*>.*?</script>",
-                        "\n"
-                );
-
-        text =
-                text.replaceAll(
-                        "(?is)<style[^>]*>.*?</style>",
-                        "\n"
-                );
-
-        text =
-                text.replaceAll(
-                        "(?i)</(div|p|li|ul|ol|h1|h2|h3|h4|h5|h6|tr|td|th|section|article)>",
-                        "\n"
-                );
-
-        text =
-                text.replaceAll(
-                        "(?i)<br\\s*/?>",
-                        "\n"
-                );
-
-        text =
-                text.replaceAll(
-                        "(?s)<[^>]+>",
-                        " "
-                );
-
-        text =
-                decodeHtmlEntities(
-                        text
-                );
-
-        text =
-                text.replace(
-                        "\r",
-                        ""
-                );
+                decodeHtmlEntities(text)
+                        .replace("\r", "");
 
         text =
                 text.replaceAll(
@@ -1412,18 +935,17 @@ public class ArenaAdvisor {
         text =
                 text.replaceAll(
                         "\\n[ \\t]+",
-                        "\n"
+                        "\\n"
                 );
 
         return text.replaceAll(
                 "\\n{3,}",
-                "\n\n"
+                "\\n\\n"
         );
     }
 
     private static String decodeHtmlEntities(
-            String text
-    ) {
+            String text) {
 
         if (text == null) {
             return "";
@@ -1440,19 +962,11 @@ public class ArenaAdvisor {
                 .replace("&gt;", ">");
     }
 
-    /*
-     * ============================================================
-     * CLASS HEADER
-     * ============================================================
-     */
-
     private static String detectClassHeader(
-            String line
-    ) {
+            String line) {
 
         if (line == null ||
                 line.trim().isEmpty()) {
-
             return "";
         }
 
@@ -1478,50 +992,27 @@ public class ArenaAdvisor {
                     normalize(valid);
 
             if (n.equals(cls)
-                    ||
-                    n.equals(
-                            cls + " cards"
-                    )
-                    ||
-                    n.equals(
-                            "common " + cls + " cards"
-                    )
-                    ||
-                    n.equals(
-                            "rare " + cls + " cards"
-                    )
-                    ||
-                    n.equals(
-                            "epic " + cls + " cards"
-                    )
-                    ||
-                    n.equals(
-                            "legendary " + cls + " cards"
-                    )
-                    ||
-                    n.equals(
-                            "basic " + cls + " cards"
-                    )
-                    ||
-                    n.equals(
-                            "common " + cls
-                    )
-                    ||
-                    n.equals(
-                            "rare " + cls
-                    )
-                    ||
-                    n.equals(
-                            "epic " + cls
-                    )
-                    ||
-                    n.equals(
-                            "legendary " + cls
-                    )
-                    ||
-                    n.equals(
-                            "basic " + cls
-                    )) {
+                    || n.equals(cls + " cards")
+                    || n.equals(
+                    "common " + cls + " cards")
+                    || n.equals(
+                    "rare " + cls + " cards")
+                    || n.equals(
+                    "epic " + cls + " cards")
+                    || n.equals(
+                    "legendary " + cls + " cards")
+                    || n.equals(
+                    "basic " + cls + " cards")
+                    || n.equals(
+                    "common " + cls)
+                    || n.equals(
+                    "rare " + cls)
+                    || n.equals(
+                    "epic " + cls)
+                    || n.equals(
+                    "legendary " + cls)
+                    || n.equals(
+                    "basic " + cls)) {
 
                 return valid;
             }
@@ -1531,8 +1022,7 @@ public class ArenaAdvisor {
     }
 
     private static boolean isNeutralHeader(
-            String line
-    ) {
+            String line) {
 
         if (line == null) {
             return false;
@@ -1553,43 +1043,29 @@ public class ArenaAdvisor {
                 );
 
         return n.equals("neutral")
-                ||
-                n.equals("neutral cards")
-                ||
-                n.equals("common neutral cards")
-                ||
-                n.equals("rare neutral cards")
-                ||
-                n.equals("epic neutral cards")
-                ||
-                n.equals("legendary neutral cards")
-                ||
-                n.equals("basic neutral cards");
+                || n.equals("neutral cards")
+                || n.equals(
+                "common neutral cards")
+                || n.equals(
+                "rare neutral cards")
+                || n.equals(
+                "epic neutral cards")
+                || n.equals(
+                "legendary neutral cards")
+                || n.equals(
+                "basic neutral cards");
     }
 
-    /*
-     * ============================================================
-     * TEXT CLEANUP
-     * ============================================================
-     */
-
     private static String cleanLine(
-            String line
-    ) {
+            String line) {
 
         if (line == null) {
             return "";
         }
 
         return line
-                .replace(
-                        "\u00A0",
-                        " "
-                )
-                .replace(
-                        "\u200B",
-                        ""
-                )
+                .replace("\u00A0", " ")
+                .replace("\u200B", "")
                 .replaceAll(
                         "\\s+",
                         " "
@@ -1598,8 +1074,7 @@ public class ArenaAdvisor {
     }
 
     private static String removeRankingPrefix(
-            String line
-    ) {
+            String line) {
 
         if (line == null) {
             return "";
@@ -1636,8 +1111,7 @@ public class ArenaAdvisor {
     }
 
     private static String removeTierNoise(
-            String name
-    ) {
+            String name) {
 
         if (name == null) {
             return "";
@@ -1650,8 +1124,7 @@ public class ArenaAdvisor {
     }
 
     private static boolean isTierOnlyLine(
-            String line
-    ) {
+            String line) {
 
         if (line == null) {
             return false;
@@ -1661,37 +1134,24 @@ public class ArenaAdvisor {
                 normalize(line);
 
         return n.equals("great")
-                ||
-                n.equals("good")
-                ||
-                n.equals("average")
-                ||
-                n.equals("poor")
-                ||
-                n.equals("bad")
-                ||
-                n.equals("premium")
-                ||
-                n.equals("solid")
-                ||
-                n.equals("weak")
-                ||
-                n.equals("terrible")
-                ||
-                n.equals("tier")
-                ||
-                n.equals("above average")
-                ||
-                n.equals("below average");
+                || n.equals("good")
+                || n.equals("average")
+                || n.equals("poor")
+                || n.equals("bad")
+                || n.equals("premium")
+                || n.equals("solid")
+                || n.equals("weak")
+                || n.equals("terrible")
+                || n.equals("tier")
+                || n.equals("above average")
+                || n.equals("below average");
     }
 
     private static boolean looksLikeCardLine(
-            String line
-    ) {
+            String line) {
 
         if (line == null ||
                 line.isEmpty()) {
-
             return false;
         }
 
@@ -1699,21 +1159,12 @@ public class ArenaAdvisor {
                 normalize(line);
 
         return CANONICAL_NAMES.containsKey(n)
-                ||
-                ALIASES.containsKey(n)
-                ||
-                findCardNameInsideLine(line) != null;
+                || ALIASES.containsKey(n)
+                || findCardNameInsideLine(line) != null;
     }
 
-    /*
-     * ============================================================
-     * OCR
-     * ============================================================
-     */
-
     public static String correctOcr(
-            String detected
-    ) {
+            String detected) {
 
         if (detected == null) {
             return "";
@@ -1759,19 +1210,15 @@ public class ArenaAdvisor {
     }
 
     private static String findBestOcrMatch(
-            String normalized
-    ) {
+            String normalized) {
 
         if (normalized == null ||
                 normalized.isEmpty() ||
                 CANONICAL_NAMES.isEmpty()) {
-
             return null;
         }
 
-        String best =
-                null;
-
+        String best = null;
         int bestDistance =
                 Integer.MAX_VALUE;
 
@@ -1787,9 +1234,8 @@ public class ArenaAdvisor {
 
             if (normalized.length() >= 6 &&
                     candidate.length() >= 6 &&
-                    normalized.charAt(0)
-                            != candidate.charAt(0)) {
-
+                    normalized.charAt(0) !=
+                            candidate.charAt(0)) {
                 continue;
             }
 
@@ -1802,11 +1248,9 @@ public class ArenaAdvisor {
             int allowed =
                     normalized.length() <= 7
                             ? 1
-                            : (
-                            normalized.length() <= 14
-                                    ? 2
-                                    : 3
-                    );
+                            : (normalized.length() <= 14
+                            ? 2
+                            : 3);
 
             if (distance <= allowed &&
                     distance < bestDistance) {
@@ -1822,19 +1266,11 @@ public class ArenaAdvisor {
         return best;
     }
 
-    /*
-     * ============================================================
-     * BASE SCORE
-     * ============================================================
-     */
-
     private static double getBaseScore(
-            String cardName
-    ) {
+            String cardName) {
 
         if (cardName == null ||
                 cardName.trim().isEmpty()) {
-
             return UNKNOWN_CARD_SCORE;
         }
 
@@ -1869,6 +1305,13 @@ public class ArenaAdvisor {
             return fallback;
         }
 
+        Double fuzzyFallback =
+                findBestFallbackScore(key);
+
+        if (fuzzyFallback != null) {
+            return fuzzyFallback;
+        }
+
         CardData card =
                 CARDS.get(key);
 
@@ -1879,21 +1322,105 @@ public class ArenaAdvisor {
         return UNKNOWN_CARD_SCORE;
     }
 
-    /*
-     * Viimeinen varmistus: tunnetulle kortille annetaan
-     * automaattinen arvo vaikka HearthArena ei olisi saatavilla.
-     */
+    private static Double findBestFallbackScore(
+            String normalized) {
+
+        if (normalized == null ||
+                normalized.isEmpty() ||
+                FALLBACK_SCORES.isEmpty()) {
+            return null;
+        }
+
+        Double exact =
+                FALLBACK_SCORES.get(normalized);
+
+        if (exact != null) {
+            return exact;
+        }
+
+        String bestKey = null;
+        int bestDistance =
+                Integer.MAX_VALUE;
+
+        for (String candidate :
+                FALLBACK_SCORES.keySet()) {
+
+            if (candidate == null ||
+                    candidate.isEmpty()) {
+                continue;
+            }
+
+            if (normalized.length() >= 5 &&
+                    candidate.contains(normalized)) {
+
+                int distance =
+                        candidate.length()
+                                - normalized.length();
+
+                if (distance < bestDistance) {
+                    bestDistance =
+                            distance;
+                    bestKey =
+                            candidate;
+                }
+
+                continue;
+            }
+
+            if (candidate.length() >= 5 &&
+                    normalized.contains(candidate)) {
+
+                int distance =
+                        normalized.length()
+                                - candidate.length();
+
+                if (distance < bestDistance) {
+                    bestDistance =
+                            distance;
+                    bestKey =
+                            candidate;
+                }
+
+                continue;
+            }
+
+            int allowed =
+                    normalized.length() <= 8
+                            ? 2
+                            : (normalized.length() <= 16
+                            ? 4
+                            : 5);
+
+            int distance =
+                    levenshtein(
+                            normalized,
+                            candidate
+                    );
+
+            if (distance <= allowed &&
+                    distance < bestDistance) {
+
+                bestDistance =
+                        distance;
+
+                bestKey =
+                        candidate;
+            }
+        }
+
+        return bestKey == null
+                ? null
+                : FALLBACK_SCORES.get(bestKey);
+    }
 
     private static double heuristicBaseScore(
-            CardData card
-    ) {
+            CardData card) {
 
         if (card == null) {
             return 0.0;
         }
 
-        double score =
-                4.0;
+        double score = 4.0;
 
         int cost =
                 Math.max(
@@ -1902,45 +1429,35 @@ public class ArenaAdvisor {
                 );
 
         double statValue =
-                card.attack
-                        + card.health;
+                card.attack + card.health;
 
         if (card.type.equalsIgnoreCase(
-                "MINION"
-        )) {
+                "MINION")) {
 
-            score +=
-                    clamp(
-                            (
-                                    statValue
-                                            - Math.max(
-                                            1,
-                                            cost * 2.0
-                                    )
-                            ) * 0.18,
-                            -1.5,
-                            2.0
-                    );
+            score += clamp(
+                    (statValue -
+                            Math.max(
+                                    1,
+                                    cost * 2.0
+                            )) * 0.18,
+                    -1.5,
+                    2.0
+            );
 
-        } else if (card.type.equalsIgnoreCase(
-                "WEAPON"
-        )) {
+        } else if (
+                card.type.equalsIgnoreCase(
+                        "WEAPON")) {
 
-            score +=
-                    clamp(
-                            (
-                                    card.attack
-                                            + card.health
-                                            - cost
-                            ) * 0.15,
-                            -1.0,
-                            1.5
-                    );
+            score += clamp(
+                    (card.attack +
+                            card.health -
+                            cost) * 0.15,
+                    -1.0,
+                    1.5
+            );
 
         } else {
-
-            score +=
-                    0.20;
+            score += 0.20;
         }
 
         String text =
@@ -1955,11 +1472,8 @@ public class ArenaAdvisor {
                 "destroy",
                 "deal damage",
                 "transform",
-                "silence"
-        )) {
-
-            score +=
-                    0.55;
+                "silence")) {
+            score += 0.55;
         }
 
         if (containsAny(
@@ -1968,11 +1482,8 @@ public class ArenaAdvisor {
                 "rush",
                 "lifesteal",
                 "divine shield",
-                "freeze"
-        )) {
-
-            score +=
-                    0.35;
+                "freeze")) {
+            score += 0.35;
         }
 
         if (containsAny(
@@ -1980,11 +1491,8 @@ public class ArenaAdvisor {
                 "summon",
                 "buff",
                 "gain",
-                "give"
-        )) {
-
-            score +=
-                    0.25;
+                "give")) {
+            score += 0.25;
         }
 
         if (containsAny(
@@ -1992,11 +1500,8 @@ public class ArenaAdvisor {
                 "random",
                 "discard",
                 "enemy hero",
-                "your opponent"
-        )) {
-
-            score -=
-                    0.15;
+                "your opponent")) {
+            score -= 0.15;
         }
 
         if (cost >= 8) {
@@ -2008,11 +1513,8 @@ public class ArenaAdvisor {
         }
 
         if (card.rarity.equalsIgnoreCase(
-                "LEGENDARY"
-        )) {
-
-            score +=
-                    0.20;
+                "LEGENDARY")) {
+            score += 0.20;
         }
 
         return roundScore(
@@ -2024,15 +1526,8 @@ public class ArenaAdvisor {
         );
     }
 
-    /*
-     * ============================================================
-     * PUBLIC SCORE API
-     * ============================================================
-     */
-
     public static double score(
-            String cardName
-    ) {
+            String cardName) {
 
         DraftAnalysis a =
                 analyzeCard(cardName);
@@ -2053,8 +1548,7 @@ public class ArenaAdvisor {
     }
 
     public static double getClassSpecificScore(
-            String cardName
-    ) {
+            String cardName) {
 
         if (cardName == null) {
             return -1;
@@ -2094,19 +1588,15 @@ public class ArenaAdvisor {
     }
 
     public static String getCardScore(
-            String cardName
-    ) {
+            String cardName) {
 
         DraftAnalysis a =
                 analyzeCard(cardName);
 
-        if (a == null ||
-                a.finalScore <= 0) {
-
-            return "?";
-        }
-
-        return String.format(
+        return a == null ||
+                a.finalScore <= 0
+                ? "?"
+                : String.format(
                 Locale.US,
                 "%.2f",
                 a.finalScore
@@ -2114,24 +1604,12 @@ public class ArenaAdvisor {
     }
 
     public static double getCardScoreValue(
-            String cardName
-    ) {
-
-        return getAnalyzedScore(
-                cardName
-        );
+            String cardName) {
+        return getAnalyzedScore(cardName);
     }
 
-    /*
-     * ============================================================
-     * ANALYZE CARD
-     * ============================================================
-     */
-
-    public static synchronized DraftAnalysis
-    analyzeCard(
-            String cardName
-    ) {
+    public static synchronized DraftAnalysis analyzeCard(
+            String cardName) {
 
         if (cardName == null ||
                 cardName.trim().isEmpty()) {
@@ -2168,29 +1646,19 @@ public class ArenaAdvisor {
         }
 
         double curve =
-                calculateCurveAdjustment(
-                        card
-                );
+                calculateCurveAdjustment(card);
 
         double type =
-                calculateTypeAdjustment(
-                        card
-                );
+                calculateTypeAdjustment(card);
 
         double synergy =
-                calculateSynergyAdjustment(
-                        card
-                );
+                calculateSynergyAdjustment(card);
 
         double deckFit =
-                calculateDeckFitAdjustment(
-                        card
-                );
+                calculateDeckFitAdjustment(card);
 
         double removalTempo =
-                calculateRemovalTempoAdjustment(
-                        card
-                );
+                calculateRemovalTempoAdjustment(card);
 
         double duplicate =
                 calculateDuplicateAdjustment(
@@ -2249,8 +1717,7 @@ public class ArenaAdvisor {
 
     private static DraftAnalysis emptyAnalysis(
             String name,
-            String why
-    ) {
+            String why) {
 
         return new DraftAnalysis(
                 name,
@@ -2267,23 +1734,10 @@ public class ArenaAdvisor {
         );
     }
 
-    /*
-     * ============================================================
-     * THREE CARD ANALYSIS
-     * ============================================================
-     */
-
-    public static synchronized DraftAnalysis[]
-    analyzeDraft(
+    public static synchronized DraftAnalysis[] analyzeDraft(
             String card1,
             String card2,
-            String card3
-    ) {
-
-        /*
-         * Yritetään tunnistaa luokka jo tämän kolmen
-         * kortin perusteella.
-         */
+            String card3) {
 
         detectClassFromCards(
                 card1,
@@ -2297,32 +1751,21 @@ public class ArenaAdvisor {
                 analyzeCard(card3)
         };
 
-        double best =
-                -1;
+        double best = -1;
+        double second = -1;
+        String recommendation = "";
 
-        double second =
-                -1;
-
-        String recommendation =
-                "";
-
-        for (DraftAnalysis a :
-                result) {
+        for (DraftAnalysis a : result) {
 
             if (a == null ||
                     a.finalScore <= 0) {
-
                 continue;
             }
 
             if (a.finalScore > best) {
 
-                second =
-                        best;
-
-                best =
-                        a.finalScore;
-
+                second = best;
+                best = a.finalScore;
                 recommendation =
                         a.cardName;
 
@@ -2335,14 +1778,9 @@ public class ArenaAdvisor {
 
         if (recommendation.isEmpty()) {
 
-            lastRecommendation =
-                    "";
-
-            lastRecommendationScore =
-                    0;
-
-            lastRecommendationGap =
-                    0;
+            lastRecommendation = "";
+            lastRecommendationScore = 0;
+            lastRecommendationGap = 0;
 
             lastRecommendationReason =
                     "Kortteja ei tunnistettu";
@@ -2381,17 +1819,10 @@ public class ArenaAdvisor {
         return result;
     }
 
-    /*
-     * ============================================================
-     * RECOMMENDATION
-     * ============================================================
-     */
-
     public static String recommend(
             String card1,
             String card2,
-            String card3
-    ) {
+            String card3) {
 
         DraftAnalysis[] analyses =
                 analyzeDraft(
@@ -2404,11 +1835,8 @@ public class ArenaAdvisor {
             return "EI TUNNISTETTAVA";
         }
 
-        String bestName =
-                "";
-
-        double best =
-                -1;
+        String bestName = "";
+        double best = -1;
 
         for (DraftAnalysis a :
                 analyses) {
@@ -2436,27 +1864,20 @@ public class ArenaAdvisor {
         return bestName;
     }
 
-    public static String
-    getRecommendationReason() {
-
+    public static String getRecommendationReason() {
         return lastRecommendationReason;
     }
 
-    public static double
-    getRecommendationScore() {
-
+    public static double getRecommendationScore() {
         return lastRecommendationScore;
     }
 
-    public static double
-    getRecommendationGap() {
-
+    public static double getRecommendationGap() {
         return lastRecommendationGap;
     }
 
     public static String getCardReason(
-            String cardName
-    ) {
+            String cardName) {
 
         DraftAnalysis a =
                 analyzeCard(cardName);
@@ -2467,8 +1888,7 @@ public class ArenaAdvisor {
     }
 
     public static double getAnalyzedScore(
-            String cardName
-    ) {
+            String cardName) {
 
         DraftAnalysis a =
                 analyzeCard(cardName);
@@ -2478,15 +1898,8 @@ public class ArenaAdvisor {
                 : a.finalScore;
     }
 
-    /*
-     * ============================================================
-     * MANA CURVE
-     * ============================================================
-     */
-
     private static double calculateCurveAdjustment(
-            CardData candidate
-    ) {
+            CardData candidate) {
 
         if (candidate == null) {
             return 0;
@@ -2500,7 +1913,6 @@ public class ArenaAdvisor {
 
         if (cost < 0 ||
                 total < 3) {
-
             return 0;
         }
 
@@ -2525,10 +1937,7 @@ public class ArenaAdvisor {
 
             return roundScore(
                     clamp(
-                            (
-                                    desired
-                                            - same
-                            ) * 0.12,
+                            (desired - same) * 0.12,
                             0,
                             CURVE_MAX_BONUS
                     )
@@ -2539,11 +1948,7 @@ public class ArenaAdvisor {
 
             return roundScore(
                     -clamp(
-                            (
-                                    same
-                                            - desired
-                                            - 2
-                            ) * 0.10,
+                            (same - desired - 2) * 0.10,
                             0,
                             CURVE_MAX_BONUS
                     )
@@ -2555,8 +1960,7 @@ public class ArenaAdvisor {
 
     private static int desiredCardsAtCost(
             int cost,
-            int total
-    ) {
+            int total) {
 
         if (cost <= 1) {
             return total >= 15 ? 2 : 1;
@@ -2564,7 +1968,6 @@ public class ArenaAdvisor {
 
         if (cost == 2 ||
                 cost == 3) {
-
             return total >= 12 ? 4 : 2;
         }
 
@@ -2600,14 +2003,11 @@ public class ArenaAdvisor {
 
             if (count == null ||
                     count <= 0) {
-
                 continue;
             }
 
             CardData card =
-                    CARDS.get(
-                            e.getKey()
-                    );
+                    CARDS.get(e.getKey());
 
             if (card == null) {
                 continue;
@@ -2633,15 +2033,13 @@ public class ArenaAdvisor {
 
     private static int getPickedCardCountTotal() {
 
-        int total =
-                0;
+        int total = 0;
 
         for (Integer v :
                 PICKED_CARDS.values()) {
 
             if (v != null &&
                     v > 0) {
-
                 total += v;
             }
         }
@@ -2649,15 +2047,8 @@ public class ArenaAdvisor {
         return total;
     }
 
-    /*
-     * ============================================================
-     * TYPE BALANCE
-     * ============================================================
-     */
-
     private static double calculateTypeAdjustment(
-            CardData card
-    ) {
+            CardData card) {
 
         if (card == null) {
             return 0;
@@ -2686,13 +2077,11 @@ public class ArenaAdvisor {
 
             if (minions < 8 &&
                     total >= 10) {
-
                 return TYPE_MAX_BONUS;
             }
 
             if (minions > 18 &&
                     total >= 22) {
-
                 return -TYPE_MAX_BONUS;
             }
         }
@@ -2700,13 +2089,11 @@ public class ArenaAdvisor {
         if (type.equals("SPELL") &&
                 spells > 10 &&
                 total >= 20) {
-
             return -TYPE_MAX_BONUS;
         }
 
         if (type.equals("WEAPON") &&
                 weapons >= 3) {
-
             return -TYPE_MAX_BONUS;
         }
 
@@ -2714,19 +2101,15 @@ public class ArenaAdvisor {
     }
 
     private static int countPickedType(
-            String wantedType
-    ) {
+            String wantedType) {
 
-        int total =
-                0;
+        int total = 0;
 
         for (Map.Entry<String, Integer> e :
                 PICKED_CARDS.entrySet()) {
 
             CardData c =
-                    CARDS.get(
-                            e.getKey()
-                    );
+                    CARDS.get(e.getKey());
 
             if (c == null) {
                 continue;
@@ -2734,11 +2117,9 @@ public class ArenaAdvisor {
 
             if (normalizeType(c.type)
                     .equals(wantedType)
-                    &&
-                    e.getValue() != null) {
+                    && e.getValue() != null) {
 
-                total +=
-                        e.getValue();
+                total += e.getValue();
             }
         }
 
@@ -2746,8 +2127,7 @@ public class ArenaAdvisor {
     }
 
     private static String normalizeType(
-            String type
-    ) {
+            String type) {
 
         if (type == null) {
             return "";
@@ -2760,15 +2140,8 @@ public class ArenaAdvisor {
                 .replace(" ", "_");
     }
 
-    /*
-     * ============================================================
-     * DECK FIT
-     * ============================================================
-     */
-
     private static double calculateDeckFitAdjustment(
-            CardData candidate
-    ) {
+            CardData candidate) {
 
         if (candidate == null) {
             return 0;
@@ -2781,43 +2154,30 @@ public class ArenaAdvisor {
             return 0;
         }
 
-        double value =
-                0;
+        double value = 0;
 
         String type =
-                normalizeType(
-                        candidate.type
-                );
+                normalizeType(candidate.type);
 
         int minions =
-                countPickedType(
-                        "MINION"
-                );
+                countPickedType("MINION");
 
         int spells =
-                countPickedType(
-                        "SPELL"
-                );
+                countPickedType("SPELL");
 
         int weapons =
-                countPickedType(
-                        "WEAPON"
-                );
+                countPickedType("WEAPON");
 
         if (type.equals("MINION")) {
 
             if (total >= 8 &&
                     minions < 7) {
-
-                value +=
-                        0.20;
+                value += .20;
             }
 
             if (total >= 15 &&
                     minions < 10) {
-
-                value +=
-                        0.12;
+                value += .12;
             }
         }
 
@@ -2825,27 +2185,23 @@ public class ArenaAdvisor {
 
             if (total >= 12 &&
                     spells >= 7) {
-
-                value -=
-                        0.12;
+                value -= .12;
             }
 
             if (total >= 20 &&
                     spells >= 10) {
-
-                value -=
-                        0.15;
+                value -= .15;
             }
         }
 
         if (type.equals("WEAPON")) {
 
             if (weapons >= 2) {
-                value -= 0.10;
+                value -= .10;
             }
 
             if (weapons >= 3) {
-                value -= 0.15;
+                value -= .15;
             }
         }
 
@@ -2855,11 +2211,8 @@ public class ArenaAdvisor {
         if (cost <= 2 &&
                 total >= 8 &&
                 getCurveCount(1)
-                        + getCurveCount(2)
-                        < 4) {
-
-            value +=
-                    0.15;
+                        + getCurveCount(2) < 4) {
+            value += .15;
         }
 
         int mid =
@@ -2871,9 +2224,7 @@ public class ArenaAdvisor {
                 cost <= 5 &&
                 total >= 15 &&
                 mid < 7) {
-
-            value +=
-                    0.12;
+            value += .12;
         }
 
         if (cost >= 7 &&
@@ -2886,8 +2237,7 @@ public class ArenaAdvisor {
                             + getCurveCount(10);
 
             if (expensive >= 3) {
-                value -=
-                        0.18;
+                value -= .18;
             }
         }
 
@@ -2901,8 +2251,7 @@ public class ArenaAdvisor {
     }
 
     private static int getCurveCount(
-            int mana
-    ) {
+            int mana) {
 
         int[] c =
                 getCurrentManaCurve();
@@ -2913,37 +2262,24 @@ public class ArenaAdvisor {
                 : 0;
     }
 
-    /*
-     * ============================================================
-     * SYNERGY
-     * ============================================================
-     */
-
     private static double calculateSynergyAdjustment(
-            CardData candidate
-    ) {
+            CardData candidate) {
 
         if (candidate == null ||
                 getPickedCardCountTotal() < 2) {
-
             return 0;
         }
 
-        double value =
-                0;
+        double value = 0;
 
         String candidateText =
-                getFullSynergyText(
-                        candidate
-                );
+                getFullSynergyText(candidate);
 
         for (String pickedName :
                 PICKED_CARDS.keySet()) {
 
             CardData picked =
-                    CARDS.get(
-                            pickedName
-                    );
+                    CARDS.get(pickedName);
 
             if (picked == null) {
                 continue;
@@ -2963,14 +2299,9 @@ public class ArenaAdvisor {
                             candidate,
                             candidateText,
                             picked,
-                            getFullSynergyText(
-                                    picked
-                            )
+                            getFullSynergyText(picked)
                     )
-                            * Math.min(
-                            count,
-                            2
-                    );
+                    * Math.min(count, 2);
         }
 
         value +=
@@ -2996,17 +2327,14 @@ public class ArenaAdvisor {
             CardData candidate,
             String candidateText,
             CardData picked,
-            String pickedText
-    ) {
+            String pickedText) {
 
         if (candidate == null ||
                 picked == null) {
-
             return 0;
         }
 
-        double value =
-                0;
+        double value = 0;
 
         String ct =
                 normalizeType(
@@ -3018,27 +2346,16 @@ public class ArenaAdvisor {
                         picked.type
                 );
 
-        if (
-                (
-                        ct.equals("MINION")
-                                &&
-                                pt.equals("MINION")
-                )
-                        ||
-                        (
-                                ct.equals("SPELL")
-                                        &&
-                                        pt.equals("SPELL")
-                        )
-        ) {
+        if ((ct.equals("MINION") &&
+                pt.equals("MINION"))
+                ||
+                (ct.equals("SPELL") &&
+                        pt.equals("SPELL"))) {
 
             if (sharesImportantKeyword(
                     candidateText,
-                    pickedText
-            )) {
-
-                value +=
-                        0.12;
+                    pickedText)) {
+                value += .12;
             }
         }
 
@@ -3060,36 +2377,23 @@ public class ArenaAdvisor {
                 "undead",
                 "naga",
                 "pirate",
-                "totem"
-        )
+                "totem")
                 &&
                 sharesImportantKeyword(
                         candidateText,
-                        pickedText
-                )) {
+                        pickedText)) {
 
-            value +=
-                    0.10;
+            value += .10;
         }
 
-        if (candidateText.contains(
-                "spell"
-        )
-                &&
+        if (candidateText.contains("spell") &&
                 pt.equals("SPELL")) {
-
-            value +=
-                    0.08;
+            value += .08;
         }
 
-        if (pickedText.contains(
-                "spell"
-        )
-                &&
+        if (pickedText.contains("spell") &&
                 ct.equals("SPELL")) {
-
-            value +=
-                    0.08;
+            value += .08;
         }
 
         return value;
@@ -3097,28 +2401,23 @@ public class ArenaAdvisor {
 
     private static boolean sharesImportantKeyword(
             String a,
-            String b
-    ) {
+            String b) {
 
         if (a == null ||
                 b == null ||
                 a.isEmpty() ||
                 b.isEmpty()) {
-
             return false;
         }
 
         String[] keywords = {
-
                 "battlecry",
                 "deathrattle",
                 "discover",
                 "secret",
-
                 "spell",
                 "weapon",
                 "minion",
-
                 "dragon",
                 "beast",
                 "mech",
@@ -3129,14 +2428,12 @@ public class ArenaAdvisor {
                 "naga",
                 "pirate",
                 "totem",
-
                 "freeze",
                 "damage",
                 "healing",
                 "heal",
                 "buff",
                 "draw",
-
                 "divine shield",
                 "taunt",
                 "rush",
@@ -3145,12 +2442,10 @@ public class ArenaAdvisor {
                 "silence"
         };
 
-        for (String k :
-                keywords) {
+        for (String k : keywords) {
 
             if (a.contains(k) &&
                     b.contains(k)) {
-
                 return true;
             }
         }
@@ -3159,20 +2454,16 @@ public class ArenaAdvisor {
     }
 
     private static double calculateTextSynergy(
-            String text
-    ) {
+            String text) {
 
         if (text == null ||
                 text.isEmpty()) {
-
             return 0;
         }
 
-        double value =
-                0;
+        double value = 0;
 
         String[] concepts = {
-
                 "dragon",
                 "beast",
                 "mech",
@@ -3183,10 +2474,8 @@ public class ArenaAdvisor {
                 "naga",
                 "pirate",
                 "totem",
-
                 "spell",
                 "weapon",
-
                 "deathrattle",
                 "battlecry",
                 "discover"
@@ -3195,14 +2484,9 @@ public class ArenaAdvisor {
         for (String concept :
                 concepts) {
 
-            if (text.contains(concept)
-                    &&
-                    hasPickedText(
-                            concept
-                    )) {
-
-                value +=
-                        0.10;
+            if (text.contains(concept) &&
+                    hasPickedText(concept)) {
+                value += .10;
             }
         }
 
@@ -3210,44 +2494,38 @@ public class ArenaAdvisor {
     }
 
     private static double calculateRaceSynergy(
-            CardData candidate
-    ) {
+            CardData candidate) {
 
         if (candidate == null) {
             return 0;
         }
 
         String race =
-                normalizeRace(
-                        candidate.race
-                );
+                normalizeRace(candidate.race);
 
         if (race.isEmpty()) {
             return 0;
         }
 
-        int matching =
-                0;
+        int matching = 0;
 
         for (String pickedName :
                 PICKED_CARDS.keySet()) {
 
             CardData picked =
-                    CARDS.get(
-                            pickedName
-                    );
+                    CARDS.get(pickedName);
 
             if (picked == null) {
                 continue;
             }
 
-            String pickedRace =
+            if (!normalizeRace(
+                    picked.race
+            ).isEmpty()
+                    &&
                     normalizeRace(
                             picked.race
-                    );
-
-            if (!pickedRace.isEmpty() &&
-                    pickedRace.equals(race)) {
+                    ).equals(race)) {
 
                 matching +=
                         Math.min(
@@ -3259,33 +2537,27 @@ public class ArenaAdvisor {
             }
         }
 
-        if (matching <= 0) {
-            return 0;
-        }
-
-        return clamp(
-                matching * 0.06,
+        return matching <= 0
+                ? 0
+                : clamp(
+                matching * .06,
                 0,
-                0.18
+                .18
         );
     }
 
     private static boolean hasPickedText(
-            String keyword
-    ) {
+            String keyword) {
 
         for (String pickedName :
                 PICKED_CARDS.keySet()) {
 
             CardData c =
-                    CARDS.get(
-                            pickedName
-                    );
+                    CARDS.get(pickedName);
 
             if (c != null &&
                     getFullSynergyText(c)
                             .contains(keyword)) {
-
                 return true;
             }
         }
@@ -3294,8 +2566,7 @@ public class ArenaAdvisor {
     }
 
     private static String getFullSynergyText(
-            CardData card
-    ) {
+            CardData card) {
 
         if (card == null) {
             return "";
@@ -3309,18 +2580,18 @@ public class ArenaAdvisor {
         }
 
         if (!card.race.isEmpty()) {
-            b.append(' ');
-            b.append(card.race);
+            b.append(' ')
+                    .append(card.race);
         }
 
         if (!card.mechanics.isEmpty()) {
-            b.append(' ');
-            b.append(card.mechanics);
+            b.append(' ')
+                    .append(card.mechanics);
         }
 
         if (!card.spellSchool.isEmpty()) {
-            b.append(' ');
-            b.append(card.spellSchool);
+            b.append(' ')
+                    .append(card.spellSchool);
         }
 
         return normalizeForSynergy(
@@ -3329,8 +2600,7 @@ public class ArenaAdvisor {
     }
 
     private static String normalizeForSynergy(
-            String text
-    ) {
+            String text) {
 
         if (text == null) {
             return "";
@@ -3354,33 +2624,21 @@ public class ArenaAdvisor {
     }
 
     private static String normalizeRace(
-            String race
-    ) {
+            String race) {
 
         return race == null
                 ? ""
                 : race
                 .toLowerCase(Locale.US)
-                .replace(
-                        "_",
-                        " "
-                )
+                .replace("_", " ")
                 .trim();
     }
 
-    /*
-     * ============================================================
-     * REMOVAL / TEMPO
-     * ============================================================
-     */
-
     private static double calculateRemovalTempoAdjustment(
-            CardData card
-    ) {
+            CardData card) {
 
         if (card == null ||
                 getPickedCardCountTotal() < 3) {
-
             return 0;
         }
 
@@ -3389,14 +2647,10 @@ public class ArenaAdvisor {
                         card.text
                 );
 
-        double value =
-                0;
+        double value = 0;
 
-        int removal =
-                0;
-
-        int tempo =
-                0;
+        int removal = 0;
+        int tempo = 0;
 
         if (containsAny(
                 text,
@@ -3407,8 +2661,7 @@ public class ArenaAdvisor {
                 "kill",
                 "silence",
                 "transform",
-                "return it to its owner"
-        )) {
+                "return it to its owner")) {
 
             removal++;
         }
@@ -3420,8 +2673,7 @@ public class ArenaAdvisor {
                 "enemy minions",
                 "random enemy",
                 "freeze",
-                "aoe"
-        )) {
+                "aoe")) {
 
             removal++;
         }
@@ -3431,8 +2683,7 @@ public class ArenaAdvisor {
                 "polymorph",
                 "hex",
                 "silence",
-                "transform"
-        )) {
+                "transform")) {
 
             removal++;
         }
@@ -3442,8 +2693,7 @@ public class ArenaAdvisor {
                 "rush",
                 "charge",
                 "taunt",
-                "freeze"
-        )) {
+                "freeze")) {
 
             tempo++;
         }
@@ -3454,33 +2704,27 @@ public class ArenaAdvisor {
                 "gain",
                 "give",
                 "buff",
-                "draw"
-        )) {
+                "draw")) {
 
             tempo++;
         }
 
         if (normalizeType(card.type)
                 .equals("WEAPON")) {
-
             tempo++;
         }
 
         if (removal > 0) {
-
             value +=
-                    0.18
-                            * Math.min(
+                    .18 * Math.min(
                             removal,
                             2
                     );
         }
 
         if (tempo > 0) {
-
             value +=
-                    0.10
-                            * Math.min(
+                    .10 * Math.min(
                             tempo,
                             2
                     );
@@ -3493,22 +2737,19 @@ public class ArenaAdvisor {
                     getManaCost(card);
 
             int stats =
-                    card.attack
-                            + card.health;
+                    card.attack + card.health;
 
             if (cost >= 1 &&
                     cost <= 4 &&
                     stats >= cost * 3) {
 
-                value +=
-                        0.08;
+                value += .08;
             }
 
             if (cost <= 3 &&
                     card.attack >= 3) {
 
-                value +=
-                        0.05;
+                value += .05;
             }
         }
 
@@ -3517,17 +2758,13 @@ public class ArenaAdvisor {
 
         if (removal > 0 &&
                 existingRemoval >= 5) {
-
-            value -=
-                    0.10;
+            value -= .10;
         }
 
         if (removal > 0 &&
                 existingRemoval <= 1 &&
                 getPickedCardCountTotal() >= 8) {
-
-            value +=
-                    0.10;
+            value += .10;
         }
 
         return roundScore(
@@ -3541,16 +2778,13 @@ public class ArenaAdvisor {
 
     private static int countPickedRemovalCards() {
 
-        int total =
-                0;
+        int total = 0;
 
         for (String pickedName :
                 PICKED_CARDS.keySet()) {
 
             CardData card =
-                    CARDS.get(
-                            pickedName
-                    );
+                    CARDS.get(pickedName);
 
             if (card == null) {
                 continue;
@@ -3567,8 +2801,7 @@ public class ArenaAdvisor {
                     "transform",
                     "enemy minion",
                     "enemy minions",
-                    "freeze"
-            )) {
+                    "freeze")) {
 
                 total +=
                         Math.min(
@@ -3583,20 +2816,11 @@ public class ArenaAdvisor {
         return total;
     }
 
-    /*
-     * ============================================================
-     * DUPLICATE
-     * ============================================================
-     */
-
     private static double calculateDuplicateAdjustment(
-            String cardName
-    ) {
+            String cardName) {
 
         int count =
-                getPickedCount(
-                        cardName
-                );
+                getPickedCount(cardName);
 
         if (count <= 0) {
             return 0;
@@ -3607,12 +2831,6 @@ public class ArenaAdvisor {
                 : -DUPLICATE_PENALTY * 2;
     }
 
-    /*
-     * ============================================================
-     * REASONS
-     * ============================================================
-     */
-
     private static String buildAnalysisReason(
             CardData card,
             double base,
@@ -3621,165 +2839,129 @@ public class ArenaAdvisor {
             double synergy,
             double deckFit,
             double removalTempo,
-            double duplicate
-    ) {
+            double duplicate) {
 
         List<String> reasons =
                 new ArrayList<>();
 
-        String source;
-
-        String cardName =
-                card == null
-                        ? ""
-                        : card.name;
-
-        if (getClassSpecificScore(
-                cardName
-        ) >= 0) {
-
-            source =
-                    "HearthArena "
-                            + currentClass;
-
-        } else if (
-                NEUTRAL_SCORES.containsKey(
-                        normalize(cardName)
-                )
-        ) {
-
-            source =
-                    "HearthArena Neutral";
-
-        } else if (
-                FALLBACK_SCORES.containsKey(
-                        normalize(cardName)
-                )
-        ) {
-
-            source =
-                    "Paikallinen korttiarvo";
-
-        } else {
-
-            source =
-                    "Automaattinen fallback";
-        }
+        String source =
+                getClassSpecificScore(
+                        card == null
+                                ? ""
+                                : card.name
+                ) >= 0
+                        ? "HearthArena " + currentClass
+                        : (
+                        NEUTRAL_SCORES.containsKey(
+                                normalize(
+                                        card == null
+                                                ? ""
+                                                : card.name
+                                )
+                        )
+                                ? "HearthArena Neutral"
+                                : (
+                                FALLBACK_SCORES.containsKey(
+                                        normalize(
+                                                card == null
+                                                        ? ""
+                                                        : card.name
+                                        )
+                                )
+                                        ? "Paikallinen korttiarvo"
+                                        : "Automaattinen fallback"
+                        )
+                );
 
         reasons.add(
-                source
-                        + " "
-                        + formatScore(base)
+                source + " " + formatScore(base)
         );
 
-        if (curve > 0.04) {
-
+        if (curve > .04) {
             reasons.add(
-                    "Mana curve +"
-                            + formatScore(curve)
+                    "Mana curve +" +
+                            formatScore(curve)
             );
-
-        } else if (curve < -0.04) {
-
+        } else if (curve < -.04) {
             reasons.add(
-                    "Mana curve "
-                            + formatScore(curve)
+                    "Mana curve " +
+                            formatScore(curve)
             );
         }
 
-        if (type > 0.04) {
-
+        if (type > .04) {
             reasons.add(
-                    "Type +"
-                            + formatScore(type)
+                    "Type +" +
+                            formatScore(type)
             );
-
-        } else if (type < -0.04) {
-
+        } else if (type < -.04) {
             reasons.add(
-                    "Type "
-                            + formatScore(type)
+                    "Type " +
+                            formatScore(type)
             );
         }
 
-        if (synergy > 0.04) {
-
+        if (synergy > .04) {
             reasons.add(
-                    "Synergies +"
-                            + formatScore(synergy)
+                    "Synergies +" +
+                            formatScore(synergy)
             );
-
-        } else if (synergy < -0.04) {
-
+        } else if (synergy < -.04) {
             reasons.add(
-                    "Synergies "
-                            + formatScore(synergy)
+                    "Synergies " +
+                            formatScore(synergy)
             );
         }
 
-        if (deckFit > 0.04) {
-
+        if (deckFit > .04) {
             reasons.add(
-                    "Deck fit +"
-                            + formatScore(deckFit)
+                    "Deck fit +" +
+                            formatScore(deckFit)
             );
-
-        } else if (deckFit < -0.04) {
-
+        } else if (deckFit < -.04) {
             reasons.add(
-                    "Deck fit "
-                            + formatScore(deckFit)
+                    "Deck fit " +
+                            formatScore(deckFit)
             );
         }
 
-        if (removalTempo > 0.04) {
-
+        if (removalTempo > .04) {
             reasons.add(
-                    "Removal/tempo +"
-                            + formatScore(removalTempo)
+                    "Removal/tempo +" +
+                            formatScore(removalTempo)
             );
         }
 
-        if (duplicate < -0.04) {
-
+        if (duplicate < -.04) {
             reasons.add(
-                    "Duplicate "
-                            + formatScore(duplicate)
+                    "Duplicate " +
+                            formatScore(duplicate)
             );
         }
 
         if (card != null) {
-
             reasons.add(
-                    getReadableType(
-                            card.type
-                    )
+                    getReadableType(card.type)
                             + " "
                             + getManaCost(card)
                             + " mana"
             );
         }
 
-        return joinReasons(
-                reasons
-        );
+        return joinReasons(reasons);
     }
 
     private static String buildRecommendationReason(
             String recommendation,
             double best,
-            double secondBest
-    ) {
+            double secondBest) {
 
         DraftAnalysis a =
                 LAST_ANALYSES.get(
-                        normalize(
-                                recommendation
-                        )
+                        normalize(recommendation)
                 );
 
         if (a == null) {
-
             return "Paras analysoitu kortti: "
                     + recommendation;
         }
@@ -3791,12 +2973,8 @@ public class ArenaAdvisor {
                         .append(
                                 formatScore(best)
                         )
-                        .append(
-                                " — "
-                        )
-                        .append(
-                                recommendation
-                        );
+                        .append(" — ")
+                        .append(recommendation);
 
         double gap =
                 Math.max(
@@ -3805,36 +2983,27 @@ public class ArenaAdvisor {
                 );
 
         if (gap > 0) {
-
             b.append(
                     " • Ero seuraavaan: +"
-            );
-
-            b.append(
-                    formatScore(gap)
-            );
+            )
+                    .append(
+                            formatScore(gap)
+                    );
         }
 
-        b.append(
-                " • "
-        );
-
-        b.append(
-                a.reason
-        );
+        b.append(" • ")
+                .append(a.reason);
 
         return b.toString();
     }
 
     private static String joinReasons(
-            List<String> reasons
-    ) {
+            List<String> reasons) {
 
         StringBuilder b =
                 new StringBuilder();
 
-        for (String r :
-                reasons) {
+        for (String r : reasons) {
 
             if (b.length() > 0) {
                 b.append(" • ");
@@ -3847,8 +3016,7 @@ public class ArenaAdvisor {
     }
 
     private static String formatScore(
-            double value
-    ) {
+            double value) {
 
         return String.format(
                 Locale.US,
@@ -3857,19 +3025,11 @@ public class ArenaAdvisor {
         );
     }
 
-    /*
-     * ============================================================
-     * PICKED CARDS
-     * ============================================================
-     */
-
     public static synchronized void recordPickedCard(
-            String cardName
-    ) {
+            String cardName) {
 
         if (cardName == null ||
                 cardName.trim().isEmpty()) {
-
             return;
         }
 
@@ -3893,25 +3053,16 @@ public class ArenaAdvisor {
     public static synchronized void clearPickedCards() {
 
         PICKED_CARDS.clear();
-
         LAST_ANALYSES.clear();
 
-        lastRecommendation =
-                "";
-
-        lastRecommendationScore =
-                0;
-
-        lastRecommendationGap =
-                0;
-
-        lastRecommendationReason =
-                "";
+        lastRecommendation = "";
+        lastRecommendationScore = 0;
+        lastRecommendationGap = 0;
+        lastRecommendationReason = "";
     }
 
     public static synchronized int getPickedCount(
-            String cardName
-    ) {
+            String cardName) {
 
         if (cardName == null) {
             return 0;
@@ -3920,9 +3071,7 @@ public class ArenaAdvisor {
         Integer count =
                 PICKED_CARDS.get(
                         normalize(
-                                correctOcr(
-                                        cardName
-                                )
+                                correctOcr(cardName)
                         )
                 );
 
@@ -3931,18 +3080,10 @@ public class ArenaAdvisor {
                 : count;
     }
 
-    /*
-     * ============================================================
-     * CLASS DETECTION
-     * ============================================================
-     */
-
-    public static synchronized void
-    detectClassFromCards(
+    public static synchronized void detectClassFromCards(
             String card1,
             String card2,
-            String card3
-    ) {
+            String card3) {
 
         if (!currentClass.isEmpty()) {
             return;
@@ -3957,33 +3098,24 @@ public class ArenaAdvisor {
         Map<String, Integer> counts =
                 new HashMap<>();
 
-        for (String card :
-                cards) {
+        for (String card : cards) {
 
             String cls =
-                    getClassForCard(
-                            card
-                    );
+                    getClassForCard(card);
 
             if (!cls.isEmpty()) {
 
-                Integer old =
-                        counts.get(cls);
-
                 counts.put(
                         cls,
-                        old == null
-                                ? 1
-                                : old + 1
+                        counts.containsKey(cls)
+                                ? counts.get(cls) + 1
+                                : 1
                 );
             }
         }
 
-        String majority =
-                "";
-
-        int majorityCount =
-                0;
+        String majority = "";
+        int majorityCount = 0;
 
         for (Map.Entry<String, Integer> e :
                 counts.entrySet()) {
@@ -3999,22 +3131,14 @@ public class ArenaAdvisor {
             }
         }
 
-        /*
-         * Jos kaksi kolmesta kortista ovat samaa luokkaa,
-         * lukitaan luokka heti.
-         */
-
         if (!majority.isEmpty() &&
                 majorityCount >= 2) {
 
             currentClass =
                     majority;
 
-            candidateClass =
-                    "";
-
-            candidateClassCount =
-                    0;
+            candidateClass = "";
+            candidateClassCount = 0;
 
             status =
                     "Luokka tunnistettu: "
@@ -4022,11 +3146,6 @@ public class ArenaAdvisor {
 
             return;
         }
-
-        /*
-         * Muussa tapauksessa käytetään vanhaa
-         * kahden vahvistuksen mekanismia.
-         */
 
         String detected =
                 getFirstClassFromCards(
@@ -4039,9 +3158,7 @@ public class ArenaAdvisor {
             return;
         }
 
-        if (detected.equals(
-                candidateClass
-        )) {
+        if (detected.equals(candidateClass)) {
 
             candidateClassCount++;
 
@@ -4050,8 +3167,7 @@ public class ArenaAdvisor {
             candidateClass =
                     detected;
 
-            candidateClassCount =
-                    1;
+            candidateClassCount = 1;
         }
 
         if (candidateClassCount >=
@@ -4069,8 +3185,7 @@ public class ArenaAdvisor {
     private static String getFirstClassFromCards(
             String card1,
             String card2,
-            String card3
-    ) {
+            String card3) {
 
         for (String card :
                 new String[]{
@@ -4080,9 +3195,7 @@ public class ArenaAdvisor {
                 }) {
 
             String cls =
-                    getClassForCard(
-                            card
-                    );
+                    getClassForCard(card);
 
             if (!cls.isEmpty()) {
                 return cls;
@@ -4093,21 +3206,17 @@ public class ArenaAdvisor {
     }
 
     public static String getClassForCard(
-            String cardName
-    ) {
+            String cardName) {
 
         if (cardName == null ||
                 cardName.trim().isEmpty()) {
-
             return "";
         }
 
         CardInfo info =
                 CARD_INFO.get(
                         normalize(
-                                correctOcr(
-                                        cardName
-                                )
+                                correctOcr(cardName)
                         )
                 );
 
@@ -4120,21 +3229,12 @@ public class ArenaAdvisor {
                         info.className
                 );
 
-        if (cls.equals("NEUTRAL") ||
-                cls.equals("INVALID") ||
-                cls.isEmpty()) {
-
-            return "";
-        }
-
-        return cls;
+        return cls.equals("NEUTRAL")
+                || cls.equals("INVALID")
+                || cls.isEmpty()
+                ? ""
+                : cls;
     }
-
-    /*
-     * ============================================================
-     * CLASS API
-     * ============================================================
-     */
 
     public static String getCurrentClass() {
 
@@ -4145,65 +3245,44 @@ public class ArenaAdvisor {
     }
 
     public static String getCurrentClassRaw() {
-
         return currentClass;
     }
 
     public static boolean isClassDetected() {
-
         return currentClass != null &&
                 !currentClass.isEmpty();
     }
 
-    public static synchronized void
-    resetClassDetection() {
+    public static synchronized void resetClassDetection() {
 
-        currentClass =
-                "";
-
-        candidateClass =
-                "";
-
-        candidateClassCount =
-                0;
+        currentClass = "";
+        candidateClass = "";
+        candidateClassCount = 0;
 
         status =
                 "Luokka nollattu";
     }
 
-    /*
-     * ============================================================
-     * MANUAL SCORE API
-     * ============================================================
-     */
-
     public static synchronized void setClassScore(
             String cardName,
             String className,
-            double score
-    ) {
+            double score) {
 
         if (cardName == null ||
                 className == null) {
-
             return;
         }
 
         String key =
                 normalize(
-                        correctOcr(
-                                cardName
-                        )
+                        correctOcr(cardName)
                 );
 
         String cls =
-                normalizeClass(
-                        className
-                );
+                normalizeClass(className);
 
         if (key.isEmpty() ||
                 cls.isEmpty()) {
-
             return;
         }
 
@@ -4223,28 +3302,21 @@ public class ArenaAdvisor {
 
         scores.put(
                 key,
-                normalizeHearthArenaScore(
-                        score
-                )
+                normalizeHearthArenaScore(score)
         );
 
         LAST_ANALYSES.clear();
     }
 
-    public static synchronized void
-    clearClassScores() {
+    public static synchronized void clearClassScores() {
 
         for (Map<String, Double> map :
                 CLASS_SCORES.values()) {
-
             map.clear();
         }
 
         NEUTRAL_SCORES.clear();
-
-        hearthArenaLoaded =
-                false;
-
+        hearthArenaLoaded = false;
         LAST_ANALYSES.clear();
     }
 
@@ -4256,44 +3328,29 @@ public class ArenaAdvisor {
         for (Map<String, Double> map :
                 CLASS_SCORES.values()) {
 
-            total +=
-                    map.size();
+            total += map.size();
         }
 
         return total;
     }
 
-    /*
-     * ============================================================
-     * CARD DATA API
-     * ============================================================
-     */
-
     public static CardData getCardData(
-            String cardName
-    ) {
+            String cardName) {
 
-        if (cardName == null) {
-            return null;
-        }
-
-        return CARDS.get(
+        return cardName == null
+                ? null
+                : CARDS.get(
                 normalize(
-                        correctOcr(
-                                cardName
-                        )
+                        correctOcr(cardName)
                 )
         );
     }
 
     public static int getCardManaCost(
-            String cardName
-    ) {
+            String cardName) {
 
         CardData c =
-                getCardData(
-                        cardName
-                );
+                getCardData(cardName);
 
         return c == null
                 ? -1
@@ -4301,26 +3358,15 @@ public class ArenaAdvisor {
     }
 
     public static String getCardType(
-            String cardName
-    ) {
+            String cardName) {
 
         CardData c =
-                getCardData(
-                        cardName
-                );
+                getCardData(cardName);
 
         return c == null
                 ? ""
-                : getReadableType(
-                        c.type
-                );
+                : getReadableType(c.type);
     }
-
-    /*
-     * ============================================================
-     * STATUS
-     * ============================================================
-     */
 
     public static String getStatus() {
         return status;
@@ -4342,27 +3388,19 @@ public class ArenaAdvisor {
         return hearthArenaLoading;
     }
 
-    /*
-     * ============================================================
-     * CARD HELPERS
-     * ============================================================
-     */
-
     private static int getManaCost(
-            CardData card
-    ) {
+            CardData card) {
 
         return card == null
                 ? -1
                 : Math.max(
-                        0,
-                        card.cost
-                );
+                0,
+                card.cost
+        );
     }
 
     private static String getReadableType(
-            String type
-    ) {
+            String type) {
 
         String n =
                 normalizeType(type);
@@ -4392,15 +3430,8 @@ public class ArenaAdvisor {
                 : type;
     }
 
-    /*
-     * ============================================================
-     * NORMALIZATION
-     * ============================================================
-     */
-
     private static String normalize(
-            String value
-    ) {
+            String value) {
 
         if (value == null) {
             return "";
@@ -4421,8 +3452,7 @@ public class ArenaAdvisor {
     }
 
     private static String normalizeClass(
-            String value
-    ) {
+            String value) {
 
         if (value == null) {
             return "";
@@ -4432,30 +3462,20 @@ public class ArenaAdvisor {
                 value
                         .trim()
                         .toUpperCase(Locale.US)
-                        .replace(
-                                "_",
-                                " "
-                        )
-                        .replace(
-                                "-",
-                                " "
-                        )
+                        .replace("_", " ")
+                        .replace("-", " ")
                         .replaceAll(
                                 "\\s+",
                                 " "
                         );
 
         if (result.equals(
-                "DEATHKNIGHT"
-        )) {
-
+                "DEATHKNIGHT")) {
             return "DEATH KNIGHT";
         }
 
         if (result.equals(
-                "DEMONHUNTER"
-        )) {
-
+                "DEMONHUNTER")) {
             return "DEMON HUNTER";
         }
 
@@ -4467,42 +3487,27 @@ public class ArenaAdvisor {
             }
         }
 
-        if (result.equals(
-                "NEUTRAL"
-        )) {
-
+        if (result.equals("NEUTRAL")) {
             return "NEUTRAL";
         }
 
         return result;
     }
 
-    /*
-     * ============================================================
-     * UTILITY
-     * ============================================================
-     */
-
     private static double clamp(
             double value,
             double min,
-            double max
-    ) {
+            double max) {
 
-        if (value < min) {
-            return min;
-        }
-
-        if (value > max) {
-            return max;
-        }
-
-        return value;
+        return value < min
+                ? min
+                : (value > max
+                ? max
+                : value);
     }
 
     private static double roundScore(
-            double value
-    ) {
+            double value) {
 
         return Math.round(
                 value * 100.0
@@ -4511,22 +3516,18 @@ public class ArenaAdvisor {
 
     private static boolean containsAny(
             String text,
-            String... values
-    ) {
+            String... values) {
 
         if (text == null ||
                 text.isEmpty() ||
                 values == null) {
-
             return false;
         }
 
-        for (String value :
-                values) {
+        for (String value : values) {
 
             if (value != null &&
                     text.contains(value)) {
-
                 return true;
             }
         }
@@ -4535,8 +3536,7 @@ public class ArenaAdvisor {
     }
 
     private static String readStream(
-            InputStream input
-    ) throws Exception {
+            InputStream input) throws Exception {
 
         StringBuilder b =
                 new StringBuilder();
@@ -4563,19 +3563,11 @@ public class ArenaAdvisor {
         return b.toString();
     }
 
-    /*
-     * ============================================================
-     * LEVENSHTEIN
-     * ============================================================
-     */
-
     private static int levenshtein(
             String a,
-            String b
-    ) {
+            String b) {
 
         if (a == null) {
-
             return b == null
                     ? 0
                     : b.length();
@@ -4595,16 +3587,14 @@ public class ArenaAdvisor {
              j <= b.length();
              j++) {
 
-            previous[j] =
-                    j;
+            previous[j] = j;
         }
 
         for (int i = 1;
              i <= a.length();
              i++) {
 
-            current[0] =
-                    i;
+            current[0] = i;
 
             for (int j = 1;
                  j <= b.length();
@@ -4612,8 +3602,7 @@ public class ArenaAdvisor {
 
                 int cost =
                         a.charAt(i - 1)
-                                ==
-                                b.charAt(j - 1)
+                                == b.charAt(j - 1)
                                 ? 0
                                 : 1;
 
@@ -4623,8 +3612,7 @@ public class ArenaAdvisor {
                                         current[j - 1] + 1,
                                         previous[j] + 1
                                 ),
-                                previous[j - 1]
-                                        + cost
+                                previous[j - 1] + cost
                         );
             }
 
@@ -4638,42 +3626,28 @@ public class ArenaAdvisor {
                     tmp;
         }
 
-        return previous[
-                b.length()
-        ];
+        return previous[b.length()];
     }
-
-    /*
-     * ============================================================
-     * CARD DATA
-     * ============================================================
-     */
 
     public static class CardData {
 
-        public final String name;
+        public final String
+                name,
+                cardClass,
+                type,
+                rarity,
+                id,
+                text;
 
-        public final String cardClass;
+        public final int
+                cost,
+                attack,
+                health;
 
-        public final String type;
-
-        public final String rarity;
-
-        public final String id;
-
-        public final String text;
-
-        public final int cost;
-
-        public final int attack;
-
-        public final int health;
-
-        public final String race;
-
-        public final String spellSchool;
-
-        public final String mechanics;
+        public final String
+                race,
+                spellSchool,
+                mechanics;
 
         public CardData(
                 String name,
@@ -4687,8 +3661,7 @@ public class ArenaAdvisor {
                 int health,
                 String race,
                 String spellSchool,
-                String mechanics
-        ) {
+                String mechanics) {
 
             this.name =
                     name == null
@@ -4763,8 +3736,7 @@ public class ArenaAdvisor {
                 String text,
                 int cost,
                 int attack,
-                int health
-        ) {
+                int health) {
 
             this(
                     name,
@@ -4787,8 +3759,7 @@ public class ArenaAdvisor {
                 String cardClass,
                 String type,
                 String rarity,
-                String id
-        ) {
+                String id) {
 
             this(
                     name,
@@ -4807,22 +3778,15 @@ public class ArenaAdvisor {
         }
     }
 
-    /*
-     * ============================================================
-     * CARD INFO
-     * ============================================================
-     */
-
     public static class CardInfo {
 
-        public final String name;
-
-        public final String className;
+        public final String
+                name,
+                className;
 
         public CardInfo(
                 String name,
-                String className
-        ) {
+                String className) {
 
             this.name =
                     name == null
@@ -4836,31 +3800,19 @@ public class ArenaAdvisor {
         }
     }
 
-    /*
-     * ============================================================
-     * DRAFT ANALYSIS
-     * ============================================================
-     */
-
     public static class DraftAnalysis {
 
         public final String cardName;
 
-        public final double hearthArenaScore;
-
-        public final double curveAdjustment;
-
-        public final double typeAdjustment;
-
-        public final double synergyAdjustment;
-
-        public final double deckFitAdjustment;
-
-        public final double removalTempoAdjustment;
-
-        public final double duplicateAdjustment;
-
-        public final double finalScore;
+        public final double
+                hearthArenaScore,
+                curveAdjustment,
+                typeAdjustment,
+                synergyAdjustment,
+                deckFitAdjustment,
+                removalTempoAdjustment,
+                duplicateAdjustment,
+                finalScore;
 
         public final int manaCost;
 
@@ -4877,8 +3829,7 @@ public class ArenaAdvisor {
                 double duplicateAdjustment,
                 double finalScore,
                 int manaCost,
-                String reason
-        ) {
+                String reason) {
 
             this.cardName =
                     cardName == null
@@ -4934,10 +3885,6 @@ public class ArenaAdvisor {
                             : reason;
         }
 
-        /*
-         * Backward-compatible constructor.
-         */
-
         public DraftAnalysis(
                 String cardName,
                 double hearthArenaScore,
@@ -4947,8 +3894,7 @@ public class ArenaAdvisor {
                 double duplicateAdjustment,
                 double finalScore,
                 int manaCost,
-                String reason
-        ) {
+                String reason) {
 
             this(
                     cardName,
