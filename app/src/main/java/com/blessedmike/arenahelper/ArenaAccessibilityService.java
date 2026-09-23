@@ -15,6 +15,18 @@ public class ArenaAccessibilityService
     private static final String HEARTHSTONE_PACKAGE =
             "com.blizzard.wtcg.hearthstone";
 
+    /*
+     * Androidin järjestelmäkäyttöliittymä ei saa
+     * sammuttaa Hearthstone-overlayta.
+     *
+     * Näitä tapahtumia voi tulla esimerkiksi kun:
+     * - ilmoitusverho vedetään alas
+     * - ilmoitusverho nostetaan ylös
+     * - järjestelmä näyttää oman ikkunansa
+     */
+    private static final String ANDROID_PACKAGE =
+            "android";
+
     private boolean hearthstoneActive = false;
 
     @Override
@@ -38,41 +50,81 @@ public class ArenaAccessibilityService
                 event.getEventType();
 
         /*
-         * Seurataan sovelluksen vaihtumista.
+         * Hearthstone avautuu / tulee aktiiviseksi.
          *
-         * Hearthstone -> overlay näkyviin
-         * Muu sovellus -> overlay piiloon
+         * Tämä on ainoa tilanne jossa asetamme
+         * Hearthstone aktiiviseksi.
          */
-        if (type ==
-                        AccessibilityEvent
-                                .TYPE_WINDOW_STATE_CHANGED
-                ||
-                type ==
-                        AccessibilityEvent
-                                .TYPE_WINDOWS_CHANGED) {
+        if (HEARTHSTONE_PACKAGE.equals(
+                packageNameString
+        )) {
 
-            boolean active =
-                    HEARTHSTONE_PACKAGE.equals(
-                            packageNameString
-                    );
+            if (!hearthstoneActive) {
 
-            if (active != hearthstoneActive) {
-
-                hearthstoneActive =
-                        active;
+                hearthstoneActive = true;
 
                 CaptureService
-                        .setHearthstoneActive(
-                                active
-                        );
+                        .setHearthstoneActive(true);
 
                 Log.d(
                         TAG,
-                        active
-                                ? "Hearthstone avattu"
-                                : "Hearthstone suljettu / poistuttu"
+                        "Hearthstone avattu"
                 );
             }
+        }
+
+        /*
+         * Jos tapahtuma tulee Androidin omasta
+         * käyttöliittymästä, EI sammuteta overlayta.
+         *
+         * Tämä korjaa tilanteen jossa overlay
+         * katoaa ilmoitusverhoa käytettäessä.
+         */
+        if (ANDROID_PACKAGE.equals(
+                packageNameString
+        )) {
+
+            return;
+        }
+
+        /*
+         * Jos tapahtuma tulee jostain muusta
+         * sovelluksesta, Hearthstone ei enää ole
+         * aktiivinen.
+         *
+         * Tyhjä packageName jätetään huomiotta,
+         * koska Android voi lähettää sellaisia
+         * tapahtumia ikkunoiden vaihtuessa.
+         */
+        if (!packageNameString.isEmpty()
+                &&
+                !HEARTHSTONE_PACKAGE.equals(
+                        packageNameString
+                )) {
+
+            if (hearthstoneActive
+                    &&
+                    (type ==
+                            AccessibilityEvent
+                                    .TYPE_WINDOW_STATE_CHANGED
+                            ||
+                     type ==
+                            AccessibilityEvent
+                                    .TYPE_WINDOWS_CHANGED)) {
+
+                hearthstoneActive = false;
+
+                CaptureService
+                        .setHearthstoneActive(false);
+
+                Log.d(
+                        TAG,
+                        "Hearthstone poistuttu: "
+                                + packageNameString
+                );
+            }
+
+            return;
         }
 
         /*
@@ -169,8 +221,9 @@ public class ArenaAccessibilityService
     public void onInterrupt() {
 
         /*
-         * Jos AccessibilityService keskeytetään,
-         * piilotetaan overlay varmuuden vuoksi.
+         * AccessibilityService keskeytettiin oikeasti,
+         * joten tässä tapauksessa overlay voidaan
+         * piilottaa.
          */
         hearthstoneActive = false;
 
