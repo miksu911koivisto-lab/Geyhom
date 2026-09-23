@@ -2,6 +2,8 @@ package com.blessedmike.arenahelper;
 
 import android.accessibilityservice.AccessibilityService;
 import android.graphics.Rect;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -16,18 +18,65 @@ public class ArenaAccessibilityService
             "com.blizzard.wtcg.hearthstone";
 
     /*
-     * Androidin järjestelmäkäyttöliittymä ei saa
-     * sammuttaa Hearthstone-overlayta.
+     * Androidin järjestelmäkäyttöliittymä.
      *
-     * Näitä tapahtumia voi tulla esimerkiksi kun:
-     * - ilmoitusverho vedetään alas
-     * - ilmoitusverho nostetaan ylös
-     * - järjestelmä näyttää oman ikkunansa
+     * Erityisen tärkeä:
+     * ilmoitusverho / statuspalkki käyttää yleensä
+     * com.android.systemui-pakettia.
+     *
+     * SystemUI:n tapahtumat EIVÄT saa muuttaa
+     * Hearthstonen aktiivisuustilaa.
+     */
+    private static final String SYSTEM_UI_PACKAGE =
+            "com.android.systemui";
+
+    /*
+     * Joissakin Android-versioissa järjestelmä voi
+     * lähettää tapahtumia myös android-paketista.
      */
     private static final String ANDROID_PACKAGE =
             "android";
 
+    /*
+     * Pieni viive ennen Hearthstone-tilan sammuttamista.
+     *
+     * Tämä estää lyhyet Androidin ikkuna-/pakettivaihdokset
+     * aiheuttamasta overlayn vilkkumista.
+     */
+    private static final long DEACTIVATE_DELAY_MS =
+            700L;
+
     private boolean hearthstoneActive = false;
+
+    private final Handler handler =
+            new Handler(
+                    Looper.getMainLooper()
+            );
+
+    private final Runnable deactivateRunnable =
+            new Runnable() {
+
+                @Override
+                public void run() {
+
+                    /*
+                     * Jos Hearthstone on ehtinyt tulla takaisin
+                     * etualalle viiveen aikana, mitään ei tehdä.
+                     */
+                    if (hearthstoneActive) {
+                        return;
+                    }
+
+                    CaptureService.setHearthstoneActive(
+                            false
+                    );
+
+                    Log.d(
+                            TAG,
+                            "Hearthstone overlay piilotettu"
+                    );
+                }
+            };
 
     @Override
     public void onAccessibilityEvent(
@@ -50,103 +99,189 @@ public class ArenaAccessibilityService
                 event.getEventType();
 
         /*
-         * Hearthstone avautuu / tulee aktiiviseksi.
+         * ============================================================
+         * 1. HEARTHSTONE
+         * ============================================================
          *
-         * Tämä on ainoa tilanne jossa asetamme
-         * Hearthstone aktiiviseksi.
+         * Kun Hearthstone lähettää ikkunatapahtuman,
+         * varmistetaan että overlay on näkyvissä.
          */
         if (HEARTHSTONE_PACKAGE.equals(
                 packageNameString
         )) {
 
+            /*
+             * Perutaan mahdollinen aikaisemmin ajastettu
+             * piilotus.
+             */
+            handler.removeCallbacks(
+                    deactivateRunnable
+            );
+
             if (!hearthstoneActive) {
 
                 hearthstoneActive = true;
 
-                CaptureService
-                        .setHearthstoneActive(true);
+                CaptureService.setHearthstoneActive(
+                        true
+                );
 
                 Log.d(
                         TAG,
-                        "Hearthstone avattu"
+                        "Hearthstone aktiivinen"
                 );
             }
+
+            /*
+             * Vain klikkaustapahtumat käsitellään
+             * korttivalintoina.
+             */
+            if (type !=
+                    AccessibilityEvent.TYPE_VIEW_CLICKED) {
+
+                return;
+            }
+
+            handleHearthstoneClick(event);
+
+            return;
         }
 
         /*
-         * Jos tapahtuma tulee Androidin omasta
-         * käyttöliittymästä, EI sammuteta overlayta.
+         * ============================================================
+         * 2. SYSTEM UI
+         * ============================================================
          *
-         * Tämä korjaa tilanteen jossa overlay
-         * katoaa ilmoitusverhoa käytettäessä.
+         * TÄMÄ ON TÄRKEIN KORJAUS.
+         *
+         * Kun käyttäjä:
+         *
+         *   Hearthstone
+         *        ↓
+         *   ilmoitusverho alas
+         *        ↓
+         *   ilmoitusverho ylös
+         *
+         * Android lähettää tapahtumia yleensä
+         * com.android.systemui-paketista.
+         *
+         * Niihin EI reagoida millään tavalla.
+         *
+         * Näin overlayn tila ei vaihdu:
+         *
+         *   true → false → true
+         *
+         * vaan pysyy:
+         *
+         *   true
+         */
+        if (SYSTEM_UI_PACKAGE.equals(
+                packageNameString
+        )) {
+
+            Log.d(
+                    TAG,
+                    "SystemUI-tapahtuma ohitettu"
+            );
+
+            return;
+        }
+
+        /*
+         * ============================================================
+         * 3. ANDROID SYSTEM
+         * ============================================================
+         *
+         * Myös android-paketin tapahtumat ohitetaan.
          */
         if (ANDROID_PACKAGE.equals(
                 packageNameString
         )) {
 
+            Log.d(
+                    TAG,
+                    "Android system -tapahtuma ohitettu"
+            );
+
             return;
         }
 
         /*
-         * Jos tapahtuma tulee jostain muusta
-         * sovelluksesta, Hearthstone ei enää ole
-         * aktiivinen.
+         * ============================================================
+         * 4. TYHJÄ PACKAGE
+         * ============================================================
          *
-         * Tyhjä packageName jätetään huomiotta,
-         * koska Android voi lähettää sellaisia
-         * tapahtumia ikkunoiden vaihtuessa.
+         * Android voi lähettää hetkellisesti tapahtuman,
+         * jossa packageName on tyhjä.
+         *
+         * Sitä ei tulkita Hearthstonesta poistumiseksi.
          */
-        if (!packageNameString.isEmpty()
-                &&
-                !HEARTHSTONE_PACKAGE.equals(
-                        packageNameString
-                )) {
-
-            if (hearthstoneActive
-                    &&
-                    (type ==
-                            AccessibilityEvent
-                                    .TYPE_WINDOW_STATE_CHANGED
-                            ||
-                     type ==
-                            AccessibilityEvent
-                                    .TYPE_WINDOWS_CHANGED)) {
-
-                hearthstoneActive = false;
-
-                CaptureService
-                        .setHearthstoneActive(false);
-
-                Log.d(
-                        TAG,
-                        "Hearthstone poistuttu: "
-                                + packageNameString
-                );
-            }
+        if (packageNameString.isEmpty()) {
 
             return;
         }
 
         /*
-         * Kaikki muu kuin Hearthstone ei saa
-         * käsitellä korttiklikkauksia.
+         * ============================================================
+         * 5. MUU SOVELLUS
+         * ============================================================
+         *
+         * Jos käyttäjä oikeasti siirtyy toiseen sovellukseen,
+         * Hearthstone voidaan piilottaa.
+         *
+         * Käytetään kuitenkin pientä viivettä, jotta Androidin
+         * lyhyet ikkuna-vaihdokset eivät aiheuta välähdystä.
          */
         if (!HEARTHSTONE_PACKAGE.equals(
                 packageNameString
         )) {
 
+            if (hearthstoneActive
+                    &&
+                    (
+                            type ==
+                                    AccessibilityEvent
+                                            .TYPE_WINDOW_STATE_CHANGED
+                            ||
+                            type ==
+                                    AccessibilityEvent
+                                            .TYPE_WINDOWS_CHANGED
+                    )) {
+
+                /*
+                 * Älä sammuta heti.
+                 */
+                hearthstoneActive = false;
+
+                handler.removeCallbacks(
+                        deactivateRunnable
+                );
+
+                handler.postDelayed(
+                        deactivateRunnable,
+                        DEACTIVATE_DELAY_MS
+                );
+
+                Log.d(
+                        TAG,
+                        "Muu sovellus havaittu: "
+                                + packageNameString
+                                + " - piilotus ajastettu"
+                );
+            }
+
             return;
         }
+    }
 
-        /*
-         * TYPE_VIEW_CLICKED on edelleen
-         * korttivalinnan tärkein tapahtuma.
-         */
-        if (type !=
-                AccessibilityEvent.TYPE_VIEW_CLICKED) {
-
-            return;
-        }
+    /*
+     * ================================================================
+     * HEARTHSTONE-KLIKKAUS
+     * ================================================================
+     */
+    private void handleHearthstoneClick(
+            AccessibilityEvent event
+    ) {
 
         AccessibilityNodeInfo source =
                 event.getSource();
@@ -189,6 +324,11 @@ public class ArenaAccessibilityService
         }
     }
 
+    /*
+     * ================================================================
+     * NODE TEXT
+     * ================================================================
+     */
     private String getNodeText(
             AccessibilityNodeInfo node
     ) {
@@ -209,7 +349,10 @@ public class ArenaAccessibilityService
         CharSequence description =
                 node.getContentDescription();
 
-        if (description != null) {
+        if (description != null &&
+                !description.toString()
+                        .trim()
+                        .isEmpty()) {
 
             return description.toString();
         }
@@ -217,14 +360,22 @@ public class ArenaAccessibilityService
         return "";
     }
 
+    /*
+     * ================================================================
+     * INTERRUPT
+     * ================================================================
+     */
     @Override
     public void onInterrupt() {
 
         /*
-         * AccessibilityService keskeytettiin oikeasti,
-         * joten tässä tapauksessa overlay voidaan
-         * piilottaa.
+         * AccessibilityService todella keskeytettiin.
+         * Tässä tapauksessa overlay voidaan piilottaa.
          */
+        handler.removeCallbacks(
+                deactivateRunnable
+        );
+
         hearthstoneActive = false;
 
         CaptureService.setHearthstoneActive(
@@ -234,6 +385,28 @@ public class ArenaAccessibilityService
         Log.d(
                 TAG,
                 "AccessibilityService interrupted"
+        );
+    }
+
+    /*
+     * ================================================================
+     * SERVICE DESTROY
+     * ================================================================
+     */
+    @Override
+    public void onDestroy() {
+
+        handler.removeCallbacks(
+                deactivateRunnable
+        );
+
+        hearthstoneActive = false;
+
+        super.onDestroy();
+
+        Log.d(
+                TAG,
+                "AccessibilityService destroyed"
         );
     }
 }
