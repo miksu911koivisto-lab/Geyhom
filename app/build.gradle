@@ -17,19 +17,19 @@ android {
     signingConfigs {
         release {
             def keystoreFile = System.getenv("ARENA_KEYSTORE_FILE")
-            def keystorePassword = System.getenv("ARENA_KEYSTORE_PASSWORD")
-            def keyAlias = System.getenv("ARENA_KEY_ALIAS")
-            def keyPassword = System.getenv("ARENA_KEY_PASSWORD")
+            def keystorePasswordValue = System.getenv("ARENA_KEYSTORE_PASSWORD")
+            def keyAliasValue = System.getenv("ARENA_KEY_ALIAS")
+            def keyPasswordValue = System.getenv("ARENA_KEY_PASSWORD")
 
             if (keystoreFile != null &&
-                    keystorePassword != null &&
-                    keyAlias != null &&
-                    keyPassword != null) {
+                    keystorePasswordValue != null &&
+                    keyAliasValue != null &&
+                    keyPasswordValue != null) {
 
                 storeFile file(keystoreFile)
-                storePassword keystorePassword
-                keyAlias keyAlias
-                keyPassword keyPassword
+                storePassword keystorePasswordValue
+                keyAlias keyAliasValue
+                keyPassword keyPasswordValue
             }
         }
     }
