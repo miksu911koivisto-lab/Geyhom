@@ -68,12 +68,6 @@ public class CaptureService extends Service {
 
     private boolean processing = false;
 
-    /*
-     * Hearthstonen aktiivisuuden tila.
-     *
-     * Overlay näytetään vain silloin,
-     * kun Hearthstone on etualalla.
-     */
     private boolean hearthstoneActive = false;
 
     private String pendingOffer1 = "";
@@ -794,11 +788,40 @@ public class CaptureService extends Service {
         int height =
                 source.getHeight();
 
-        int nameTop =
+        /*
+         * ============================================================
+         * KORTTIEN 1 JA 2 OCR-ALUE
+         * ============================================================
+         *
+         * Aiempi alue:
+         *
+         * 42.5 % - 50.5 %
+         *
+         * Se oli vain 8 % näytön korkeudesta.
+         *
+         * Nyt korttien 1 ja 2 alue on hieman korkeampi:
+         *
+         * 39 % - 53 %
+         *
+         * Tämä antaa ML Kitille enemmän mahdollisuuksia nähdä
+         * koko kortin nimi.
+         *
+         * Kortti 3 pidetään alkuperäisellä alueella, koska sen
+         * tunnistus toimii jo paremmin.
+         */
+        int normalNameTop =
+                (int)
+                        (height * 0.390f);
+
+        int normalNameBottom =
+                (int)
+                        (height * 0.530f);
+
+        int card3NameTop =
                 (int)
                         (height * 0.425f);
 
-        int nameBottom =
+        int card3NameBottom =
                 (int)
                         (height * 0.505f);
 
@@ -806,22 +829,22 @@ public class CaptureService extends Service {
                 cropCard(
                         source,
                         (int)
-                                (width * 0.065f),
+                                (width * 0.055f),
                         (int)
-                                (width * 0.38f),
-                        nameTop,
-                        nameBottom
+                                (width * 0.39f),
+                        normalNameTop,
+                        normalNameBottom
                 );
 
         Bitmap card2 =
                 cropCard(
                         source,
                         (int)
-                                (width * 0.355f),
+                                (width * 0.345f),
                         (int)
-                                (width * 0.60f),
-                        nameTop,
-                        nameBottom
+                                (width * 0.61f),
+                        normalNameTop,
+                        normalNameBottom
                 );
 
         Bitmap card3 =
@@ -831,8 +854,8 @@ public class CaptureService extends Service {
                                 (width * 0.60f),
                         (int)
                                 (width * 0.935f),
-                        nameTop,
-                        nameBottom
+                        card3NameTop,
+                        card3NameBottom
                 );
 
         source.recycle();
@@ -961,10 +984,6 @@ public class CaptureService extends Service {
 
                     String cleaned;
 
-                    /*
-                     * KORTTI 3 käyttää edelleen omaa
-                     * erillistä OCR-käsittelyään.
-                     */
                     if (index == 2) {
 
                         cleaned =
@@ -972,10 +991,6 @@ public class CaptureService extends Service {
 
                     } else {
 
-                        /*
-                         * Kortille 1 ja 2 käytetään
-                         * vahvistettua nimihakua.
-                         */
                         cleaned =
                                 cleanCardName(text);
                     }
@@ -1190,11 +1205,6 @@ public class CaptureService extends Service {
         return stability.stable;
     }
 
-    /*
-     * ============================================================
-     * KORTTI 3:N ERILLINEN VAKAUS
-     * ============================================================
-     */
     private String stabilizeCard3(
             String detected
     ) {
@@ -1618,23 +1628,8 @@ public class CaptureService extends Service {
 
     /*
      * ============================================================
-     * PARANNETTU KORTTI 1 + KORTTI 2 OCR
+     * KORTTI 1 JA 2
      * ============================================================
-     *
-     * Aikaisempi versio otti käytännössä ensimmäisen kelvollisen
-     * OCR-rivin. Se voi aiheuttaa tilanteen, jossa ML Kit lukee
-     * nimestä vain osan tai epäselvän rivin.
-     *
-     * Nyt:
-     *
-     * 1. Käydään kaikki OCR-rivit läpi.
-     * 2. Jokainen rivi normalisoidaan.
-     * 3. ArenaAdvisor.correctOcr() saa mahdollisuuden korjata
-     *    jokaisen rivin erikseen.
-     * 4. Paras ehdokas valitaan.
-     * 5. Jos yksittäinen rivi ei riitä, kokeillaan koko OCR-tekstiä.
-     *
-     * Kortti 3:n oma käsittely ei muutu.
      */
     private String cleanCardName(
             Text text
@@ -1647,7 +1642,9 @@ public class CaptureService extends Service {
         String raw =
                 text.getText();
 
-        if (raw == null) {
+        if (raw == null ||
+                raw.trim().isEmpty()) {
+
             return "";
         }
 
@@ -1657,7 +1654,8 @@ public class CaptureService extends Service {
         String bestCandidate = "";
 
         /*
-         * Ensin kokeillaan jokaista OCR-riviä erikseen.
+         * Ensimmäinen vaihe:
+         * käydään jokainen OCR-rivi läpi.
          */
         for (String line : lines) {
 
@@ -1672,26 +1670,6 @@ public class CaptureService extends Service {
                 continue;
             }
 
-            int letters = 0;
-
-            for (
-                    int i = 0;
-                    i < line.length();
-                    i++
-            ) {
-
-                if (Character.isLetter(
-                        line.charAt(i)
-                )) {
-
-                    letters++;
-                }
-            }
-
-            if (letters < 2) {
-                continue;
-            }
-
             String candidate =
                     cleanSingleCardNameLine(
                             line
@@ -1702,8 +1680,7 @@ public class CaptureService extends Service {
             }
 
             /*
-             * Jos ArenaAdvisor pystyy tunnistamaan OCR-rivin
-             * oikeaksi kortiksi, tämä on erittäin hyvä ehdokas.
+             * Yritetään korjata OCR-rivi ArenaAdvisorilla.
              */
             String corrected =
                     candidate;
@@ -1726,8 +1703,8 @@ public class CaptureService extends Service {
             }
 
             /*
-             * Tunnettu/korjattu nimi voittaa yleensä
-             * raakaa OCR-tekstiä.
+             * Jos korjaus muutti nimeä, se on yleensä
+             * vahva merkki siitä, että kyseessä on kortti.
              */
             if (!corrected.equalsIgnoreCase(
                     candidate
@@ -1737,7 +1714,7 @@ public class CaptureService extends Service {
             }
 
             /*
-             * Muuten pidetään pisintä järkevää ehdokasta.
+             * Pidempi OCR-tulos säilytetään ehdokkaana.
              */
             if (corrected.length() >
                     bestCandidate.length()) {
@@ -1748,101 +1725,83 @@ public class CaptureService extends Service {
         }
 
         /*
-         * Jos yksittäisistä riveistä ei löytynyt hyvää nimeä,
-         * kokeillaan koko OCR-tekstiä.
+         * Toinen vaihe:
          *
-         * Tämä auttaa tilanteessa, jossa ML Kit jakaa pitkän
-         * korttinimen kahdelle riville.
+         * ML Kit saattaa jakaa kortin nimen useaksi riviksi.
+         * Yhdistetään kaikki rivit ja annetaan koko teksti
+         * ArenaAdvisorille.
          */
-        if (lines.length > 1) {
+        StringBuilder combined =
+                new StringBuilder();
 
-            StringBuilder combined =
-                    new StringBuilder();
+        for (String line : lines) {
 
-            for (String line : lines) {
-
-                if (line == null) {
-                    continue;
-                }
-
-                line =
-                        line.trim();
-
-                if (line.isEmpty()) {
-                    continue;
-                }
-
-                if (combined.length() > 0) {
-                    combined.append(" ");
-                }
-
-                combined.append(line);
+            if (line == null) {
+                continue;
             }
 
-            String combinedCandidate =
-                    cleanSingleCardNameLine(
-                            combined.toString()
-                    );
+            line =
+                    line.trim();
 
-            if (!combinedCandidate.isEmpty()) {
+            if (line.isEmpty()) {
+                continue;
+            }
 
-                String corrected =
-                        combinedCandidate;
+            if (combined.length() > 0) {
+                combined.append(" ");
+            }
 
-                try {
+            combined.append(line);
+        }
 
-                    String advisorCorrected =
-                            ArenaAdvisor.correctOcr(
-                                    combinedCandidate
-                            );
+        String combinedCandidate =
+                cleanSingleCardNameLine(
+                        combined.toString()
+                );
 
-                    if (advisorCorrected != null &&
-                            !advisorCorrected.trim().isEmpty()) {
+        if (!combinedCandidate.isEmpty()) {
 
-                        corrected =
-                                advisorCorrected.trim();
-                    }
+            String corrected =
+                    combinedCandidate;
 
-                } catch (Exception ignored) {
+            try {
+
+                String advisorCorrected =
+                        ArenaAdvisor.correctOcr(
+                                combinedCandidate
+                        );
+
+                if (advisorCorrected != null &&
+                        !advisorCorrected.trim().isEmpty()) {
+
+                    corrected =
+                            advisorCorrected.trim();
                 }
 
-                /*
-                 * Jos yhdistetty teksti tunnistui oikeaksi
-                 * korttinimeksi, käytetään sitä.
-                 */
-                if (!corrected.equalsIgnoreCase(
-                        combinedCandidate
-                )) {
+            } catch (Exception ignored) {
+            }
 
-                    return corrected;
-                }
+            if (!corrected.equalsIgnoreCase(
+                    combinedCandidate
+            )) {
 
-                if (corrected.length() >
-                        bestCandidate.length()) {
+                return corrected;
+            }
 
-                    bestCandidate =
-                            corrected;
-                }
+            if (corrected.length() >
+                    bestCandidate.length()) {
+
+                bestCandidate =
+                        corrected;
             }
         }
 
         /*
-         * Lopuksi alkuperäinen OCR fallback.
+         * Viimeinen fallback.
          */
-        if (bestCandidate.isEmpty()) {
-
-            bestCandidate =
-                    cleanSingleCardNameLine(
-                            raw
-                    );
-        }
-
         return bestCandidate;
     }
 
-    /*
-     * Puhdistaa yhden OCR-rivin.
-     */
     private String cleanSingleCardNameLine(
             String line
     ) {
@@ -1864,16 +1823,12 @@ public class CaptureService extends Service {
                 best.replaceAll(
                         "^[^A-Za-zÀ-ÿ0-9]+",
                         ""
-                )
-                .replaceAll(
-                        "[^A-Za-zÀ-ÿ0-9'&\\-\\.\\s]+$",
-                        ""
-                )
-                .trim();
+                );
 
         best =
-                fixSoldierOfInfinite(
-                        best
+                best.replaceAll(
+                        "[^A-Za-zÀ-ÿ0-9'&\\-\\.\\s]+$",
+                        ""
                 );
 
         best =
@@ -1883,15 +1838,14 @@ public class CaptureService extends Service {
                 ).trim();
 
         best =
-                best.replaceAll(
-                        "[\\s\\.,:;|]+$",
-                        ""
+                fixSoldierOfInfinite(
+                        best
                 );
 
         best =
-                best.replace(
-                        "&#039;",
-                        "'"
+                best.replaceAll(
+                        "[\\s\\.,:;|]+$",
+                        ""
                 );
 
         if (!best.isEmpty()) {
