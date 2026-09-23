@@ -27,21 +27,32 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.ARENA_KEYSTORE_BASE64 }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "ERROR: ARENA_KEYSTORE_BASE64 secret is empty or missing."
-            exit 1
-          fi
+          python3 - <<'PY'
+          import os
+          import base64
+          import re
 
-          printf '%s' "$KEYSTORE_BASE64" \
-            | base64 --decode --ignore-garbage \
-            > arena-helper-release.jks
+          value = os.environ["KEYSTORE_BASE64"]
+
+          # Poistetaan kaikki merkit, jotka eivät kuulu Base64-dataan.
+          value = re.sub(r"[^A-Za-z0-9+/=]", "", value)
+
+          # Lisätään tarvittaessa Base64-padding.
+          value += "=" * ((4 - len(value) % 4) % 4)
+
+          data = base64.b64decode(value)
+
+          with open("arena-helper-release.jks", "wb") as f:
+              f.write(data)
+
+          print("Keystore restored.")
+          print("Keystore size:", len(data), "bytes")
+          PY
 
           if [ ! -s arena-helper-release.jks ]; then
-            echo "ERROR: Keystore file was not created."
+            echo "ERROR: Keystore was not created."
             exit 1
           fi
-
-          echo "Keystore restored successfully."
 
       - name: Build signed release APK
         env:
