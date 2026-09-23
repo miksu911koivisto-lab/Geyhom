@@ -32,21 +32,34 @@ jobs:
             exit 1
           fi
 
-          echo "$KEYSTORE_BASE64" | base64 --decode > arena-helper-release.jks
+          printf '%s' "$KEYSTORE_BASE64" \
+            | tr -d '\r\n[:space:]' \
+            | base64 --decode > arena-helper-release.jks
 
           if [ ! -s arena-helper-release.jks ]; then
             echo "ERROR: Keystore could not be restored."
             exit 1
           fi
 
+          echo "Keystore restored successfully."
+
       - name: Build signed release APK
+        env:
+          ARENA_KEYSTORE_FILE: ${{ github.workspace }}/arena-helper-release.jks
+          ARENA_KEYSTORE_PASSWORD: ${{ secrets.ARENA_KEYSTORE_PASSWORD }}
+          ARENA_KEY_ALIAS: ${{ secrets.ARENA_KEY_ALIAS }}
+          ARENA_KEY_PASSWORD: ${{ secrets.ARENA_KEY_PASSWORD }}
         run: |
-          gradle :app:assembleRelease \
-            --stacktrace \
-            -Pandroid.injected.signing.store.file="$GITHUB_WORKSPACE/arena-helper-release.jks" \
-            -Pandroid.injected.signing.store.password="${{ secrets.ARENA_KEYSTORE_PASSWORD }}" \
-            -Pandroid.injected.signing.key.alias="${{ secrets.ARENA_KEY_ALIAS }}" \
-            -Pandroid.injected.signing.key.password="${{ secrets.ARENA_KEY_PASSWORD }}"
+          gradle :app:assembleRelease --stacktrace
+
+      - name: Verify APK exists
+        run: |
+          if [ ! -f app/build/outputs/apk/release/app-release.apk ]; then
+            echo "ERROR: APK was not created."
+            exit 1
+          fi
+
+          ls -lh app/build/outputs/apk/release/app-release.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
