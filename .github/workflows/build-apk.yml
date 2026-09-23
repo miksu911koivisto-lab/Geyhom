@@ -23,42 +23,35 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Restore signing keystore
+      - name: Create signing keystore
         env:
-          KEYSTORE_BASE64: ${{ secrets.ARENA_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ARENA_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ARENA_KEY_PASSWORD }}
         run: |
-          python3 - <<'PY'
-          import os
-          import base64
-          import re
-
-          value = os.environ["KEYSTORE_BASE64"]
-
-          # Poistetaan kaikki merkit, jotka eivät kuulu Base64-dataan.
-          value = re.sub(r"[^A-Za-z0-9+/=]", "", value)
-
-          # Lisätään tarvittaessa Base64-padding.
-          value += "=" * ((4 - len(value) % 4) % 4)
-
-          data = base64.b64decode(value)
-
-          with open("arena-helper-release.jks", "wb") as f:
-              f.write(data)
-
-          print("Keystore restored.")
-          print("Keystore size:", len(data), "bytes")
-          PY
+          keytool -genkeypair \
+            -v \
+            -keystore arena-helper-release.jks \
+            -storetype JKS \
+            -storepass "$KEYSTORE_PASSWORD" \
+            -keypass "$KEY_PASSWORD" \
+            -alias arenahelper \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Arena Helper, OU=ArenaHelper, O=BLESSED MIKE, L=Helsinki, ST=Uusimaa, C=FI"
 
           if [ ! -s arena-helper-release.jks ]; then
             echo "ERROR: Keystore was not created."
             exit 1
           fi
 
+          echo "Keystore created successfully."
+
       - name: Build signed release APK
         env:
           ARENA_KEYSTORE_FILE: ${{ github.workspace }}/arena-helper-release.jks
           ARENA_KEYSTORE_PASSWORD: ${{ secrets.ARENA_KEYSTORE_PASSWORD }}
-          ARENA_KEY_ALIAS: ${{ secrets.ARENA_KEY_ALIAS }}
+          ARENA_KEY_ALIAS: arenahelper
           ARENA_KEY_PASSWORD: ${{ secrets.ARENA_KEY_PASSWORD }}
         run: |
           gradle :app:assembleRelease --stacktrace
