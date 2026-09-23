@@ -104,11 +104,6 @@ public class CaptureService extends Service {
         projectionData = data;
     }
 
-    /*
-     * ArenaAccessibilityService kutsuu tätä,
-     * kun Hearthstone tulee etualalle tai poistuu
-     * etualalta.
-     */
     public static void setHearthstoneActive(
             boolean active
     ) {
@@ -461,11 +456,6 @@ public class CaptureService extends Service {
 
         createOverlay();
 
-        /*
-         * Overlay alkaa piilotettuna.
-         * AccessibilityService näyttää sen,
-         * kun Hearthstone on aktiivinen.
-         */
         hearthstoneActive = false;
 
         if (overlayView != null) {
@@ -971,6 +961,10 @@ public class CaptureService extends Service {
 
                     String cleaned;
 
+                    /*
+                     * KORTTI 3 käyttää edelleen omaa
+                     * erillistä OCR-käsittelyään.
+                     */
                     if (index == 2) {
 
                         cleaned =
@@ -978,6 +972,10 @@ public class CaptureService extends Service {
 
                     } else {
 
+                        /*
+                         * Kortille 1 ja 2 käytetään
+                         * vahvistettua nimihakua.
+                         */
                         cleaned =
                                 cleanCardName(text);
                     }
@@ -1618,6 +1616,26 @@ public class CaptureService extends Service {
         return text.trim();
     }
 
+    /*
+     * ============================================================
+     * PARANNETTU KORTTI 1 + KORTTI 2 OCR
+     * ============================================================
+     *
+     * Aikaisempi versio otti käytännössä ensimmäisen kelvollisen
+     * OCR-rivin. Se voi aiheuttaa tilanteen, jossa ML Kit lukee
+     * nimestä vain osan tai epäselvän rivin.
+     *
+     * Nyt:
+     *
+     * 1. Käydään kaikki OCR-rivit läpi.
+     * 2. Jokainen rivi normalisoidaan.
+     * 3. ArenaAdvisor.correctOcr() saa mahdollisuuden korjata
+     *    jokaisen rivin erikseen.
+     * 4. Paras ehdokas valitaan.
+     * 5. Jos yksittäinen rivi ei riitä, kokeillaan koko OCR-tekstiä.
+     *
+     * Kortti 3:n oma käsittely ei muutu.
+     */
     private String cleanCardName(
             Text text
     ) {
@@ -1636,8 +1654,11 @@ public class CaptureService extends Service {
         String[] lines =
                 raw.split("\\r?\\n");
 
-        String best = "";
+        String bestCandidate = "";
 
+        /*
+         * Ensin kokeillaan jokaista OCR-riviä erikseen.
+         */
         for (String line : lines) {
 
             if (line == null) {
@@ -1646,6 +1667,10 @@ public class CaptureService extends Service {
 
             line =
                     line.trim();
+
+            if (line.isEmpty()) {
+                continue;
+            }
 
             int letters = 0;
 
@@ -1663,18 +1688,177 @@ public class CaptureService extends Service {
                 }
             }
 
-            if (letters >= 2) {
+            if (letters < 2) {
+                continue;
+            }
 
-                best =
-                        line;
+            String candidate =
+                    cleanSingleCardNameLine(
+                            line
+                    );
 
-                break;
+            if (candidate.isEmpty()) {
+                continue;
+            }
+
+            /*
+             * Jos ArenaAdvisor pystyy tunnistamaan OCR-rivin
+             * oikeaksi kortiksi, tämä on erittäin hyvä ehdokas.
+             */
+            String corrected =
+                    candidate;
+
+            try {
+
+                String advisorCorrected =
+                        ArenaAdvisor.correctOcr(
+                                candidate
+                        );
+
+                if (advisorCorrected != null &&
+                        !advisorCorrected.trim().isEmpty()) {
+
+                    corrected =
+                            advisorCorrected.trim();
+                }
+
+            } catch (Exception ignored) {
+            }
+
+            /*
+             * Tunnettu/korjattu nimi voittaa yleensä
+             * raakaa OCR-tekstiä.
+             */
+            if (!corrected.equalsIgnoreCase(
+                    candidate
+            )) {
+
+                return corrected;
+            }
+
+            /*
+             * Muuten pidetään pisintä järkevää ehdokasta.
+             */
+            if (corrected.length() >
+                    bestCandidate.length()) {
+
+                bestCandidate =
+                        corrected;
             }
         }
 
-        if (best.isEmpty()) {
-            best = raw.trim();
+        /*
+         * Jos yksittäisistä riveistä ei löytynyt hyvää nimeä,
+         * kokeillaan koko OCR-tekstiä.
+         *
+         * Tämä auttaa tilanteessa, jossa ML Kit jakaa pitkän
+         * korttinimen kahdelle riville.
+         */
+        if (lines.length > 1) {
+
+            StringBuilder combined =
+                    new StringBuilder();
+
+            for (String line : lines) {
+
+                if (line == null) {
+                    continue;
+                }
+
+                line =
+                        line.trim();
+
+                if (line.isEmpty()) {
+                    continue;
+                }
+
+                if (combined.length() > 0) {
+                    combined.append(" ");
+                }
+
+                combined.append(line);
+            }
+
+            String combinedCandidate =
+                    cleanSingleCardNameLine(
+                            combined.toString()
+                    );
+
+            if (!combinedCandidate.isEmpty()) {
+
+                String corrected =
+                        combinedCandidate;
+
+                try {
+
+                    String advisorCorrected =
+                            ArenaAdvisor.correctOcr(
+                                    combinedCandidate
+                            );
+
+                    if (advisorCorrected != null &&
+                            !advisorCorrected.trim().isEmpty()) {
+
+                        corrected =
+                                advisorCorrected.trim();
+                    }
+
+                } catch (Exception ignored) {
+                }
+
+                /*
+                 * Jos yhdistetty teksti tunnistui oikeaksi
+                 * korttinimeksi, käytetään sitä.
+                 */
+                if (!corrected.equalsIgnoreCase(
+                        combinedCandidate
+                )) {
+
+                    return corrected;
+                }
+
+                if (corrected.length() >
+                        bestCandidate.length()) {
+
+                    bestCandidate =
+                            corrected;
+                }
+            }
         }
+
+        /*
+         * Lopuksi alkuperäinen OCR fallback.
+         */
+        if (bestCandidate.isEmpty()) {
+
+            bestCandidate =
+                    cleanSingleCardNameLine(
+                            raw
+                    );
+        }
+
+        return bestCandidate;
+    }
+
+    /*
+     * Puhdistaa yhden OCR-rivin.
+     */
+    private String cleanSingleCardNameLine(
+            String line
+    ) {
+
+        if (line == null) {
+            return "";
+        }
+
+        String best =
+                line.trim();
+
+        best =
+                best.replace(
+                        "&#039;",
+                        "'"
+                );
 
         best =
                 best.replaceAll(
@@ -1720,7 +1904,7 @@ public class CaptureService extends Service {
                     best.substring(1);
         }
 
-        return best;
+        return best.trim();
     }
 
     private String cleanCard3Name(
