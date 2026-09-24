@@ -175,34 +175,16 @@ public class ArenaAccessibilityService
          *
          *   true
          */
-        if (SYSTEM_UI_PACKAGE.equals(
-                packageNameString
-        )) {
+        if (SYSTEM_UI_PACKAGE.equals(packageNameString)
+                || ANDROID_PACKAGE.equals(packageNameString)
+                || "com.android.keyguard".equals(packageNameString)
+                || packageNameString.startsWith("com.google.android.inputmethod")
+                || packageNameString.startsWith("com.android.")
+                || packageNameString.startsWith("com.sec.android.")
+                || packageNameString.contains("launcher")
+                || packageNameString.contains("systemui")) {
 
-            Log.d(
-                    TAG,
-                    "SystemUI-tapahtuma ohitettu"
-            );
-
-            return;
-        }
-
-        /*
-         * ============================================================
-         * 3. ANDROID SYSTEM
-         * ============================================================
-         *
-         * Myös android-paketin tapahtumat ohitetaan.
-         */
-        if (ANDROID_PACKAGE.equals(
-                packageNameString
-        )) {
-
-            Log.d(
-                    TAG,
-                    "Android system -tapahtuma ohitettu"
-            );
-
+            Log.d(TAG, "System / UI / Launcher event ignored: " + packageNameString);
             return;
         }
 

@@ -3258,9 +3258,10 @@ public class ArenaAdvisor {
         currentClass = "";
         candidateClass = "";
         candidateClassCount = 0;
+        clearPickedCards();
 
         status =
-                "Luokka nollattu";
+                "Luokka ja varatut kortit nollattu";
     }
 
     public static synchronized void setClassScore(
