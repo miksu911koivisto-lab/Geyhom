@@ -486,29 +486,29 @@ public class CaptureService extends Service {
         int width = source.getWidth();
         int height = source.getHeight();
 
-        int nameTop = (int) (height * 0.385f);
-        int nameBottom = (int) (height * 0.525f);
+        int nameTop = (int) (height * 0.390f);
+        int nameBottom = (int) (height * 0.520f);
 
         Bitmap card1 = cropCard(
                 source,
-                (int) (width * 0.050f),
-                (int) (width * 0.360f),
+                (int) (width * 0.070f),
+                (int) (width * 0.355f),
                 nameTop,
                 nameBottom
         );
 
         Bitmap card2 = cropCard(
                 source,
-                (int) (width * 0.330f),
-                (int) (width * 0.670f),
+                (int) (width * 0.365f),
+                (int) (width * 0.635f),
                 nameTop,
                 nameBottom
         );
 
         Bitmap card3 = cropCard(
                 source,
-                (int) (width * 0.640f),
-                (int) (width * 0.950f),
+                (int) (width * 0.645f),
+                (int) (width * 0.930f),
                 nameTop,
                 nameBottom
         );
