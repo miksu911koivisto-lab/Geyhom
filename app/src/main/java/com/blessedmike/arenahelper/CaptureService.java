@@ -507,8 +507,8 @@ public class CaptureService extends Service {
 
         Bitmap card3 = cropCard(
                 source,
-                (int) (width * 0.645f),
-                (int) (width * 0.930f),
+                (int) (width * 0.620f),
+                (int) (width * 0.940f),
                 nameTop,
                 nameBottom
         );
