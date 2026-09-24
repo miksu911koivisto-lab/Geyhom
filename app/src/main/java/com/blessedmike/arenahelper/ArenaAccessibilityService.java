@@ -177,9 +177,11 @@ public class ArenaAccessibilityService
          */
         if (SYSTEM_UI_PACKAGE.equals(packageNameString)
                 || ANDROID_PACKAGE.equals(packageNameString)
-                || "com.android.keyguard".equals(packageNameString)) {
+                || "com.android.keyguard".equals(packageNameString)
+                || packageNameString.startsWith("com.google.android.inputmethod")
+                || packageNameString.startsWith("com.android.")) {
 
-            Log.d(TAG, "System / Notification shade event ignored: " + packageNameString);
+            Log.d(TAG, "System / UI / Keyboard event ignored: " + packageNameString);
             return;
         }
 
