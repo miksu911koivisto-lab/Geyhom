@@ -573,12 +573,14 @@ public class CaptureService extends Service {
                     String raw = text != null ? text.getText() : "";
                     String cleaned = cleanCardName(text);
                     String normalized = normalizeDetectedCardName(cleaned);
+                    String matched = ArenaAdvisor.correctOcr(cleaned);
                     String finalCard = stabilizeCard(cleaned, index);
 
                     if (index == 1) {
-                        Log.d(TAG, "CARD 2 CROP BOUNDS: x=" + (int)(bitmap.getWidth() * 0.365f) + " width=" + bitmap.getWidth() + " height=" + bitmap.getHeight());
+                        Log.d(TAG, "CARD 2 CROP BOUNDS: x=" + (int)(bitmap.getWidth() * 0.365f) + " to " + (int)(bitmap.getWidth() * 0.600f) + " width=" + bitmap.getWidth() + " height=" + bitmap.getHeight());
                         Log.d(TAG, "CARD 2 RAW OCR: " + raw);
                         Log.d(TAG, "CARD 2 NORMALIZED: " + normalized);
+                        Log.d(TAG, "CARD 2 MATCHED NAME: " + matched);
                         Log.d(TAG, "CARD 2 FINAL: " + finalCard);
                     }
 
