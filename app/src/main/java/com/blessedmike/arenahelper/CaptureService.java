@@ -500,7 +500,7 @@ public class CaptureService extends Service {
         Bitmap card2 = cropCard(
                 source,
                 (int) (width * 0.365f),
-                (int) (width * 0.615f),
+                (int) (width * 0.600f),
                 nameTop,
                 nameBottom
         );
@@ -570,8 +570,19 @@ public class CaptureService extends Service {
 
         recognizer.process(image)
                 .addOnSuccessListener(text -> {
+                    String raw = text != null ? text.getText() : "";
                     String cleaned = cleanCardName(text);
-                    results[index] = stabilizeCard(cleaned, index);
+                    String normalized = normalizeDetectedCardName(cleaned);
+                    String finalCard = stabilizeCard(cleaned, index);
+
+                    if (index == 1) {
+                        Log.d(TAG, "CARD 2 CROP BOUNDS: x=" + (int)(bitmap.getWidth() * 0.365f) + " width=" + bitmap.getWidth() + " height=" + bitmap.getHeight());
+                        Log.d(TAG, "CARD 2 RAW OCR: " + raw);
+                        Log.d(TAG, "CARD 2 NORMALIZED: " + normalized);
+                        Log.d(TAG, "CARD 2 FINAL: " + finalCard);
+                    }
+
+                    results[index] = finalCard;
                     bitmap.recycle();
                     checkOCRFinished(results);
                 })
