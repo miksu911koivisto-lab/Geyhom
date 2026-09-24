@@ -179,9 +179,12 @@ public class ArenaAccessibilityService
                 || ANDROID_PACKAGE.equals(packageNameString)
                 || "com.android.keyguard".equals(packageNameString)
                 || packageNameString.startsWith("com.google.android.inputmethod")
-                || packageNameString.startsWith("com.android.")) {
+                || packageNameString.startsWith("com.android.")
+                || packageNameString.startsWith("com.sec.android.")
+                || packageNameString.contains("launcher")
+                || packageNameString.contains("systemui")) {
 
-            Log.d(TAG, "System / UI / Keyboard event ignored: " + packageNameString);
+            Log.d(TAG, "System / UI / Launcher event ignored: " + packageNameString);
             return;
         }
 

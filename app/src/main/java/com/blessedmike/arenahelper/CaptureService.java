@@ -913,6 +913,10 @@ public class CaptureService extends Service {
             handleOffer(card1, card2, card3);
         }
 
+        if (hearthstoneActive && overlayView != null && overlayView.getVisibility() != View.VISIBLE) {
+            overlayView.setVisibility(View.VISIBLE);
+        }
+
         updateOverlay(card1, card2, card3);
     }
 
