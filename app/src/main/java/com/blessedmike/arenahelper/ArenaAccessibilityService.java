@@ -175,34 +175,11 @@ public class ArenaAccessibilityService
          *
          *   true
          */
-        if (SYSTEM_UI_PACKAGE.equals(
-                packageNameString
-        )) {
+        if (SYSTEM_UI_PACKAGE.equals(packageNameString)
+                || ANDROID_PACKAGE.equals(packageNameString)
+                || "com.android.keyguard".equals(packageNameString)) {
 
-            Log.d(
-                    TAG,
-                    "SystemUI-tapahtuma ohitettu"
-            );
-
-            return;
-        }
-
-        /*
-         * ============================================================
-         * 3. ANDROID SYSTEM
-         * ============================================================
-         *
-         * Myös android-paketin tapahtumat ohitetaan.
-         */
-        if (ANDROID_PACKAGE.equals(
-                packageNameString
-        )) {
-
-            Log.d(
-                    TAG,
-                    "Android system -tapahtuma ohitettu"
-            );
-
+            Log.d(TAG, "System / Notification shade event ignored: " + packageNameString);
             return;
         }
 

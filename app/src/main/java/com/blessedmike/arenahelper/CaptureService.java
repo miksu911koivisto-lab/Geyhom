@@ -92,9 +92,9 @@ public class CaptureService extends Service {
 
     private void updateHearthstoneActive(boolean active) {
         handler.post(() -> {
-            hearthstoneActive = true;
+            hearthstoneActive = active;
             if (overlayView != null) {
-                overlayView.setVisibility(View.VISIBLE);
+                overlayView.setVisibility(active ? View.VISIBLE : View.GONE);
             }
         });
     }
@@ -486,29 +486,29 @@ public class CaptureService extends Service {
         int width = source.getWidth();
         int height = source.getHeight();
 
-        int nameTop = (int) (height * 0.390f);
-        int nameBottom = (int) (height * 0.520f);
+        int nameTop = (int) (height * 0.385f);
+        int nameBottom = (int) (height * 0.525f);
 
         Bitmap card1 = cropCard(
                 source,
-                (int) (width * 0.055f),
-                (int) (width * 0.355f),
+                (int) (width * 0.050f),
+                (int) (width * 0.360f),
                 nameTop,
                 nameBottom
         );
 
         Bitmap card2 = cropCard(
                 source,
-                (int) (width * 0.355f),
-                (int) (width * 0.645f),
+                (int) (width * 0.330f),
+                (int) (width * 0.670f),
                 nameTop,
                 nameBottom
         );
 
         Bitmap card3 = cropCard(
                 source,
-                (int) (width * 0.645f),
-                (int) (width * 0.945f),
+                (int) (width * 0.640f),
+                (int) (width * 0.950f),
                 nameTop,
                 nameBottom
         );
